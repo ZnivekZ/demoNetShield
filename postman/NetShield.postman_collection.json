@@ -1,0 +1,922 @@
+{
+  "info": {
+    "name": "NetShield Dashboard",
+    "description": "Colección completa de la API de NetShield Dashboard.\n\nEntornos disponibles:\n- **Local Mock**: servidor corriendo con MOCK_ALL=true (sin infraestructura externa)\n- **Local Real**: servidor corriendo contra servicios reales de laboratorio\n- **Lab (remoto)**: servidor corriendo en el equipo del laboratorio\n\nWebSockets documentados al final de cada módulo (usar Postman WS o wscat).",
+    "_postman_id": "netshield-2026-collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000" },
+    { "key": "ws_url",   "value": "ws://localhost:8000" }
+  ],
+  "item": [
+
+    {
+      "name": "🩺 Sistema",
+      "item": [
+        {
+          "name": "Health check",
+          "request": { "method": "GET", "url": "{{base_url}}/api/health" }
+        },
+        {
+          "name": "Mock status",
+          "request": { "method": "GET", "url": "{{base_url}}/api/system/mock-status" }
+        },
+        {
+          "name": "Action log history",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/actions/history?limit=50",
+              "query": [{ "key": "limit", "value": "50" }]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🔴 MikroTik",
+      "item": [
+        {
+          "name": "Interfaces",
+          "request": { "method": "GET", "url": "{{base_url}}/api/mikrotik/interfaces" }
+        },
+        {
+          "name": "Conexiones activas",
+          "request": { "method": "GET", "url": "{{base_url}}/api/mikrotik/connections" }
+        },
+        {
+          "name": "Tabla ARP",
+          "request": { "method": "GET", "url": "{{base_url}}/api/mikrotik/arp" }
+        },
+        {
+          "name": "Buscar en ARP",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/mikrotik/arp/search?q=192.168",
+              "query": [{ "key": "q", "value": "192.168" }]
+            }
+          }
+        },
+        {
+          "name": "Tráfico por interfaz",
+          "request": { "method": "GET", "url": "{{base_url}}/api/mikrotik/traffic" }
+        },
+        {
+          "name": "Tráfico todas las interfaces",
+          "request": { "method": "GET", "url": "{{base_url}}/api/mikrotik/interfaces/traffic/all" }
+        },
+        {
+          "name": "Reglas de firewall",
+          "request": { "method": "GET", "url": "{{base_url}}/api/mikrotik/firewall/rules" }
+        },
+        {
+          "name": "Bloquear IP",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/mikrotik/firewall/block",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ip\": \"203.0.113.45\", \"comment\": \"Test block\", \"list\": \"Blacklist_Automatica\"}"
+            }
+          }
+        },
+        {
+          "name": "Desbloquear IP",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{base_url}}/api/mikrotik/firewall/block?ip=203.0.113.45",
+              "query": [{ "key": "ip", "value": "203.0.113.45" }]
+            }
+          }
+        },
+        {
+          "name": "Logs del sistema",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/mikrotik/logs?limit=20",
+              "query": [{ "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Health MikroTik",
+          "request": { "method": "GET", "url": "{{base_url}}/api/mikrotik/health" }
+        },
+        {
+          "name": "WS: Tráfico en tiempo real",
+          "request": {
+            "method": "GET",
+            "url": "{{ws_url}}/ws/traffic",
+            "description": "WebSocket. Usar: wscat -c {{ws_url}}/ws/traffic\nEmite cada 2s: {type: 'traffic', data: {interfaces:[...], active_connections: N}}"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🔵 VLANs",
+      "item": [
+        {
+          "name": "Listar VLANs",
+          "request": { "method": "GET", "url": "{{base_url}}/api/mikrotik/vlans/" }
+        },
+        {
+          "name": "Crear VLAN",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/mikrotik/vlans/",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"vlan_id\": 50, \"name\": \"vlan50\", \"interface\": \"bridge\", \"comment\": \"VLAN de prueba\"}"
+            }
+          }
+        },
+        {
+          "name": "Actualizar VLAN",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/mikrotik/vlans/*A",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"comment\": \"VLAN Docentes — actualizado\"}"
+            }
+          }
+        },
+        {
+          "name": "Eliminar VLAN",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/mikrotik/vlans/*A"
+          }
+        },
+        {
+          "name": "Tráfico todas las VLANs",
+          "request": { "method": "GET", "url": "{{base_url}}/api/mikrotik/vlans/traffic/all" }
+        },
+        {
+          "name": "Tráfico VLAN específica",
+          "request": { "method": "GET", "url": "{{base_url}}/api/mikrotik/vlans/10/traffic" }
+        },
+        {
+          "name": "Alertas de VLAN específica",
+          "request": { "method": "GET", "url": "{{base_url}}/api/mikrotik/vlans/10/alerts" }
+        },
+        {
+          "name": "WS: Tráfico VLANs en tiempo real",
+          "request": {
+            "method": "GET",
+            "url": "{{ws_url}}/ws/vlans/traffic",
+            "description": "WebSocket. Emite cada 2s: {type: 'vlan_traffic', data: {vlans:[...], timestamp:'...'}}"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🟡 Wazuh SIEM",
+      "item": [
+        {
+          "name": "Agentes",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/wazuh/agents?status=active",
+              "query": [{ "key": "status", "value": "active" }]
+            }
+          }
+        },
+        {
+          "name": "Resumen de agentes",
+          "request": { "method": "GET", "url": "{{base_url}}/api/wazuh/agents/summary" }
+        },
+        {
+          "name": "Top agentes por alertas",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/wazuh/agents/top?limit=10",
+              "query": [{ "key": "limit", "value": "10" }]
+            }
+          }
+        },
+        {
+          "name": "Alertas",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/wazuh/alerts?limit=50&level_min=5",
+              "query": [
+                { "key": "limit", "value": "50" },
+                { "key": "level_min", "value": "5" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Alertas de agente específico",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/wazuh/alerts/agent/004?limit=20",
+              "query": [{ "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Alertas críticas",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/wazuh/alerts/critical?limit=20",
+              "query": [{ "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Timeline de alertas",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/wazuh/alerts/timeline?level_min=5&minutes=60",
+              "query": [
+                { "key": "level_min", "value": "5" },
+                { "key": "minutes", "value": "60" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Última alerta crítica",
+          "request": { "method": "GET", "url": "{{base_url}}/api/wazuh/alerts/last-critical" }
+        },
+        {
+          "name": "MITRE ATT&CK resumen",
+          "request": { "method": "GET", "url": "{{base_url}}/api/wazuh/mitre/summary" }
+        },
+        {
+          "name": "Health Wazuh",
+          "request": { "method": "GET", "url": "{{base_url}}/api/wazuh/health" }
+        },
+        {
+          "name": "Active Response",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/wazuh/active-response",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"command\": \"restart-wazuh\", \"agent_id\": \"004\"}"
+            }
+          }
+        },
+        {
+          "name": "WS: Alertas en tiempo real",
+          "request": {
+            "method": "GET",
+            "url": "{{ws_url}}/ws/alerts",
+            "description": "WebSocket. Emite cada 5s si hay alertas nuevas: {type:'alerts', data:{alerts:[...]}}"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🛡️ Seguridad",
+      "item": [
+        {
+          "name": "Bloquear IP (seguridad)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/security/block-ip",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ip\": \"203.0.113.45\", \"reason\": \"brute-force\", \"performed_by\": \"admin\"}"
+            }
+          }
+        },
+        {
+          "name": "Auto-block (desde alerta Wazuh)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/security/auto-block",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"alert_id\": \"mock-00000\", \"ip\": \"203.0.113.45\"}"
+            }
+          }
+        },
+        {
+          "name": "Cuarentena de host",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/security/quarantine",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ip\": \"192.168.88.10\", \"reason\": \"rootkit detected\", \"performed_by\": \"admin\"}"
+            }
+          }
+        },
+        {
+          "name": "Geo-block",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/security/geo-block",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"country_code\": \"RU\", \"performed_by\": \"admin\"}"
+            }
+          }
+        },
+        {
+          "name": "WS: Alertas de seguridad (multi-fuente)",
+          "request": {
+            "method": "GET",
+            "url": "{{ws_url}}/ws/security/alerts",
+            "description": "WebSocket. Emite notificaciones de alta prioridad (phishing, interfaces caídas, alertas críticas).\nFormato: {type:'wazuh_alert|phishing_detected|interface_down', level:'critical|high', title, detail, actions, data}"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🎣 Phishing",
+      "item": [
+        {
+          "name": "Alertas de phishing",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/phishing/alerts?limit=20",
+              "query": [{ "key": "limit", "value": "20" }]
+            }
+          }
+        },
+        {
+          "name": "Dominios sospechosos",
+          "request": { "method": "GET", "url": "{{base_url}}/api/phishing/domains/suspicious" }
+        },
+        {
+          "name": "Timeline de URLs",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/phishing/urls/timeline?minutes=60",
+              "query": [{ "key": "minutes", "value": "60" }]
+            }
+          }
+        },
+        {
+          "name": "Víctimas",
+          "request": { "method": "GET", "url": "{{base_url}}/api/phishing/victims" }
+        },
+        {
+          "name": "Estadísticas",
+          "request": { "method": "GET", "url": "{{base_url}}/api/phishing/stats" }
+        },
+        {
+          "name": "Sinkhole: agregar dominio",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/phishing/domains/sinkhole",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"domain\": \"evil-phishing.com\", \"performed_by\": \"admin\"}"
+            }
+          }
+        },
+        {
+          "name": "Sinkhole: listar dominios",
+          "request": { "method": "GET", "url": "{{base_url}}/api/phishing/domains/sinkhole" }
+        },
+        {
+          "name": "Sinkhole: eliminar dominio",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/phishing/domains/sinkhole/evil-phishing.com"
+          }
+        },
+        {
+          "name": "Bloquear IP (phishing)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/phishing/ip/block",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ip\": \"203.0.113.99\", \"performed_by\": \"admin\"}"
+            }
+          }
+        },
+        {
+          "name": "Simular eventos de phishing",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/phishing/simulate",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🌐 Network (Labels/Groups)",
+      "item": [
+        {
+          "name": "Crear label",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/network/labels",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ip\": \"192.168.88.10\", \"label\": \"Servidor principal\", \"color\": \"#3B82F6\"}"
+            }
+          }
+        },
+        {
+          "name": "Listar labels",
+          "request": { "method": "GET", "url": "{{base_url}}/api/network/labels" }
+        },
+        {
+          "name": "Eliminar label",
+          "request": { "method": "DELETE", "url": "{{base_url}}/api/network/labels/1" }
+        },
+        {
+          "name": "Crear grupo",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/network/groups",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"Servidores críticos\", \"description\": \"Hosts de alta prioridad\", \"color\": \"#EF4444\"}"
+            }
+          }
+        },
+        {
+          "name": "Listar grupos",
+          "request": { "method": "GET", "url": "{{base_url}}/api/network/groups" }
+        },
+        {
+          "name": "Agregar miembro a grupo",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/network/groups/1/members",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"ip_address\": \"192.168.88.50\"}"
+            }
+          }
+        },
+        {
+          "name": "Eliminar miembro de grupo",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/network/groups/1/members/192.168.88.50"
+          }
+        },
+        {
+          "name": "Eliminar grupo",
+          "request": { "method": "DELETE", "url": "{{base_url}}/api/network/groups/1" }
+        },
+        {
+          "name": "Buscar host",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/network/search?q=192.168.88",
+              "query": [{ "key": "q", "value": "192.168.88" }]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📦 GLPI Inventario",
+      "item": [
+        {
+          "name": "Status GLPI",
+          "request": { "method": "GET", "url": "{{base_url}}/api/glpi/status" }
+        },
+        {
+          "name": "Listar activos",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/glpi/assets?limit=20&offset=0",
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "offset", "value": "0" },
+                { "key": "status", "value": "activo", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Estadísticas de activos",
+          "request": { "method": "GET", "url": "{{base_url}}/api/glpi/assets/stats" }
+        },
+        {
+          "name": "Buscar activo",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/glpi/assets/search?q=PC-Lab",
+              "query": [{ "key": "q", "value": "PC-Lab" }]
+            }
+          }
+        },
+        {
+          "name": "Salud de activos (correlación Wazuh)",
+          "request": { "method": "GET", "url": "{{base_url}}/api/glpi/assets/health" }
+        },
+        {
+          "name": "Activos por ubicación",
+          "request": { "method": "GET", "url": "{{base_url}}/api/glpi/assets/by-location/3" }
+        },
+        {
+          "name": "Detalle de activo",
+          "request": { "method": "GET", "url": "{{base_url}}/api/glpi/assets/1" }
+        },
+        {
+          "name": "Contexto de red de activo",
+          "request": { "method": "GET", "url": "{{base_url}}/api/glpi/assets/1/network-context" }
+        },
+        {
+          "name": "Crear activo",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/glpi/assets",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"PC-Test-01\", \"serial\": \"SN999999\", \"ip\": \"192.168.88.90\", \"os\": \"Ubuntu 22.04\", \"status\": \"activo\", \"location_id\": 3}"
+            }
+          }
+        },
+        {
+          "name": "Actualizar activo",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/glpi/assets/1",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"status\": \"reparacion\", \"comment\": \"Disco dañado\"}"
+            }
+          }
+        },
+        {
+          "name": "Poner en cuarentena",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/glpi/assets/1/quarantine",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\": \"Malware detectado por Wazuh\", \"performed_by\": \"admin\"}"
+            }
+          }
+        },
+        {
+          "name": "Liberar cuarentena",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/glpi/assets/1/unquarantine",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"performed_by\": \"admin\"}"
+            }
+          }
+        },
+        {
+          "name": "Listar tickets",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/glpi/tickets?limit=20",
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "pendiente", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear ticket",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/glpi/tickets",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\": \"Error de pantalla azul en PC-Lab-01\", \"description\": \"BSOD al iniciar. Código: 0x00000024\", \"priority\": 4, \"asset_id\": 1}"
+            }
+          }
+        },
+        {
+          "name": "Actualizar estado de ticket",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/glpi/tickets/1/status",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"status\": 5}"
+            }
+          }
+        },
+        {
+          "name": "Ticket de mantenimiento de red",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/glpi/tickets/network-maintenance",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"interface\": \"ether3\", \"issue\": \"rx-errors\", \"performed_by\": \"admin\"}"
+            }
+          }
+        },
+        {
+          "name": "Listar usuarios",
+          "request": { "method": "GET", "url": "{{base_url}}/api/glpi/users" }
+        },
+        {
+          "name": "Activos de usuario",
+          "request": { "method": "GET", "url": "{{base_url}}/api/glpi/users/1/assets" }
+        },
+        {
+          "name": "Ubicaciones",
+          "request": { "method": "GET", "url": "{{base_url}}/api/glpi/locations" }
+        }
+      ]
+    },
+
+    {
+      "name": "🌐 Portal Cautivo",
+      "item": [
+        {
+          "name": "Status del Hotspot",
+          "request": { "method": "GET", "url": "{{base_url}}/api/portal/status" }
+        },
+        {
+          "name": "Inicializar Hotspot (setup)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/portal/setup",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"interface\": \"ether2\", \"gateway\": \"192.168.88.1\", \"network\": \"192.168.88.0/24\", \"pool_start\": \"192.168.88.100\", \"pool_end\": \"192.168.88.200\", \"dns_name\": \"hotspot.local\"}"
+            }
+          }
+        },
+        {
+          "name": "Sesiones activas",
+          "request": { "method": "GET", "url": "{{base_url}}/api/portal/sessions/active" }
+        },
+        {
+          "name": "Historial de sesiones",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/portal/sessions/history?limit=50",
+              "query": [{ "key": "limit", "value": "50" }]
+            }
+          }
+        },
+        {
+          "name": "Gráfico de sesiones (histórico en memoria)",
+          "request": { "method": "GET", "url": "{{base_url}}/api/portal/sessions/chart" }
+        },
+        {
+          "name": "Stats en tiempo real",
+          "request": { "method": "GET", "url": "{{base_url}}/api/portal/stats/realtime" }
+        },
+        {
+          "name": "Stats resumen (últimos 30 días)",
+          "request": { "method": "GET", "url": "{{base_url}}/api/portal/stats/summary" }
+        },
+        {
+          "name": "Listar usuarios del hotspot",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/portal/users?limit=100",
+              "query": [
+                { "key": "limit", "value": "100" },
+                { "key": "profile", "value": "estudiantes", "disabled": true },
+                { "key": "search", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear usuario del hotspot",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/portal/users",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"alumno99\", \"password\": \"pass1234\", \"profile\": \"estudiantes\", \"comment\": \"Aula 3\"}"
+            }
+          }
+        },
+        {
+          "name": "Actualizar usuario del hotspot",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/portal/users/alumno01",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"profile\": \"docentes\", \"limit_uptime\": \"8h\"}"
+            }
+          }
+        },
+        {
+          "name": "Eliminar usuario del hotspot",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/portal/users/alumno99"
+          }
+        },
+        {
+          "name": "Desconectar usuario",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/portal/users/alumno01/disconnect",
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Crear usuarios en bulk",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/portal/users/bulk",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"users\": [{\"name\": \"alumno10\", \"password\": \"pass10\", \"profile\": \"estudiantes\"}, {\"name\": \"alumno11\", \"password\": \"pass11\", \"profile\": \"estudiantes\"}], \"created_by\": \"admin\"}"
+            }
+          }
+        },
+        {
+          "name": "Listar perfiles de velocidad",
+          "request": { "method": "GET", "url": "{{base_url}}/api/portal/profiles" }
+        },
+        {
+          "name": "Crear perfil de velocidad",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/portal/profiles",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"invitados\", \"rate_limit_up\": \"2M\", \"rate_limit_down\": \"5M\", \"session_timeout\": \"2h\"}"
+            }
+          }
+        },
+        {
+          "name": "Actualizar perfil de velocidad",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/portal/profiles/estudiantes",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"rate_limit_up\": \"8M\", \"rate_limit_down\": \"8M\"}"
+            }
+          }
+        },
+        {
+          "name": "Configuración del Hotspot",
+          "request": { "method": "GET", "url": "{{base_url}}/api/portal/config" }
+        },
+        {
+          "name": "Actualizar velocidad de no-registrados",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/portal/config/unregistered-speed",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"rate_limit_up\": \"512k\", \"rate_limit_down\": \"1M\"}"
+            }
+          }
+        },
+        {
+          "name": "Configurar horario de acceso",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/portal/config/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"enabled\": true, \"hour_from\": \"07:00\", \"hour_to\": \"22:00\", \"blocked_days\": [\"saturday\", \"sunday\"], \"scope\": \"unregistered\"}"
+            }
+          }
+        },
+        {
+          "name": "Obtener horario actual",
+          "request": { "method": "GET", "url": "{{base_url}}/api/portal/config/schedule" }
+        },
+        {
+          "name": "WS: Sesiones en tiempo real",
+          "request": {
+            "method": "GET",
+            "url": "{{ws_url}}/ws/portal/sessions",
+            "description": "WebSocket. Emite cada 5s: {type:'portal_sessions', data:{sessions:[...], chart_history:[...], timestamp:'...'}}"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📊 Reportes IA",
+      "item": [
+        {
+          "name": "Generar reporte",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/reports/generate",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"prompt\": \"Genera un reporte de las alertas de las últimas 24 horas, destacando los intentos de brute-force y phishing.\", \"audience\": \"technical\", \"data_sources\": [\"wazuh_alerts\", \"firewall_rules\"]}"
+            }
+          }
+        },
+        {
+          "name": "Exportar PDF",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/reports/export-pdf",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"html_content\": \"<h1>Reporte de prueba</h1><p>Contenido del reporte...</p>\", \"title\": \"Reporte Seguridad 2026-04-05\"}"
+            }
+          }
+        },
+        {
+          "name": "Historial de reportes",
+          "request": { "method": "GET", "url": "{{base_url}}/api/reports/history" }
+        }
+      ]
+    },
+
+    {
+      "name": "💻 CLI (RouterOS / Wazuh)",
+      "item": [
+        {
+          "name": "Ejecutar comando MikroTik",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/cli/mikrotik",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"command\": \"/ip/address/print\"}"
+            }
+          }
+        },
+        {
+          "name": "Ejecutar comando Wazuh Agent",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/cli/wazuh-agent",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"agent_id\": \"004\", \"command\": \"restart\"}"
+            }
+          }
+        }
+      ]
+    }
+
+  ]
+}

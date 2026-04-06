@@ -1,0 +1,42 @@
+# NetShield Dashboard - Backend Dependencies
+# Core
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-dotenv==1.0.1
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# Async
+asyncio==3.4.3
+aiofiles==24.1.0
+
+# Database
+sqlalchemy[asyncio]==2.0.36
+aiosqlite==0.20.0
+
+# MikroTik
+routeros-api==0.17.0
+
+# Wazuh (HTTP client)
+httpx==0.28.1
+
+# Redis (optional cache)
+redis[hiredis]==5.2.1
+
+# AI & Reports
+anthropic==0.42.0
+weasyprint==63.1
+Jinja2==3.1.5
+
+# Logging
+structlog==24.4.0
+
+# WebSockets (included with uvicorn[standard])
+websockets==14.1
+
+# CORS & Security
+python-multipart==0.0.20
+
+# Utilities
+orjson==3.10.13
+tenacity==9.0.0

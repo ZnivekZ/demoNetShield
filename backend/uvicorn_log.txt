@@ -1,0 +1,376 @@
+INFO:     Started server process [17356]
+INFO:     Waiting for application startup.
+[2m2026-04-03T00:30:03.262159Z[0m [[32m[1minfo     [0m] [1mnetshield_starting            [0m [36menv[0m=[35mlab[0m
+2026-04-02 21:30:03,264 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:30:03,264 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("ip_labels")
+2026-04-02 21:30:03,264 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-04-02 21:30:03,265 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("ip_groups")
+2026-04-02 21:30:03,265 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-04-02 21:30:03,265 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("ip_group_members")
+2026-04-02 21:30:03,265 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-04-02 21:30:03,266 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("action_logs")
+2026-04-02 21:30:03,266 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-04-02 21:30:03,266 INFO sqlalchemy.engine.Engine PRAGMA main.table_info("sinkhole_entries")
+2026-04-02 21:30:03,266 INFO sqlalchemy.engine.Engine [raw sql] ()
+2026-04-02 21:30:03,266 INFO sqlalchemy.engine.Engine COMMIT
+[2m2026-04-03T00:30:03.267330Z[0m [[32m[1minfo     [0m] [1mdatabase_initialized          [0m
+[2m2026-04-03T00:30:03.284298Z[0m [[32m[1minfo     [0m] [1mmikrotik_connected            [0m [36mhost[0m=[35m192.168.100.118[0m [36mport[0m=[35m8728[0m
+[2m2026-04-03T00:30:03.284481Z[0m [[32m[1minfo     [0m] [1mmikrotik_initial_connection_ok[0m
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+[2m2026-04-03T00:30:06.924477Z[0m [[32m[1minfo     [0m] [1mwazuh_authenticated           [0m [36mhost[0m=[35m100.90.106.121[0m
+[2m2026-04-03T00:30:06.934574Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:44948 - "GET /api/wazuh/alerts/critical?limit=3 HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:06.988227Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:30:06.989661Z[0m [[32m[1mdebug    [0m] [1mwazuh_alerts_timeline_built   [0m [36mpoints[0m=[35m60[0m
+INFO:     127.0.0.1:44954 - "GET /api/wazuh/alerts/timeline HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:07.041287Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:44970 - "GET /api/wazuh/alerts/last-critical HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:07.089932Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:30:07.092155Z[0m [[32m[1mdebug    [0m] [1mwazuh_top_agents_fetched      [0m [36mcount[0m=[35m3[0m
+INFO:     127.0.0.1:44974 - "GET /api/wazuh/agents/top?limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44976 - "GET /api/wazuh/agents/summary HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:07.242167Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:30:07.296328Z[0m [[32m[1mdebug    [0m] [1mwazuh_mitre_summary_built     [0m [36mtechniques[0m=[35m78[0m
+INFO:     127.0.0.1:44986 - "GET /api/wazuh/mitre/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45000 - "GET /api/wazuh/health HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:07.441238Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:45010 - "GET /api/phishing/alerts HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:07.491932Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+2026-04-02 21:30:07,494 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:30:07,499 INFO sqlalchemy.engine.Engine SELECT sinkhole_entries.id, sinkhole_entries.domain, sinkhole_entries.added_by, sinkhole_entries.reason, sinkhole_entries.created_at 
+FROM sinkhole_entries
+2026-04-02 21:30:07,499 INFO sqlalchemy.engine.Engine [generated in 0.00019s] ()
+2026-04-02 21:30:07,503 INFO sqlalchemy.engine.Engine COMMIT
+INFO:     127.0.0.1:45024 - "GET /api/phishing/domains/suspicious HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:07.560984Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:45030 - "GET /api/phishing/victims HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:16.186382Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:45086 - "GET /api/wazuh/alerts/critical?limit=3 HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:16.230325Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:30:16.231375Z[0m [[32m[1mdebug    [0m] [1mwazuh_alerts_timeline_built   [0m [36mpoints[0m=[35m60[0m
+INFO:     127.0.0.1:45096 - "GET /api/wazuh/alerts/timeline HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:16.277479Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:45106 - "GET /api/wazuh/alerts/last-critical HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:16.323599Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:30:16.324797Z[0m [[32m[1mdebug    [0m] [1mwazuh_top_agents_fetched      [0m [36mcount[0m=[35m3[0m
+INFO:     127.0.0.1:45110 - "GET /api/wazuh/agents/top?limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45122 - "GET /api/wazuh/agents/summary HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:16.430330Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:30:16.431390Z[0m [[32m[1mdebug    [0m] [1mwazuh_mitre_summary_built     [0m [36mtechniques[0m=[35m73[0m
+INFO:     127.0.0.1:45126 - "GET /api/wazuh/mitre/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45142 - "GET /api/wazuh/health HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:16.773415Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:45146 - "GET /api/phishing/alerts HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:16.820523Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+2026-04-02 21:30:16,823 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:30:16,823 INFO sqlalchemy.engine.Engine SELECT sinkhole_entries.id, sinkhole_entries.domain, sinkhole_entries.added_by, sinkhole_entries.reason, sinkhole_entries.created_at 
+FROM sinkhole_entries
+2026-04-02 21:30:16,823 INFO sqlalchemy.engine.Engine [cached since 9.325s ago] ()
+2026-04-02 21:30:16,825 INFO sqlalchemy.engine.Engine COMMIT
+INFO:     127.0.0.1:45156 - "GET /api/phishing/domains/suspicious HTTP/1.1" 200 OK
+[2m2026-04-03T00:30:16.870198Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:45162 - "GET /api/phishing/victims HTTP/1.1" 200 OK
+INFO:     ('127.0.0.1', 56980) - "WebSocket /ws/security/alerts" [accepted]
+[2m2026-04-03T00:31:52.134274Z[0m [[32m[1minfo     [0m] [1mwebsocket_connected           [0m [36mtotal[0m=[35m1[0m
+INFO:     connection open
+INFO:     connection closed
+[2m2026-04-03T00:31:52.234894Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:31:52.239884Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:56998 - "GET /api/wazuh/alerts/critical?limit=10&offset=0 HTTP/1.1" 200 OK
+[2m2026-04-03T00:31:52.240603Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:31:52.242931Z[0m [[32m[1mdebug    [0m] [1mwazuh_alerts_timeline_built   [0m [36mpoints[0m=[35m60[0m
+INFO:     127.0.0.1:57010 - "GET /api/wazuh/alerts/timeline?level_min=5 HTTP/1.1" 200 OK
+[2m2026-04-03T00:31:52.246253Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:31:52.249050Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:57048 - "GET /api/wazuh/alerts/last-critical HTTP/1.1" 200 OK
+[2m2026-04-03T00:31:52.249661Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:31:52.250713Z[0m [[32m[1mdebug    [0m] [1mwazuh_mitre_summary_built     [0m [36mtechniques[0m=[35m78[0m
+INFO:     127.0.0.1:57022 - "GET /api/wazuh/mitre/summary HTTP/1.1" 200 OK
+[2m2026-04-03T00:31:52.251301Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:31:52.252181Z[0m [[32m[1mdebug    [0m] [1mwazuh_top_agents_fetched      [0m [36mcount[0m=[35m3[0m
+INFO:     127.0.0.1:57034 - "GET /api/wazuh/agents/top?limit=10 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56996 - "GET /api/wazuh/agents/summary HTTP/1.1" 200 OK
+[2m2026-04-03T00:31:52.265104Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:57060 - "GET /api/mikrotik/interfaces HTTP/1.1" 200 OK
+INFO:     ('127.0.0.1', 57062) - "WebSocket /ws/security/alerts" [accepted]
+[2m2026-04-03T00:31:52.540971Z[0m [[32m[1minfo     [0m] [1mwebsocket_connected           [0m [36mtotal[0m=[35m2[0m
+INFO:     connection open
+[2m2026-04-03T00:31:52.552120Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:31:52.562553Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     ('127.0.0.1', 55826) - "WebSocket /ws/security/alerts" [accepted]
+[2m2026-04-03T00:31:53.152431Z[0m [[32m[1minfo     [0m] [1mwebsocket_connected           [0m [36mtotal[0m=[35m3[0m
+INFO:     connection open
+[2m2026-04-03T00:31:53.305941Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:31:53.319410Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:02.259872Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:02.579703Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:03.332532Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:07.287081Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:07.298723Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:42046 - "GET /api/wazuh/alerts/critical?limit=10&offset=0 HTTP/1.1" 200 OK
+[2m2026-04-03T00:32:07.514883Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:42054 - "GET /api/wazuh/alerts/last-critical HTTP/1.1" 200 OK
+[2m2026-04-03T00:32:07.517806Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:42058 - "GET /api/mikrotik/interfaces HTTP/1.1" 200 OK
+[2m2026-04-03T00:32:07.590661Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:08.344438Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:12.301594Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:12.604817Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:13.368797Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:22.348864Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:22.353137Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:47286 - "GET /api/wazuh/alerts/critical?limit=10&offset=0 HTTP/1.1" 200 OK
+[2m2026-04-03T00:32:22.353755Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:22.354808Z[0m [[32m[1mdebug    [0m] [1mwazuh_top_agents_fetched      [0m [36mcount[0m=[35m3[0m
+INFO:     127.0.0.1:47276 - "GET /api/wazuh/agents/top?limit=10 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47280 - "GET /api/wazuh/agents/summary HTTP/1.1" 200 OK
+[2m2026-04-03T00:32:22.363340Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:22.532019Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:47292 - "GET /api/wazuh/alerts/last-critical HTTP/1.1" 200 OK
+[2m2026-04-03T00:32:22.619021Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:22.820924Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:22.831644Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:47302 - "GET /api/mikrotik/interfaces HTTP/1.1" 200 OK
+[2m2026-04-03T00:32:23.380216Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:23.392628Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:32.377208Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:32.834976Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:33.406218Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:37.396249Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:55530 - "GET /api/wazuh/alerts/critical?limit=10&offset=0 HTTP/1.1" 200 OK
+[2m2026-04-03T00:32:37.400291Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:37.557350Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:55546 - "GET /api/wazuh/alerts/last-critical HTTP/1.1" 200 OK
+[2m2026-04-03T00:32:37.846058Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:37.870769Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:55550 - "GET /api/mikrotik/interfaces HTTP/1.1" 200 OK
+[2m2026-04-03T00:32:38.417600Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:42.413566Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:42.861040Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:43.432346Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:35152 - "GET /api/mikrotik/address-list?list=Blacklist_Automatica HTTP/1.1" 404 Not Found
+[2m2026-04-03T00:32:47.116294Z[0m [[32m[1mdebug    [0m] [1mmikrotik_dns_static_fetched   [0m [36mcount[0m=[35m0[0m
+2026-04-02 21:32:47,117 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:32:47,118 INFO sqlalchemy.engine.Engine SELECT sinkhole_entries.id, sinkhole_entries.domain, sinkhole_entries.added_by, sinkhole_entries.reason, sinkhole_entries.created_at 
+FROM sinkhole_entries
+2026-04-02 21:32:47,118 INFO sqlalchemy.engine.Engine [cached since 159.6s ago] ()
+2026-04-02 21:32:47,119 INFO sqlalchemy.engine.Engine COMMIT
+INFO:     127.0.0.1:35168 - "GET /api/phishing/domains/sinkhole HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35176 - "GET /api/mikrotik/address-list?list=Blacklist_Automatica HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:35178 - "GET /api/mikrotik/address-list?list=Blacklist_Automatica HTTP/1.1" 404 Not Found
+[2m2026-04-03T00:32:52.437500Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:52.447680Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:52.872958Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:52.887009Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:32:53.445843Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:32:53.459183Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+2026-04-02 21:32:55,942 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:32:55,943 INFO sqlalchemy.engine.Engine SELECT ip_labels.id, ip_labels.ip_address, ip_labels.label, ip_labels.description, ip_labels.color, ip_labels.criteria, ip_labels.created_by, ip_labels.created_at, ip_labels.updated_at 
+FROM ip_labels ORDER BY ip_labels.created_at DESC
+2026-04-02 21:32:55,943 INFO sqlalchemy.engine.Engine [generated in 0.00016s] ()
+2026-04-02 21:32:55,943 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:32:55,945 INFO sqlalchemy.engine.Engine SELECT ip_groups.id, ip_groups.name, ip_groups.description, ip_groups.color, ip_groups.criteria, ip_groups.created_by, ip_groups.created_at, ip_groups.updated_at 
+FROM ip_groups ORDER BY ip_groups.created_at DESC
+2026-04-02 21:32:55,945 INFO sqlalchemy.engine.Engine [generated in 0.00017s] ()
+2026-04-02 21:32:55,945 INFO sqlalchemy.engine.Engine COMMIT
+2026-04-02 21:32:55,946 INFO sqlalchemy.engine.Engine COMMIT
+INFO:     127.0.0.1:49730 - "GET /api/network/labels HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49742 - "GET /api/network/groups HTTP/1.1" 200 OK
+[2m2026-04-03T00:32:55.953179Z[0m [[32m[1mdebug    [0m] [1mmikrotik_arp_fetched          [0m [36mcount[0m=[35m4[0m
+INFO:     127.0.0.1:49722 - "GET /api/mikrotik/arp HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:02.469616Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:02.904943Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:03.482605Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+2026-04-02 21:33:03,530 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:33:03,531 INFO sqlalchemy.engine.Engine SELECT action_logs.id, action_logs.action_type, action_logs.target_ip, action_logs.details, action_logs.performed_by, action_logs.comment, action_logs.created_at 
+FROM action_logs ORDER BY action_logs.created_at DESC
+ LIMIT ? OFFSET ?
+2026-04-02 21:33:03,531 INFO sqlalchemy.engine.Engine [generated in 0.00018s] (30, 0)
+2026-04-02 21:33:03,532 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     127.0.0.1:35440 - "GET /api/actions/history?limit=30 HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:03.539645Z[0m [[32m[1mdebug    [0m] [1mmikrotik_firewall_rules_fetched[0m [36mcount[0m=[35m0[0m
+INFO:     127.0.0.1:35424 - "GET /api/mikrotik/firewall/rules HTTP/1.1" 200 OK
+2026-04-02 21:33:06,421 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:33:06,421 INFO sqlalchemy.engine.Engine SELECT ip_labels.id, ip_labels.ip_address, ip_labels.label, ip_labels.description, ip_labels.color, ip_labels.criteria, ip_labels.created_by, ip_labels.created_at, ip_labels.updated_at 
+FROM ip_labels ORDER BY ip_labels.created_at DESC
+2026-04-02 21:33:06,421 INFO sqlalchemy.engine.Engine [cached since 10.48s ago] ()
+2026-04-02 21:33:06,422 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:33:06,422 INFO sqlalchemy.engine.Engine SELECT ip_groups.id, ip_groups.name, ip_groups.description, ip_groups.color, ip_groups.criteria, ip_groups.created_by, ip_groups.created_at, ip_groups.updated_at 
+FROM ip_groups ORDER BY ip_groups.created_at DESC
+2026-04-02 21:33:06,422 INFO sqlalchemy.engine.Engine [cached since 10.48s ago] ()
+2026-04-02 21:33:06,423 INFO sqlalchemy.engine.Engine COMMIT
+2026-04-02 21:33:06,423 INFO sqlalchemy.engine.Engine COMMIT
+INFO:     127.0.0.1:35462 - "GET /api/network/groups HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35450 - "GET /api/network/labels HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:06.435538Z[0m [[32m[1mdebug    [0m] [1mmikrotik_arp_fetched          [0m [36mcount[0m=[35m4[0m
+INFO:     127.0.0.1:35444 - "GET /api/mikrotik/arp HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:07.498607Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:07.923500Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:08.495466Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:12.594028Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:12.938839Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:13.515031Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+2026-04-02 21:33:15,655 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:33:15,655 INFO sqlalchemy.engine.Engine SELECT action_logs.id, action_logs.action_type, action_logs.target_ip, action_logs.details, action_logs.performed_by, action_logs.comment, action_logs.created_at 
+FROM action_logs ORDER BY action_logs.created_at DESC
+ LIMIT ? OFFSET ?
+2026-04-02 21:33:15,655 INFO sqlalchemy.engine.Engine [cached since 12.12s ago] (30, 0)
+2026-04-02 21:33:15,656 INFO sqlalchemy.engine.Engine ROLLBACK
+INFO:     127.0.0.1:52574 - "GET /api/actions/history?limit=30 HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:15.662313Z[0m [[32m[1mdebug    [0m] [1mmikrotik_firewall_rules_fetched[0m [36mcount[0m=[35m0[0m
+INFO:     127.0.0.1:52560 - "GET /api/mikrotik/firewall/rules HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:18.066109Z[0m [[32m[1mdebug    [0m] [1mmikrotik_dns_static_fetched   [0m [36mcount[0m=[35m0[0m
+2026-04-02 21:33:18,069 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:33:18,070 INFO sqlalchemy.engine.Engine SELECT sinkhole_entries.id, sinkhole_entries.domain, sinkhole_entries.added_by, sinkhole_entries.reason, sinkhole_entries.created_at 
+FROM sinkhole_entries
+2026-04-02 21:33:18,070 INFO sqlalchemy.engine.Engine [cached since 190.6s ago] ()
+2026-04-02 21:33:18,071 INFO sqlalchemy.engine.Engine COMMIT
+INFO:     127.0.0.1:52632 - "GET /api/phishing/domains/sinkhole HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:18.090169Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:52578 - "GET /api/phishing/stats HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:18.093436Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:52592 - "GET /api/phishing/alerts?limit=50&offset=0 HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:18.097247Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:52624 - "GET /api/phishing/urls/timeline HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:18.099330Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:18.101538Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:52610 - "GET /api/phishing/victims HTTP/1.1" 200 OK
+2026-04-02 21:33:18,104 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-04-02 21:33:18,104 INFO sqlalchemy.engine.Engine SELECT sinkhole_entries.id, sinkhole_entries.domain, sinkhole_entries.added_by, sinkhole_entries.reason, sinkhole_entries.created_at 
+FROM sinkhole_entries
+2026-04-02 21:33:18,104 INFO sqlalchemy.engine.Engine [cached since 190.6s ago] ()
+2026-04-02 21:33:18,106 INFO sqlalchemy.engine.Engine COMMIT
+INFO:     127.0.0.1:52606 - "GET /api/phishing/domains/suspicious HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:22.607159Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:22.621630Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:22.950086Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:22.964139Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:23.526173Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:23.541298Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:43010 - "GET /api/mikrotik/health HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:23.888046Z[0m [[32m[1mdebug    [0m] [1mmikrotik_traffic_calculated   [0m [36minterfaces[0m=[35m0[0m
+INFO:     127.0.0.1:43014 - "GET /api/mikrotik/interfaces/traffic/all HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:23.900870Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:43022 - "GET /api/mikrotik/interfaces HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43044 - "GET /api/wazuh/agents/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43028 - "GET /api/wazuh/health HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:32.634789Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:32.978222Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:33.557939Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:33.929500Z[0m [[32m[1mdebug    [0m] [1mmikrotik_traffic_calculated   [0m [36minterfaces[0m=[35m5[0m
+INFO:     127.0.0.1:55552 - "GET /api/mikrotik/interfaces/traffic/all HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:37.658652Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:37.993433Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:38.570139Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:55568 - "GET /api/mikrotik/health HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:39.268361Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:55578 - "GET /api/mikrotik/interfaces HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:42.279218Z[0m [[32m[1mdebug    [0m] [1mwazuh_agents_fetched          [0m [36mcount[0m=[35m3[0m
+INFO:     127.0.0.1:55584 - "GET /api/wazuh/agents HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:42.677854Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:43.006665Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:43.586269Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:43.955444Z[0m [[32m[1mdebug    [0m] [1mmikrotik_traffic_calculated   [0m [36minterfaces[0m=[35m5[0m
+INFO:     127.0.0.1:47192 - "GET /api/mikrotik/interfaces/traffic/all HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:52.706367Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:52.721752Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:53.019497Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:53.030706Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:53.598359Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:33:53.612539Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:33:54.173266Z[0m [[32m[1mdebug    [0m] [1mmikrotik_traffic_calculated   [0m [36minterfaces[0m=[35m5[0m
+INFO:     127.0.0.1:54374 - "GET /api/mikrotik/interfaces/traffic/all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54358 - "GET /api/wazuh/agents/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54360 - "GET /api/wazuh/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54386 - "GET /api/mikrotik/health HTTP/1.1" 200 OK
+[2m2026-04-03T00:33:54.317962Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:54388 - "GET /api/mikrotik/interfaces HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:02.736031Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:03.048503Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:03.631171Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:04.279395Z[0m [[32m[1mdebug    [0m] [1mmikrotik_traffic_calculated   [0m [36minterfaces[0m=[35m5[0m
+INFO:     127.0.0.1:49976 - "GET /api/mikrotik/interfaces/traffic/all HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:07.764963Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:08.065389Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:08.642970Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:49982 - "GET /api/mikrotik/health HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:09.522910Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:49986 - "GET /api/mikrotik/interfaces HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:12.779568Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:13.082909Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:13.662295Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:14.325151Z[0m [[32m[1mdebug    [0m] [1mmikrotik_traffic_calculated   [0m [36minterfaces[0m=[35m5[0m
+INFO:     127.0.0.1:56206 - "GET /api/mikrotik/interfaces/traffic/all HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:22.811172Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:22.825082Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:23.093760Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:23.142514Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:23.675313Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:23.864102Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:41004 - "GET /api/mikrotik/health HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:24.368148Z[0m [[32m[1mdebug    [0m] [1mmikrotik_traffic_calculated   [0m [36minterfaces[0m=[35m5[0m
+INFO:     127.0.0.1:41016 - "GET /api/mikrotik/interfaces/traffic/all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40986 - "GET /api/wazuh/agents/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40988 - "GET /api/wazuh/health HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:24.550747Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:41018 - "GET /api/mikrotik/interfaces HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:32.841410Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:33.161290Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:33.882646Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:37.252059Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:44502 - "GET /api/wazuh/alerts/critical?limit=10&offset=0 HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:37.257682Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:37.259158Z[0m [[32m[1mdebug    [0m] [1mwazuh_mitre_summary_built     [0m [36mtechniques[0m=[35m78[0m
+INFO:     127.0.0.1:44530 - "GET /api/wazuh/mitre/summary HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:37.259907Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:37.260878Z[0m [[32m[1mdebug    [0m] [1mwazuh_alerts_timeline_built   [0m [36mpoints[0m=[35m60[0m
+INFO:     127.0.0.1:44514 - "GET /api/wazuh/alerts/timeline?level_min=5 HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:37.262709Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:37.263946Z[0m [[32m[1mdebug    [0m] [1mwazuh_top_agents_fetched      [0m [36mcount[0m=[35m3[0m
+INFO:     127.0.0.1:44540 - "GET /api/wazuh/agents/top?limit=10 HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:37.264723Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:44542 - "GET /api/wazuh/alerts/last-critical HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44486 - "GET /api/wazuh/agents/summary HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:37.278289Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:44544 - "GET /api/mikrotik/interfaces HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:37.855211Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:38.171227Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:38.894783Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:42.868339Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:43.181595Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:43.913322Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:52.897058Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:52.907518Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:53.194824Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:53.245967Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:34:53.542632Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:35336 - "GET /api/wazuh/alerts/last-critical HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:53.545865Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     127.0.0.1:35348 - "GET /api/mikrotik/interfaces HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:53.558233Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+INFO:     127.0.0.1:35338 - "GET /api/wazuh/alerts/critical?limit=10&offset=0 HTTP/1.1" 200 OK
+[2m2026-04-03T00:34:53.931795Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:34:53.940530Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     connection closed
+INFO:     connection closed
+[2m2026-04-03T00:35:02.925179Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     Shutting down
+[2m2026-04-03T00:35:03.259587Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+INFO:     Waiting for background tasks to complete. (CTRL+C to force quit)
+[2m2026-04-03T00:35:03.958986Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:35:07.949728Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:35:08.271886Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:35:08.972275Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:35:12.965479Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:35:13.284673Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:35:13.990103Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:35:22.992500Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:35:23.003440Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:35:23.295856Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:35:23.309296Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:35:24.035616Z[0m [[33m[1mwarning  [0m] [1mwazuh_alerts_api_404_using_mock[0m [36menv[0m=[35mlab[0m
+[2m2026-04-03T00:35:24.046118Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:35:33.018378Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:35:33.320772Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m
+[2m2026-04-03T00:35:34.065735Z[0m [[32m[1mdebug    [0m] [1mmikrotik_interfaces_fetched   [0m [36mcount[0m=[35m5[0m

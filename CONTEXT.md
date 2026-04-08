@@ -47,22 +47,25 @@ NetShield Dashboard es una plataforma web de monitoreo y control de seguridad de
 
 ## Infraestructura del laboratorio
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Windows 10 (Host) - Tailscale habilitado            │
-│  ┌───────────────────┐  ┌────────────────────┐      │
-│  │ MikroTik CHR      │  │ Wazuh Manager      │      │
-│  │ 192.168.100.118   │  │ 100.90.106.121     │      │
-│  │ API: puerto 8728  │  │ API: puerto 55000  │      │
-│  │ plaintext_login   │  │ cert autofirmado   │      │
-│  └────────┬──────────┘  └────────┬───────────┘      │
-│           │                      │                   │
-│  ┌────────┴──────────────────────┴───────────┐      │
-│  │ Subnet 192.168.88.0/24                     │      │
-│  │  ├── 192.168.88.10 (Lubuntu + Wazuh agent) │      │
-│  │  └── 192.168.88.11 (Lubuntu + Wazuh agent) │      │
-│  └────────────────────────────────────────────┘      │
-└─────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    classDef device fill:#10B981,color:#fff,stroke:#059669,stroke-width:2px
+    classDef host fill:#3B82F6,color:#fff,stroke:#2563EB,stroke-width:2px
+
+    subgraph Windows["Windows 10 (Host) - Tailscale habilitado"]
+        MT["MikroTik CHR<br/>192.168.100.118<br/>API: puerto 8728<br/>plaintext_login"]:::device
+        WZ["Wazuh Manager<br/>100.90.106.121<br/>API: puerto 55000<br/>cert autofirmado"]:::device
+        
+        subgraph Subnet["Subnet 192.168.88.0/24"]
+            L1["192.168.88.10<br/>(Lubuntu + Wazuh agent)"]:::host
+            L2["192.168.88.11<br/>(Lubuntu + Wazuh agent)"]:::host
+        end
+    end
+    
+    MT --> L1
+    MT --> L2
+    WZ --> L1
+    WZ --> L2
 ```
 
 - **Acceso remoto:** Tailscale (red 100.x.x.x con subnet routing)
@@ -226,20 +229,25 @@ MOCK_WAZUH=true MOCK_GLPI=true MOCK_ANTHROPIC=true uvicorn main:app --reload
 
 ### Arquitectura del sistema de mock
 
-```
-mock_data.py         ← Datos estáticos reproducibles (seed=42)
-   ├── MockData.mikrotik.*    interfaces, ARP, firewall, logs, traffic…
-   ├── MockData.wazuh.*       agents, alerts, MITRE, health…
-   ├── MockData.glpi.*        computers, tickets, users, locations…
-   ├── MockData.ai.*          mock_report() → HTML de reporte simulado
-   ├── MockData.portal.*      sessions, users, profiles, stats…
-   └── MockData.websocket.*   traffic_tick(), alerts_tick(), portal_session()…
+```mermaid
+graph LR
+    subgraph DatosEstáticos["Datos estáticos reproducibles (seed=42)"]
+        MD["mock_data.py"]
+        MD --> MD_MT["MockData.mikrotik.* (interfaces, ARP, firewall, logs...)"]
+        MD --> MD_WZ["MockData.wazuh.* (agents, alerts, MITRE, health...)"]
+        MD --> MD_GL["MockData.glpi.* (computers, tickets, users, locations...)"]
+        MD --> MD_AI["MockData.ai.* (mock_report)"]
+        MD --> MD_PO["MockData.portal.* (sessions, users, profiles...)"]
+        MD --> MD_WS["MockData.websocket.* (traffic_tick, alerts_tick...)"]
+    end
 
-mock_service.py      ← Estado mutable en memoria (CRUD funcional)
-   ├── glpi_get_assets / create / update / quarantine…
-   ├── glpi_get_tickets / create / update_status…
-   ├── portal_get_users / create / update / delete…
-   └── get_mock_status() → {mock_all, services, any_mock_active}
+    subgraph EstadoMutable["Estado mutable en memoria (CRUD funcional)"]
+        MS["mock_service.py"]
+        MS --> MS_GL["glpi_get_assets / create / update / quarantine..."]
+        MS --> MS_GLT["glpi_get_tickets / create / update_status..."]
+        MS --> MS_PU["portal_get_users / create / update / delete..."]
+        MS --> MS_MS["get_mock_status() → {mock_all, services, any_mock_active}"]
+    end
 ```
 
 ### Entidades coherentes entre servicios

@@ -95,25 +95,24 @@ Layout en dos columnas:
 
 ### Flujo completo
 
-```
-[Backend]                                [Frontend]
-main.py /ws/traffic                      useWebSocket("/ws/traffic")
-    │                                        │
-    ├── accept() conexión                    ├── new WebSocket(wsUrl)
-    │                                        │
-    ╔══ loop cada 2s ══╗                     │
-    ║ get_traffic()    ║                     │
-    ║ get_connections()║                     │
-    ║ send_json({      ║──── JSON ──────────→├── onmessage → setLastMessage()
-    ║   type: "traffic"║                     │
-    ║   data: {...}    ║                     useTrafficStream(maxHistory)
-    ║ })               ║                     │
-    ╚══════════════════╝                     ├── trafficHistory.push(data)
-                                             ├── trafficHistory.slice(-60)
-                                             │
-                                             TrafficChart.tsx
-                                             ├── chartData = trafficHistory.map(...)
-                                             └── <AreaChart data={chartData} />
+```mermaid
+sequenceDiagram
+    participant B as Backend<br/>(main.py /ws/traffic)
+    participant WS as WebSocket Hook<br/>(useWebSocket)
+    participant TS as Hook de Estado<br/>(useTrafficStream)
+    participant C as Componente<br/>(TrafficChart.tsx)
+
+    WS->>B: new WebSocket(wsUrl)
+    B-->>WS: accept() conexión
+    
+    loop Cada 2 segundos
+        B->>B: get_traffic()<br/>get_connections()
+        B->>WS: send_json({type: "traffic", data: {...}})
+        WS->>TS: onmessage → setLastMessage()
+        TS->>TS: trafficHistory.push(data)<br/>trafficHistory.slice(-60)
+        TS->>C: actualiza chartData
+        C->>C: <AreaChart data={chartData} />
+    end
 ```
 
 ### Hook `useWebSocket(url)`

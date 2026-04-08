@@ -20,7 +20,7 @@ interface SessionsChartProps {
 }
 
 export function SessionsChart({ data }: SessionsChartProps) {
-  if (data.length === 0) {
+  if (!data || data.length === 0) {
     return (
       <div className="portal-chart-empty">
         <span>Esperando datos del WebSocket…</span>

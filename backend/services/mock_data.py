@@ -617,13 +617,13 @@ es un ataque de fuerza bruta sostenido desde <code>203.0.113.45</code> contra
         def active_sessions() -> list[dict]:
             return [
                 {"id": "sess-001", "user": "alumno01",   "address": "192.168.88.20", "mac": "52:54:00:CC:DD:01",
-                 "uptime": "1h 23m", "idle": "0s", "bytes_in": 234_567, "bytes_out": 56_789, "session_time_left": "2h 37m"},
+                 "uptime": "1h 23m", "idle": "0s", "bytes_in": 234_567, "bytes_out": 56_789, "session_time_left": "2h 37m", "status": "registered"},
                 {"id": "sess-002", "user": "alumno02",   "address": "192.168.88.21", "mac": "52:54:00:CC:DD:02",
-                 "uptime": "0h 45m", "idle": "2m", "bytes_in": 198_765, "bytes_out": 43_210, "session_time_left": "3h 15m"},
+                 "uptime": "0h 45m", "idle": "2m", "bytes_in": 198_765, "bytes_out": 43_210, "session_time_left": "3h 15m", "status": "registered"},
                 {"id": "sess-003", "user": "juan.perez", "address": "192.168.88.10", "mac": "52:54:00:AA:BB:01",
-                 "uptime": "4h 12m", "idle": "0s", "bytes_in": 1_234_567, "bytes_out": 456_789, "session_time_left": "7h 48m"},
+                 "uptime": "4h 12m", "idle": "0s", "bytes_in": 1_234_567, "bytes_out": 456_789, "session_time_left": "7h 48m", "status": "registered"},
                 {"id": "sess-004", "user": "",           "address": "192.168.88.100","mac": "52:54:00:EE:EE:EE",
-                 "uptime": "0h 05m", "idle": "0s", "bytes_in": 12_345, "bytes_out": 4_567, "session_time_left": "0h 55m"},
+                 "uptime": "0h 05m", "idle": "0s", "bytes_in": 12_345, "bytes_out": 4_567, "session_time_left": "0h 55m", "status": "unregistered"},
             ]
 
         @staticmethod

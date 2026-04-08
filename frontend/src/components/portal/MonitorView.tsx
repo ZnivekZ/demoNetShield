@@ -22,9 +22,10 @@ export function MonitorView() {
   const { data: stats } = usePortalRealtimeStats(isConnected);
 
   // Use WebSocket session count as primary source, fall back to stats API
-  const totalActive = sessions.length || stats?.total_sessions_active || 0;
-  const registeredOnline = stats?.registered_users_online ?? sessions.filter(s => s.status === 'registered').length;
-  const unregisteredOnline = stats?.unregistered_users_online ?? sessions.filter(s => s.status === 'unregistered').length;
+  const safeSessions = sessions || [];
+  const totalActive = safeSessions.length || stats?.total_sessions_active || 0;
+  const registeredOnline = stats?.registered_users_online ?? safeSessions.filter(s => s.status === 'registered').length;
+  const unregisteredOnline = stats?.unregistered_users_online ?? safeSessions.filter(s => s.status === 'unregistered').length;
   const bwIn = stats?.total_bandwidth_in ?? 0;
   const bwOut = stats?.total_bandwidth_out ?? 0;
   const peakHour = stats?.peak_hour_today || '—';

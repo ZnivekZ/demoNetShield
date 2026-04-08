@@ -13,15 +13,13 @@ export function usePortalSessions() {
     if (!lastMessage) return;
 
     try {
-      const msg = JSON.parse(lastMessage.data);
-      
-      if (msg.type === 'portal_sessions') {
-        const portalMsg = msg as PortalSessionWSMessage;
+      if (lastMessage.type === 'portal_sessions') {
+        const portalMsg = lastMessage as unknown as PortalSessionWSMessage;
         setSessions(portalMsg.data.sessions);
         setChartHistory(portalMsg.data.chart_history);
         setError(null);
-      } else if (msg.type === 'portal_error') {
-        const errorMsg = msg as PortalErrorWSMessage;
+      } else if (lastMessage.type === 'portal_error') {
+        const errorMsg = lastMessage as unknown as PortalErrorWSMessage;
         setError(errorMsg.data.message);
       }
     } catch (e) {

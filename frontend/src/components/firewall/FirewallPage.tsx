@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Shield, Ban, Unlock, Clock, Search } from 'lucide-react';
 import { mikrotikApi, actionsApi } from '../../services/api';
-import type { FirewallRule } from '../../types';
 
 export default function FirewallPage() {
   const queryClient = useQueryClient();

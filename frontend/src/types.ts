@@ -385,8 +385,8 @@ export interface CLIResponse {
 
 /* ── Security WebSocket Types ────────────────────────────────── */
 
-export type SecurityActionType = 'block_ip' | 'sinkhole_domain' | 'quarantine' | 'dismiss';
-export type SecurityAlertType = 'wazuh_alert' | 'phishing_detected' | 'interface_down' | 'auto_block_triggered';
+export type SecurityActionType = 'block_ip' | 'sinkhole_domain' | 'quarantine' | 'dismiss' | 'view_ip_context';
+export type SecurityAlertType = 'wazuh_alert' | 'phishing_detected' | 'interface_down' | 'auto_block_triggered' | 'crowdsec_decision';
 export type SecurityAlertLevel = 'critical' | 'high' | 'medium';
 
 export interface SecurityNotification {
@@ -602,13 +602,6 @@ export interface PortalErrorWSMessage {
   };
 }
 
-export type WSMessage =
-  | TrafficWSMessage
-  | AlertWSMessage
-  | ErrorWSMessage
-  | VlanTrafficWSMessage
-  | PortalSessionWSMessage
-  | PortalErrorWSMessage;
 
 /* ── GLPI Types ──────────────────────────────────────────────── */
 
@@ -776,6 +769,7 @@ export interface MockServiceStatus {
   wazuh: boolean;
   glpi: boolean;
   anthropic: boolean;
+  crowdsec: boolean;
 }
 
 export interface MockStatus {
@@ -784,3 +778,188 @@ export interface MockStatus {
   any_mock_active: boolean;
 }
 
+/* ── CrowdSec Types ──────────────────────────────────────────────── */
+
+export interface CrowdSecDecision {
+  id: string;
+  ip: string;
+  type: 'ban' | 'captcha';
+  duration: string;
+  reason: string;
+  origin: 'crowdsec' | 'cscli' | 'console';
+  scenario: string;
+  country: string;
+  as_name: string;
+  expires_at: string;
+  community_score: number;
+  reported_by: number;
+  is_known_attacker: boolean;
+  mock?: boolean;
+}
+
+export interface CrowdSecAlert {
+  id: string;
+  scenario: string;
+  message: string;
+  events_count: number;
+  start_at: string;
+  stop_at: string;
+  source_ip: string;
+  source_country: string;
+  source_as_name: string;
+  decisions: { type: string; duration: string; scope: string; value: string }[];
+  target_agent: string | null;
+  target_ip: string | null;
+  events?: { timestamp: string; meta: { key: string; value: string }[] }[];
+}
+
+export interface CrowdSecBouncer {
+  name: string;
+  ip_address: string;
+  type: string;
+  version: string;
+  last_pull: string;
+  created_at: string;
+  status: 'connected' | 'disconnected';
+}
+
+export interface CrowdSecMachine {
+  name: string;
+  version: string;
+  status: string;
+  last_push: string;
+  created_at: string;
+  info: string;
+}
+
+export interface CrowdSecScenario {
+  name: string;
+  description: string;
+  alerts_count: number;
+  last_triggered: string;
+  trend: 'up' | 'down' | 'stable';
+}
+
+export interface CrowdSecCountry {
+  country: string;
+  code: string;
+  count: number;
+  pct: number;
+}
+
+export interface CrowdSecMetrics {
+  active_decisions: number;
+  alerts_24h: number;
+  scenarios_active: number;
+  bouncers_connected: number;
+  top_countries: CrowdSecCountry[];
+  top_scenario: { name: string; count: number };
+  decisions_per_hour: { hour: string; count: number }[];
+}
+
+export interface CrowdSecWhitelistEntry {
+  id: number;
+  ip: string;
+  reason: string;
+  added_by: string;
+  created_at: string;
+  mock?: boolean;
+}
+
+export interface CrowdSecSyncStatus {
+  in_sync: boolean;
+  only_in_crowdsec: string[];
+  only_in_mikrotik: string[];
+  synced_ips: string[];
+  synced_count: number;
+  total_crowdsec: number;
+  total_mikrotik: number;
+}
+
+export interface CrowdSecCTI {
+  community_score: number;
+  is_known_attacker: boolean;
+  reported_by: number;
+  background_noise: boolean;
+  classifications: string[];
+}
+
+export interface IpContext {
+  ip: string;
+  crowdsec: {
+    decisions: CrowdSecDecision[];
+    alerts: CrowdSecAlert[];
+    community_score: number;
+    is_known_attacker: boolean;
+    reported_by: number;
+    background_noise: boolean;
+    classifications: string[];
+    country: string;
+    as_name: string;
+  };
+  mikrotik: {
+    in_arp: boolean;
+    arp_comment: string | null;
+    in_blacklist: boolean;
+    firewall_rules: unknown[];
+  };
+  wazuh: {
+    alerts_count: number;
+    last_alert: WazuhAlert | null;
+    agents_affected: string[];
+  };
+}
+
+export interface CrowdSecHubItem {
+  name: string;
+  status: string;
+  version: string;
+}
+
+export interface CrowdSecHub {
+  collections: CrowdSecHubItem[];
+  parsers: CrowdSecHubItem[];
+  last_update: string;
+}
+
+/* ── CrowdSec WebSocket Types ────────────────────────────────────── */
+
+export interface CrowdSecDecisionWSMessage {
+  type: 'crowdsec_decision';
+  data: CrowdSecDecision & { is_new?: boolean; timestamp: string };
+}
+
+export type WSMessage =
+  | TrafficWSMessage
+  | AlertWSMessage
+  | ErrorWSMessage
+  | VlanTrafficWSMessage
+  | PortalSessionWSMessage
+  | PortalErrorWSMessage
+  | CrowdSecDecisionWSMessage;
+
+/* ── CrowdSec Request Types ──────────────────────────────────────── */
+
+export interface ManualDecisionRequest {
+  ip: string;
+  duration: string;
+  reason: string;
+  type: 'ban' | 'captcha';
+}
+
+export interface WhitelistRequest {
+  ip: string;
+  reason: string;
+}
+
+export interface FullRemediationRequest {
+  ip: string;
+  duration?: string;
+  reason: string;
+  trigger?: string;
+}
+
+export interface SyncApplyRequest {
+  add_to_mikrotik: string[];
+  remove_from_mikrotik: string[];
+}

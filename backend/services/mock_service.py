@@ -28,13 +28,18 @@ class MockService:
     - Mock status para el endpoint /api/system/mock-status
     """
 
-    # ── In-memory stores (reset on server restart) ─────────────────────────
+    # ── In-memory stores (reset on server restart) ─────────────────────
     _glpi_assets: list[dict] | None = None
     _glpi_tickets: list[dict] | None = None
     _portal_users: list[dict] | None = None
     _next_glpi_id: int = 900
     _next_ticket_id: int = 900
     _blocked_ips: list[str] = []
+    # CrowdSec mutable state
+    _crowdsec_decisions: list[dict] | None = None
+    _crowdsec_whitelist: list[dict] | None = None
+    _next_crowdsec_id: int = 200
+    _next_whitelist_id: int = 100
 
     # ── Initialization ─────────────────────────────────────────────────────
 
@@ -65,6 +70,10 @@ class MockService:
         cls._next_glpi_id = 900
         cls._next_ticket_id = 900
         cls._blocked_ips = []
+        cls._crowdsec_decisions = None
+        cls._crowdsec_whitelist = None
+        cls._next_crowdsec_id = 200
+        cls._next_whitelist_id = 100
         logger.info("mock_service_reset")
 
     # ── Status ─────────────────────────────────────────────────────────────
@@ -78,6 +87,7 @@ class MockService:
             "wazuh": settings.should_mock_wazuh,
             "glpi": settings.should_mock_glpi,
             "anthropic": settings.should_mock_anthropic,
+            "crowdsec": settings.should_mock_crowdsec,
         }
         return {
             "mock_all": settings._effective_mock_all,
@@ -323,6 +333,91 @@ class MockService:
             cls._blocked_ips.remove(ip)
         logger.info("mock_mikrotik_unblock_ip", ip=ip)
         return {"ip": ip, "unblocked": True, "mock": True}
+
+    # ── CrowdSec CRUD ────────────────────────────────────────────────────
+
+    @classmethod
+    def _ensure_crowdsec_decisions(cls) -> list[dict]:
+        if cls._crowdsec_decisions is None:
+            cls._crowdsec_decisions = MockData.crowdsec.decisions()
+        return cls._crowdsec_decisions
+
+    @classmethod
+    def _ensure_crowdsec_whitelist(cls) -> list[dict]:
+        if cls._crowdsec_whitelist is None:
+            cls._crowdsec_whitelist = []
+        return cls._crowdsec_whitelist
+
+    @classmethod
+    def crowdsec_get_decisions(cls) -> list[dict]:
+        return list(cls._ensure_crowdsec_decisions())
+
+    @classmethod
+    def crowdsec_add_decision(
+        cls, ip: str, duration: str, reason: str, type_: str = "ban"
+    ) -> dict:
+        from datetime import timedelta
+        decisions = cls._ensure_crowdsec_decisions()
+        new_id = f"cs-{cls._next_crowdsec_id}"
+        cls._next_crowdsec_id += 1
+        entry = {
+            "id": new_id, "ip": ip, "type": type_,
+            "duration": duration, "reason": reason,
+            "origin": "cscli", "scenario": reason,
+            "country": "—", "as_name": "—",
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+            "community_score": 0, "reported_by": 0,
+            "is_known_attacker": False, "mock": True,
+        }
+        decisions.append(entry)
+        logger.info("mock_crowdsec_add_decision", ip=ip, type_=type_)
+        return entry
+
+    @classmethod
+    def crowdsec_delete_decision(cls, decision_id: str) -> bool:
+        decisions = cls._ensure_crowdsec_decisions()
+        before = len(decisions)
+        cls._crowdsec_decisions = [d for d in decisions if d["id"] != decision_id]
+        removed = len(cls._crowdsec_decisions) < before
+        logger.info("mock_crowdsec_delete_decision", id=decision_id, removed=removed)
+        return removed
+
+    @classmethod
+    def crowdsec_delete_decisions_by_ip(cls, ip: str) -> int:
+        decisions = cls._ensure_crowdsec_decisions()
+        before = len(decisions)
+        cls._crowdsec_decisions = [d for d in decisions if d["ip"] != ip]
+        count = before - len(cls._crowdsec_decisions)
+        logger.info("mock_crowdsec_delete_by_ip", ip=ip, count=count)
+        return count
+
+    @classmethod
+    def crowdsec_get_whitelist(cls) -> list[dict]:
+        return list(cls._ensure_crowdsec_whitelist())
+
+    @classmethod
+    def crowdsec_add_whitelist(cls, ip: str, reason: str) -> dict:
+        wl = cls._ensure_crowdsec_whitelist()
+        entry = {
+            "id": cls._next_whitelist_id,
+            "ip": ip, "reason": reason,
+            "added_by": "admin",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "mock": True,
+        }
+        cls._next_whitelist_id += 1
+        wl.append(entry)
+        logger.info("mock_crowdsec_add_whitelist", ip=ip)
+        return entry
+
+    @classmethod
+    def crowdsec_delete_whitelist(cls, whitelist_id: int) -> bool:
+        wl = cls._ensure_crowdsec_whitelist()
+        before = len(wl)
+        cls._crowdsec_whitelist = [e for e in wl if e["id"] != whitelist_id]
+        removed = len(cls._crowdsec_whitelist) < before
+        logger.info("mock_crowdsec_delete_whitelist", id=whitelist_id, removed=removed)
+        return removed
 
 
 def get_mock_service() -> MockService:

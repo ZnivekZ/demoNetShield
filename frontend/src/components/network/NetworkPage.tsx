@@ -6,7 +6,6 @@ import {
   FolderPlus,
   Trash2,
   Plus,
-  Ban,
   Search,
 } from 'lucide-react';
 import { networkApi, mikrotikApi } from '../../services/api';

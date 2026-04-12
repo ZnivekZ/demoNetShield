@@ -4,20 +4,36 @@
  * Displays results in a modal with quick-action buttons.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Search, X, Wifi, Shield, AlertCircle, ShieldOff, Package } from 'lucide-react';
+import { Search, X, Wifi, Shield, AlertCircle, ShieldOff, Package, ShieldCheck } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useNetworkSearch } from '../../hooks/useNetworkSearch';
+import { crowdsecApi } from '../../services/api';
 import { formatDistanceToNow } from '../utils/time';
 
 interface GlobalSearchProps {
   onBlockIP?: (ip: string) => void;
+  onShowIpContext?: (ip: string) => void;
 }
 
-export function GlobalSearch({ onBlockIP }: GlobalSearchProps) {
+export function GlobalSearch({ onBlockIP, onShowIpContext }: GlobalSearchProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const { search, result, isLoading, error, clear } = useNetworkSearch();
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  // IP regex for CrowdSec enrichment
+  const isIpQuery = /^\d{1,3}(\.\d{1,3}){3}$/.test(query.trim());
+
+  const { data: csContext } = useQuery({
+    queryKey: ['crowdsec', 'ip-context', query.trim()],
+    queryFn: () => crowdsecApi.getIpContext(query.trim()),
+    enabled: isIpQuery && open,
+    staleTime: 30_000,
+    retry: false,
+    throwOnError: false,
+    select: r => r.data,
+  });
 
   // Open with Ctrl+K / Cmd+K
   useEffect(() => {
@@ -215,8 +231,78 @@ export function GlobalSearch({ onBlockIP }: GlobalSearchProps) {
               </div>
             )}
 
+            {/* CrowdSec IP Enrichment — shown when query is a valid IP */}
+            {csContext?.crowdsec && (
+              <div className="search-result-section">
+                <div className="search-result-section__title">
+                  <ShieldCheck size={13} style={{ color: 'var(--color-brand-400)' }} />
+                  <span style={{ color: 'var(--color-brand-300)' }}>CrowdSec — Reputación</span>
+                  {csContext.crowdsec.is_known_attacker && (
+                    <span className="badge badge-danger" style={{ fontSize: '0.55rem', marginLeft: 4 }}>conocido</span>
+                  )}
+                </div>
+                <div className="search-result-card">
+                  <div className="search-result-row">
+                    <span className="search-result-label">Score comunidad</span>
+                    <span
+                      className="search-result-value"
+                      style={{
+                        fontWeight: 700,
+                        color:
+                          csContext.crowdsec.community_score >= 71 ? 'var(--color-danger)' :
+                          csContext.crowdsec.community_score >= 31 ? 'var(--color-warning)' :
+                          'var(--color-success)',
+                      }}
+                    >
+                      {csContext.crowdsec.community_score} / 100
+                    </span>
+                  </div>
+                  {csContext.crowdsec.decisions.length > 0 && (
+                    <div className="search-result-row">
+                      <span className="search-result-label">Decisión activa</span>
+                      <span className="badge badge-danger" style={{ fontSize: '0.6rem' }}>
+                        {csContext.crowdsec.decisions[0].type} — {csContext.crowdsec.decisions[0].scenario.split('/')[1]}
+                      </span>
+                    </div>
+                  )}
+                  {csContext.crowdsec.country && (
+                    <div className="search-result-row">
+                      <span className="search-result-label">País / AS</span>
+                      <span className="search-result-value" style={{ fontSize: '0.68rem' }}>
+                        {csContext.crowdsec.country} — {csContext.crowdsec.as_name}
+                      </span>
+                    </div>
+                  )}
+                  {csContext.crowdsec.classifications.length > 0 && (
+                    <div className="search-result-row">
+                      <span className="search-result-label">Categorías</span>
+                      <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                        {csContext.crowdsec.classifications.map((c: string) => (
+                          <span key={c} className="badge badge-warning" style={{ fontSize: '0.55rem' }}>{c}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {onShowIpContext && (
+                    <div style={{ marginTop: '0.4rem' }}>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ fontSize: '0.68rem', padding: '0.2rem 0.5rem', color: 'var(--color-brand-300)' }}
+                        onClick={() => {
+                          onShowIpContext(query.trim());
+                          setOpen(false);
+                        }}
+                      >
+                        <ShieldCheck size={11} /> Ver contexto completo →
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Quick Actions */}
-            {result.arp_match?.ip_address && onBlockIP && (
+            {result?.arp_match?.ip_address && onBlockIP && (
               <div className="search-modal__actions">
                 <button
                   className="btn btn-danger"

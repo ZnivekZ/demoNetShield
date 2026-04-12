@@ -314,6 +314,9 @@ class MockData:
                 (9,  "Privilege escalation attempt via sudo", "T1548", "Abuse Elevation Control Mechanism", "192.168.88.10", ""),
                 (3,  "Log rotation executed", "", "", "192.168.88.50", ""),
                 (4,  "Successful SSH login", "", "", "192.168.88.11", ""),
+                # IPs dentro de subredes VLAN — activan correlación VLAN→alert en modo mock
+                (11, "Brute force desde VLAN Docentes", "T1110", "Brute Force", "192.168.88.10", "10.10.10.15"),
+                (8,  "Port scan desde VLAN Servidores", "T1046", "Network Service Discovery", "192.168.88.50", "10.10.30.5"),
             ]
 
             result = []
@@ -720,7 +723,11 @@ es un ataque de fuerza bruta sostenido desde <code>203.0.113.45</code> contra
                 t = _NOW - timedelta(minutes=(30 - i) * 2)
                 base = 3
                 spike = 2 if i in (10, 20) else 0
-                result.append({"timestamp": t.isoformat(), "active": base + spike})
+                result.append({
+                    "timestamp": t.isoformat(), 
+                    "registered": base + spike,
+                    "unregistered": _rng.randint(0, 2)
+                })
             return result
 
     # ── WebSocket generators (dynamic, tick-based) ────────────────────────────
@@ -754,19 +761,41 @@ es un ataque de fuerza bruta sostenido desde <code>203.0.113.45</code> contra
 
         @staticmethod
         def vlan_traffic_tick(tick: int) -> dict:
+            """Generate VLAN traffic with simulated alert correlation.
+
+            Ciclo de 40 ticks (~80 segundos a 2s/tick):
+              ticks  0-9  → todo OK
+              ticks 10-24 → vlan10 en ALERT (simula brute-force desde 10.10.10.15)
+              ticks 25-29 → todo OK
+              ticks 30-36 → vlan30 en ALERT (simula port-scan desde 10.10.30.5)
+              ticks 37-39 → todo OK
+            """
             _r = _random_module.Random(tick + 1000)
-            vlans = [
-                (10, "vlan10", 4_200_000, 1_800_000),
-                (20, "vlan20", 1_100_000,   500_000),
-                (30, "vlan30",   850_000,   200_000),
-                (99, "vlan99",         0,         0),
+            phase = tick % 40  # ciclo de 40 ticks
+
+            # Determinar qué VLANs están en alerta según la fase del ciclo
+            vlan10_alert = 10 <= phase <= 24
+            vlan30_alert = 30 <= phase <= 36
+
+            vlans_def = [
+                (10, "vlan10", 4_200_000, 1_800_000, vlan10_alert),
+                (20, "vlan20", 1_100_000,   500_000, False),
+                (30, "vlan30",   850_000,   200_000, vlan30_alert),
+                (99, "vlan99",         0,         0, False),
             ]
             result = []
-            for vid, name, rx_base, tx_base in vlans:
+            for vid, name, rx_base, tx_base, is_alert in vlans_def:
                 jitter = _r.uniform(0.88, 1.12) if rx_base > 0 else 1.0
-                result.append({"vlan_id": vid, "name": name,
-                                "rx_bps": int(rx_base * jitter),
-                                "tx_bps": int(tx_base * jitter), "status": "ok"})
+                # En alerta: spike de tráfico de +30% para hacerlo más visible
+                traffic_factor = 1.3 if is_alert else 1.0
+                status = "alert" if is_alert else ("inactive" if rx_base == 0 else "ok")
+                result.append({
+                    "vlan_id": vid,
+                    "name": name,
+                    "rx_bps": int(rx_base * jitter * traffic_factor),
+                    "tx_bps": int(tx_base * jitter * traffic_factor),
+                    "status": status,
+                })
             return {"tick": tick, "timestamp": datetime.now(timezone.utc).isoformat(), "vlans": result}
 
         @staticmethod
@@ -798,6 +827,7 @@ es un ataque de fuerza bruta sostenido desde <code>203.0.113.45</code> contra
         def portal_session(tick: int) -> dict:
             """Return portal session snapshot. ±1 session every 15 ticks."""
             sessions = MockData.portal.active_sessions()
+            chart_history = MockData.portal.session_chart()
             if tick % 15 == 0:
                 count = len(sessions) + 1
             elif tick % 15 == 7:
@@ -809,4 +839,5 @@ es un ataque de fuerza bruta sostenido desde <code>203.0.113.45</code> contra
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "active_sessions": count,
                 "sessions": sessions[:count],
+                "chart_history": chart_history,
             }

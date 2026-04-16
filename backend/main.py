@@ -27,9 +27,11 @@ from config import get_settings
 from database import close_db, init_db
 from routers import cli, mikrotik, network, phishing, portal, reports, security, vlans, wazuh
 from routers import glpi as glpi_router
+from routers import crowdsec as crowdsec_router
 from services.mikrotik_service import get_mikrotik_service
 from services.wazuh_service import get_wazuh_service
 from services.glpi_service import get_glpi_service
+from services.crowdsec_service import get_crowdsec_service
 
 # ── Structured Logging Setup ─────────────────────────────────────
 
@@ -94,6 +96,11 @@ async def lifespan(app: FastAPI):
         await glpi_service.close()
     except Exception:
         pass
+    try:
+        cs_service = get_crowdsec_service()
+        await cs_service.close()
+    except Exception:
+        pass
     await close_db()
     logger.info("netshield_shutdown_complete")
 
@@ -131,6 +138,7 @@ app.include_router(security.router)
 app.include_router(cli.router)
 app.include_router(portal.router)
 app.include_router(glpi_router.router)
+app.include_router(crowdsec_router.router)
 
 
 # ── Root & Health Check ───────────────────────────────────────────
@@ -562,6 +570,56 @@ async def websocket_portal_sessions(websocket: WebSocket):
     except Exception as e:
         logger.error("websocket_portal_sessions_error", error=str(e))
         portal_session_manager.disconnect(websocket)
+
+# ── WebSocket: CrowdSec Decisions ─────────────────────────────
+
+crowdsec_decision_manager = ConnectionManager()
+
+
+@app.websocket("/ws/crowdsec/decisions")
+async def websocket_crowdsec_decisions(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time CrowdSec decision stream.
+    - Mock mode: emits a new decision every ~60s via crowdsec_decision_tick.
+    - Real mode: polls GET /v1/decisions/stream every 10s.
+    Frontend NotificationPanel subscribes to receive real-time block events.
+    """
+    await crowdsec_decision_manager.connect(websocket)
+    cs_service = get_crowdsec_service()
+    tick = 0
+
+    try:
+        while True:
+            try:
+                if settings.should_mock_crowdsec:
+                    from services.mock_data import MockData
+                    decision = MockData.websocket.crowdsec_decision_tick(tick)
+                    if decision:
+                        await websocket.send_json({
+                            "type": "crowdsec_decision",
+                            "data": decision,
+                        })
+                else:
+                    stream = await cs_service.get_decisions_stream(startup=(tick == 0))
+                    new_decisions = stream.get("new", [])
+                    if new_decisions:
+                        await websocket.send_json({
+                            "type": "crowdsec_decision",
+                            "data": {"decisions": new_decisions, "count": len(new_decisions)},
+                        })
+            except Exception as e:
+                await websocket.send_json({
+                    "type": "error",
+                    "data": {"message": f"CrowdSec WS error: {str(e)}"},
+                })
+            tick += 1
+            await asyncio.sleep(10)  # Poll every 10s
+    except WebSocketDisconnect:
+        crowdsec_decision_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error("websocket_crowdsec_decisions_error", error=str(e))
+        crowdsec_decision_manager.disconnect(websocket)
+
 
 # ── Run ───────────────────────────────────────────────────────────
 

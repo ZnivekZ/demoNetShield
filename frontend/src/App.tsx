@@ -30,6 +30,10 @@ import { PhishingPanel } from './components/phishing/PhishingPanel';
 import { SystemHealth } from './components/system/SystemHealth';
 import { PortalPage } from './components/portal/PortalPage';
 import { InventoryPage } from './components/inventory/InventoryPage';
+// CrowdSec
+import { CrowdSecCommandCenter } from './components/crowdsec/CommandCenter';
+import { CrowdSecIntelligence } from './components/crowdsec/IntelligenceView';
+import { CrowdSecConfig } from './components/crowdsec/ConfigView';
 
 
 const queryClient = new QueryClient({
@@ -64,6 +68,11 @@ export default function App() {
 
             {/* Inventory — GLPI */}
             <Route path="/inventory" element={<InventoryPage />} />
+
+            {/* CrowdSec */}
+            <Route path="/crowdsec" element={<CrowdSecCommandCenter />} />
+            <Route path="/crowdsec/intelligence" element={<CrowdSecIntelligence />} />
+            <Route path="/crowdsec/config" element={<CrowdSecConfig />} />
 
 
             {/* Legacy redirect — VLANs page merged into /network */}

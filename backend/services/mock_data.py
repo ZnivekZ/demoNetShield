@@ -314,6 +314,9 @@ class MockData:
                 (9,  "Privilege escalation attempt via sudo", "T1548", "Abuse Elevation Control Mechanism", "192.168.88.10", ""),
                 (3,  "Log rotation executed", "", "", "192.168.88.50", ""),
                 (4,  "Successful SSH login", "", "", "192.168.88.11", ""),
+                # IPs dentro de subredes VLAN — activan correlación VLAN→alert en modo mock
+                (11, "Brute force desde VLAN Docentes", "T1110", "Brute Force", "192.168.88.10", "10.10.10.15"),
+                (8,  "Port scan desde VLAN Servidores", "T1046", "Network Service Discovery", "192.168.88.50", "10.10.30.5"),
             ]
 
             result = []
@@ -720,7 +723,11 @@ es un ataque de fuerza bruta sostenido desde <code>203.0.113.45</code> contra
                 t = _NOW - timedelta(minutes=(30 - i) * 2)
                 base = 3
                 spike = 2 if i in (10, 20) else 0
-                result.append({"timestamp": t.isoformat(), "active": base + spike})
+                result.append({
+                    "timestamp": t.isoformat(), 
+                    "registered": base + spike,
+                    "unregistered": _rng.randint(0, 2)
+                })
             return result
 
     # ── WebSocket generators (dynamic, tick-based) ────────────────────────────
@@ -754,19 +761,41 @@ es un ataque de fuerza bruta sostenido desde <code>203.0.113.45</code> contra
 
         @staticmethod
         def vlan_traffic_tick(tick: int) -> dict:
+            """Generate VLAN traffic with simulated alert correlation.
+
+            Ciclo de 40 ticks (~80 segundos a 2s/tick):
+              ticks  0-9  → todo OK
+              ticks 10-24 → vlan10 en ALERT (simula brute-force desde 10.10.10.15)
+              ticks 25-29 → todo OK
+              ticks 30-36 → vlan30 en ALERT (simula port-scan desde 10.10.30.5)
+              ticks 37-39 → todo OK
+            """
             _r = _random_module.Random(tick + 1000)
-            vlans = [
-                (10, "vlan10", 4_200_000, 1_800_000),
-                (20, "vlan20", 1_100_000,   500_000),
-                (30, "vlan30",   850_000,   200_000),
-                (99, "vlan99",         0,         0),
+            phase = tick % 40  # ciclo de 40 ticks
+
+            # Determinar qué VLANs están en alerta según la fase del ciclo
+            vlan10_alert = 10 <= phase <= 24
+            vlan30_alert = 30 <= phase <= 36
+
+            vlans_def = [
+                (10, "vlan10", 4_200_000, 1_800_000, vlan10_alert),
+                (20, "vlan20", 1_100_000,   500_000, False),
+                (30, "vlan30",   850_000,   200_000, vlan30_alert),
+                (99, "vlan99",         0,         0, False),
             ]
             result = []
-            for vid, name, rx_base, tx_base in vlans:
+            for vid, name, rx_base, tx_base, is_alert in vlans_def:
                 jitter = _r.uniform(0.88, 1.12) if rx_base > 0 else 1.0
-                result.append({"vlan_id": vid, "name": name,
-                                "rx_bps": int(rx_base * jitter),
-                                "tx_bps": int(tx_base * jitter), "status": "ok"})
+                # En alerta: spike de tráfico de +30% para hacerlo más visible
+                traffic_factor = 1.3 if is_alert else 1.0
+                status = "alert" if is_alert else ("inactive" if rx_base == 0 else "ok")
+                result.append({
+                    "vlan_id": vid,
+                    "name": name,
+                    "rx_bps": int(rx_base * jitter * traffic_factor),
+                    "tx_bps": int(tx_base * jitter * traffic_factor),
+                    "status": status,
+                })
             return {"tick": tick, "timestamp": datetime.now(timezone.utc).isoformat(), "vlans": result}
 
         @staticmethod
@@ -783,14 +812,42 @@ es un ataque de fuerza bruta sostenido desde <code>203.0.113.45</code> contra
 
         @staticmethod
         def security_alert(tick: int) -> dict | None:
-            """Emit a security notification every ~9 ticks (~45s)."""
+            """Emit a security notification every ~9 ticks (~45s).
+            Returns a full SecurityNotification-compatible dict:
+            type, level, title, detail, actions, data — matching the
+            TypeScript SecurityNotification interface on the frontend.
+            """
             if tick % 9 != 0:
                 return None
             _r = _random_module.Random(tick)
             options = [
-                {"type": "new_block",    "ip": _ATTACKERS[0]["ip"], "reason": "brute-force",  "level": "critical"},
-                {"type": "alert_spike",  "ip": "",                  "reason": "12 alertas en 1 minuto", "level": "warning"},
-                {"type": "phishing",     "ip": _ATTACKERS[2]["ip"], "reason": "acceso a dominio sinkhole","level": "high"},
+                {
+                    "type": "wazuh_alert",
+                    "level": "critical",
+                    "title": f"Brute-force detectado: {_ATTACKERS[0]['ip']}",
+                    "detail": "12 intentos fallidos de autenticación SSH en 2 minutos",
+                    "actions": ["block_ip", "dismiss"],
+                    "data": {"src_ip": _ATTACKERS[0]["ip"], "rule_level": 12,
+                             "agent_name": "lubuntu_desk_1"},
+                },
+                {
+                    "type": "wazuh_alert",
+                    "level": "high",
+                    "title": "Spike de alertas: 12 eventos en 1 minuto",
+                    "detail": "Actividad anómala en wazuh-manager — posible escaneo de red",
+                    "actions": ["dismiss"],
+                    "data": {"src_ip": "", "rule_level": 9, "agent_name": "wazuh-manager"},
+                },
+                {
+                    "type": "phishing_detected",
+                    "level": "high",
+                    "title": f"Phishing detectado: {_ATTACKERS[2]['ip']}",
+                    "detail": "Acceso a dominio sinkhole: malware-c2.example.com",
+                    "actions": ["block_ip", "sinkhole_domain", "dismiss"],
+                    "data": {"src_ip": _ATTACKERS[2]["ip"], "rule_level": 10,
+                             "dst_url": "malware-c2.example.com",
+                             "agent_name": "lubuntu_desk_2"},
+                },
             ]
             return _r.choice(options)
 
@@ -798,6 +855,7 @@ es un ataque de fuerza bruta sostenido desde <code>203.0.113.45</code> contra
         def portal_session(tick: int) -> dict:
             """Return portal session snapshot. ±1 session every 15 ticks."""
             sessions = MockData.portal.active_sessions()
+            chart_history = MockData.portal.session_chart()
             if tick % 15 == 0:
                 count = len(sessions) + 1
             elif tick % 15 == 7:
@@ -809,4 +867,599 @@ es un ataque de fuerza bruta sostenido desde <code>203.0.113.45</code> contra
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "active_sessions": count,
                 "sessions": sessions[:count],
+                "chart_history": chart_history,
             }
+
+        @staticmethod
+        def crowdsec_decision_tick(tick: int) -> dict | None:
+            """Emit a new CrowdSec decision every ~6 ticks (60s at 10s/poll).
+            Simulates real-time decisions arriving from the community feed.
+            """
+            if tick % 6 != 0:
+                return None
+            _r = _random_module.Random(tick + 9999)
+            scenarios = ["crowdsecurity/ssh-bf", "crowdsecurity/port-scan", "crowdsecurity/http-crawl"]
+            countries = ["CN", "RU", "BR", "US", "KR"]
+            origins = ["crowdsec", "cscli", "console"]
+            # new IP each tick (different from existing decisions to simulate stream)
+            octets = [_r.randint(1, 254) for _ in range(4)]
+            ip = ".".join(str(o) for o in octets)
+            scenario = _r.choice(scenarios)
+            return {
+                "id": str(10000 + tick),
+                "ip": ip,
+                "type": "ban",
+                "duration": "24h",
+                "reason": scenario,
+                "origin": _r.choice(origins),
+                "scenario": scenario,
+                "country": _r.choice(countries),
+                "as_name": f"AS{_r.randint(1000, 65000)} Mock ISP",
+                "expires_at": (_NOW + timedelta(hours=24)).isoformat(),
+                "community_score": _r.randint(50, 99),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "is_new": True,
+            }
+
+
+# ── CrowdSec Mock Data ────────────────────────────────────────────────────────
+
+# These IPs are shared with MikroTik and Wazuh mock data for cross-service coherence.
+# 203.0.113.45  → MikroTik Blacklist_Automatica + Wazuh brute-force + CrowdSec ban
+# 198.51.100.22 → MikroTik Blacklist_Automatica + Wazuh port-scan + CrowdSec ban
+# 45.142.212.100 → CrowdSec ban ONLY (intentionally missing from MikroTik for sync demo)
+
+_CROWDSEC_DECISIONS = [
+    {
+        "id": "cs-1",
+        "ip": "203.0.113.45",
+        "type": "ban",
+        "duration": "24h",
+        "reason": "crowdsecurity/ssh-bf",
+        "origin": "crowdsec",
+        "scenario": "crowdsecurity/ssh-bf",
+        "country": "CN",
+        "as_name": "AS4134 Chinanet",
+        "expires_at": (_NOW + timedelta(hours=23, minutes=45)).isoformat(),
+        "community_score": 95,
+        "reported_by": 1250,
+        "is_known_attacker": True,
+    },
+    {
+        "id": "cs-2",
+        "ip": "198.51.100.22",
+        "type": "ban",
+        "duration": "48h",
+        "reason": "crowdsecurity/port-scan",
+        "origin": "crowdsec",
+        "scenario": "crowdsecurity/port-scan",
+        "country": "RU",
+        "as_name": "AS8359 MTS PJSC",
+        "expires_at": (_NOW + timedelta(hours=47)).isoformat(),
+        "community_score": 87,
+        "reported_by": 890,
+        "is_known_attacker": True,
+    },
+    {
+        "id": "cs-3",
+        "ip": "185.220.101.50",
+        "type": "ban",
+        "duration": "7d",
+        "reason": "crowdsecurity/http-probing",
+        "origin": "cscli",
+        "scenario": "crowdsecurity/http-probing",
+        "country": "DE",
+        "as_name": "AS60729 Tor Exit Node",
+        "expires_at": (_NOW + timedelta(days=6, hours=22)).isoformat(),
+        "community_score": 92,
+        "reported_by": 2100,
+        "is_known_attacker": True,
+    },
+    {
+        "id": "cs-4",
+        "ip": "45.142.212.100",
+        "type": "ban",
+        "duration": "24h",
+        "reason": "crowdsecurity/wordpress-bf",
+        "origin": "crowdsec",
+        "scenario": "crowdsecurity/wordpress-bf",
+        "country": "NL",
+        "as_name": "AS206728 Media Land LLC",
+        "expires_at": (_NOW + timedelta(hours=18)).isoformat(),
+        "community_score": 78,
+        "reported_by": 430,
+        "is_known_attacker": True,
+    },
+    {
+        "id": "cs-5",
+        "ip": "91.108.56.130",
+        "type": "captcha",
+        "duration": "1h",
+        "reason": "crowdsecurity/http-crawl",
+        "origin": "crowdsec",
+        "scenario": "crowdsecurity/http-crawl",
+        "country": "UA",
+        "as_name": "AS57024 Aeroflot Digital",
+        "expires_at": (_NOW + timedelta(minutes=45)).isoformat(),
+        "community_score": 45,
+        "reported_by": 120,
+        "is_known_attacker": False,
+    },
+    {
+        "id": "cs-6",
+        "ip": "177.21.52.88",
+        "type": "ban",
+        "duration": "48h",
+        "reason": "crowdsecurity/iptables-scan-multi_ports",
+        "origin": "crowdsec",
+        "scenario": "crowdsecurity/iptables-scan-multi_ports",
+        "country": "BR",
+        "as_name": "AS27699 TELEFÔNICA BRASIL",
+        "expires_at": (_NOW + timedelta(hours=36)).isoformat(),
+        "community_score": 65,
+        "reported_by": 210,
+        "is_known_attacker": False,
+    },
+    {
+        "id": "cs-7",
+        "ip": "5.188.206.45",
+        "type": "ban",
+        "duration": "12h",
+        "reason": "crowdsecurity/ssh-bf",
+        "origin": "console",
+        "scenario": "crowdsecurity/ssh-bf",
+        "country": "RU",
+        "as_name": "AS35470 Serverius LLC",
+        "expires_at": (_NOW + timedelta(hours=8)).isoformat(),
+        "community_score": 83,
+        "reported_by": 670,
+        "is_known_attacker": True,
+    },
+    {
+        "id": "cs-8",
+        "ip": "103.45.67.209",
+        "type": "ban",
+        "duration": "24h",
+        "reason": "crowdsecurity/http-probing",
+        "origin": "crowdsec",
+        "scenario": "crowdsecurity/http-probing",
+        "country": "IN",
+        "as_name": "AS38266 Vodafone India",
+        "expires_at": (_NOW + timedelta(hours=20)).isoformat(),
+        "community_score": 58,
+        "reported_by": 180,
+        "is_known_attacker": False,
+    },
+]
+
+_CROWDSEC_ALERTS = [
+    {
+        "id": "alert-001",
+        "scenario": "crowdsecurity/ssh-bf",
+        "message": "SSH Brute Force: 45 failed attempts in 5 minutes from 203.0.113.45",
+        "events_count": 45,
+        "start_at": _ts(15),
+        "stop_at": _ts(10),
+        "source_ip": "203.0.113.45",
+        "source_country": "CN",
+        "source_as_name": "AS4134 Chinanet",
+        "decisions": [{"type": "ban", "duration": "24h", "scope": "ip", "value": "203.0.113.45"}],
+        "target_agent": "lubuntu_desk_1",
+        "target_ip": "192.168.88.10",
+    },
+    {
+        "id": "alert-002",
+        "scenario": "crowdsecurity/port-scan",
+        "message": "Massive port scan: 200 ports probed from 198.51.100.22",
+        "events_count": 200,
+        "start_at": _ts(30),
+        "stop_at": _ts(25),
+        "source_ip": "198.51.100.22",
+        "source_country": "RU",
+        "source_as_name": "AS8359 MTS PJSC",
+        "decisions": [{"type": "ban", "duration": "48h", "scope": "ip", "value": "198.51.100.22"}],
+        "target_agent": "wazuh-server",
+        "target_ip": "192.168.88.50",
+    },
+    {
+        "id": "alert-003",
+        "scenario": "crowdsecurity/http-crawl",
+        "message": "HTTP Crawling: 500 requests in 1 minute",
+        "events_count": 500,
+        "start_at": _ts(45),
+        "stop_at": _ts(40),
+        "source_ip": "91.108.56.130",
+        "source_country": "UA",
+        "source_as_name": "AS57024 Aeroflot Digital",
+        "decisions": [{"type": "captcha", "duration": "1h", "scope": "ip", "value": "91.108.56.130"}],
+        "target_agent": None,
+        "target_ip": None,
+    },
+    {
+        "id": "alert-004",
+        "scenario": "crowdsecurity/wordpress-bf",
+        "message": "WordPress Brute Force: 300 login attempts",
+        "events_count": 300,
+        "start_at": _ts(60),
+        "stop_at": _ts(50),
+        "source_ip": "45.142.212.100",
+        "source_country": "NL",
+        "source_as_name": "AS206728 Media Land LLC",
+        "decisions": [{"type": "ban", "duration": "24h", "scope": "ip", "value": "45.142.212.100"}],
+        "target_agent": None,
+        "target_ip": None,
+    },
+    {
+        "id": "alert-005",
+        "scenario": "crowdsecurity/http-probing",
+        "message": "HTTP probing: vulnerability scanner detected",
+        "events_count": 85,
+        "start_at": _ts(75),
+        "stop_at": _ts(70),
+        "source_ip": "185.220.101.50",
+        "source_country": "DE",
+        "source_as_name": "AS60729 Tor Exit Node",
+        "decisions": [{"type": "ban", "duration": "7d", "scope": "ip", "value": "185.220.101.50"}],
+        "target_agent": None,
+        "target_ip": None,
+    },
+    {
+        "id": "alert-006",
+        "scenario": "crowdsecurity/iptables-scan-multi_ports",
+        "message": "Multi-port scan: 50 ports probed in 30 seconds",
+        "events_count": 50,
+        "start_at": _ts(90),
+        "stop_at": _ts(85),
+        "source_ip": "177.21.52.88",
+        "source_country": "BR",
+        "source_as_name": "AS27699 TELEFÔNICA BRASIL",
+        "decisions": [{"type": "ban", "duration": "48h", "scope": "ip", "value": "177.21.52.88"}],
+        "target_agent": None,
+        "target_ip": None,
+    },
+    {
+        "id": "alert-007",
+        "scenario": "crowdsecurity/ssh-bf",
+        "message": "SSH Brute Force: 22 failed attempts from 5.188.206.45",
+        "events_count": 22,
+        "start_at": _ts(100),
+        "stop_at": _ts(95),
+        "source_ip": "5.188.206.45",
+        "source_country": "RU",
+        "source_as_name": "AS35470 Serverius LLC",
+        "decisions": [{"type": "ban", "duration": "12h", "scope": "ip", "value": "5.188.206.45"}],
+        "target_agent": "lubuntu_desk_2",
+        "target_ip": "192.168.88.11",
+    },
+    {
+        "id": "alert-008",
+        "scenario": "crowdsecurity/http-probing",
+        "message": "HTTP probing — low severity scanner",
+        "events_count": 30,
+        "start_at": _ts(110),
+        "stop_at": _ts(105),
+        "source_ip": "103.45.67.209",
+        "source_country": "IN",
+        "source_as_name": "AS38266 Vodafone India",
+        "decisions": [{"type": "ban", "duration": "24h", "scope": "ip", "value": "103.45.67.209"}],
+        "target_agent": None,
+        "target_ip": None,
+    },
+    {
+        "id": "alert-009",
+        "scenario": "crowdsecurity/ssh-bf",
+        "message": "SSH Brute Force: 15 attempts — low activity threshold",
+        "events_count": 15,
+        "start_at": _ts(120),
+        "stop_at": _ts(115),
+        "source_ip": "203.0.113.45",
+        "source_country": "CN",
+        "source_as_name": "AS4134 Chinanet",
+        "decisions": [],
+        "target_agent": "lubuntu_desk_1",
+        "target_ip": "192.168.88.10",
+    },
+    {
+        "id": "alert-010",
+        "scenario": "crowdsecurity/wordpress-bf",
+        "message": "WordPress login attempt — single IP repeated",
+        "events_count": 12,
+        "start_at": _ts(130),
+        "stop_at": _ts(128),
+        "source_ip": "91.108.56.130",
+        "source_country": "UA",
+        "source_as_name": "AS57024 Aeroflot Digital",
+        "decisions": [],
+        "target_agent": None,
+        "target_ip": None,
+    },
+]
+
+_CROWDSEC_SCENARIOS = [
+    {
+        "name": "crowdsecurity/ssh-bf",
+        "description": "Detect SSH brute force attacks (failed authentication attempts)",
+        "alerts_count": 45,
+        "last_triggered": _ts(10),
+        "trend": "up",
+    },
+    {
+        "name": "crowdsecurity/port-scan",
+        "description": "Detect TCP port scanning activity",
+        "alerts_count": 23,
+        "last_triggered": _ts(25),
+        "trend": "stable",
+    },
+    {
+        "name": "crowdsecurity/http-crawl",
+        "description": "Detect aggressive HTTP crawling / scraping behavior",
+        "alerts_count": 12,
+        "last_triggered": _ts(40),
+        "trend": "down",
+    },
+    {
+        "name": "crowdsecurity/wordpress-bf",
+        "description": "Detect WordPress wp-login.php brute force attacks",
+        "alerts_count": 8,
+        "last_triggered": _ts(50),
+        "trend": "up",
+    },
+    {
+        "name": "crowdsecurity/http-probing",
+        "description": "Detect vulnerability probing via HTTP requests",
+        "alerts_count": 5,
+        "last_triggered": _ts(70),
+        "trend": "stable",
+    },
+    {
+        "name": "crowdsecurity/iptables-scan-multi_ports",
+        "description": "Detect multi-port scans using iptables logs",
+        "alerts_count": 3,
+        "last_triggered": _ts(85),
+        "trend": "down",
+    },
+]
+
+_CROWDSEC_BOUNCERS = [
+    {
+        "name": "cs-firewall-bouncer",
+        "ip_address": "127.0.0.1",
+        "type": "firewall",
+        "version": "v0.0.28",
+        "last_pull": _ts(2),
+        "created_at": _ts(15 * 24 * 60),
+        "status": "connected",
+    },
+    {
+        "name": "cs-nginx-bouncer",
+        "ip_address": "127.0.0.1",
+        "type": "web",
+        "version": "v1.0.5",
+        "last_pull": _ts(180),
+        "created_at": _ts(10 * 24 * 60),
+        "status": "disconnected",
+    },
+]
+
+_CROWDSEC_MACHINES = [
+    {
+        "name": "netshield-lab",
+        "version": "v1.6.3",
+        "status": "validated",
+        "last_push": _ts(5),
+        "created_at": _ts(15 * 24 * 60),
+        "info": "Main CrowdSec agent for the NetShield lab environment",
+    },
+]
+
+_CROWDSEC_CTI = {
+    "203.0.113.45": {"community_score": 95, "is_known_attacker": True, "reported_by": 1250,
+                     "background_noise": False, "classifications": ["bruteforce", "credential-stuffing"]},
+    "198.51.100.22": {"community_score": 87, "is_known_attacker": True, "reported_by": 890,
+                      "background_noise": False, "classifications": ["scanner"]},
+    "185.220.101.50": {"community_score": 92, "is_known_attacker": True, "reported_by": 2100,
+                       "background_noise": True, "classifications": ["tor-exit-node", "scanner"]},
+    "45.142.212.100": {"community_score": 78, "is_known_attacker": True, "reported_by": 430,
+                       "background_noise": False, "classifications": ["bruteforce"]},
+    "91.108.56.130":  {"community_score": 45, "is_known_attacker": False, "reported_by": 120,
+                       "background_noise": False, "classifications": ["crawler"]},
+    "192.168.88.10":  {"community_score": 0, "is_known_attacker": False, "reported_by": 0,
+                       "background_noise": False, "classifications": []},
+    "192.168.88.11":  {"community_score": 0, "is_known_attacker": False, "reported_by": 0,
+                       "background_noise": False, "classifications": []},
+}
+
+
+class _CrowdSecMockData:
+    """CrowdSec mock data namespace, attached as MockData.crowdsec."""
+
+    @staticmethod
+    def decisions() -> list[dict]:
+        """[CrowdSec API] GET /v1/decisions — active bans and captchas."""
+        return [dict(d) for d in _CROWDSEC_DECISIONS]
+
+    @staticmethod
+    def decisions_stream(startup: bool = False) -> dict:
+        """[CrowdSec API] GET /v1/decisions/stream — new decisions since last pull."""
+        if startup:
+            return {"new": _CROWDSEC_DECISIONS[:3], "deleted": []}
+        return {"new": [], "deleted": []}
+
+    @staticmethod
+    def alerts(
+        limit: int = 50,
+        scenario: str | None = None,
+        ip: str | None = None,
+    ) -> list[dict]:
+        """[CrowdSec API] GET /v1/alerts — alerts detected by the local agent."""
+        result = [dict(a) for a in _CROWDSEC_ALERTS]
+        if scenario:
+            result = [a for a in result if scenario.lower() in a["scenario"].lower()]
+        if ip:
+            result = [a for a in result if a["source_ip"] == ip]
+        return result[:limit]
+
+    @staticmethod
+    def alert_detail(alert_id: str) -> dict | None:
+        """[CrowdSec API] GET /v1/alerts/{id} — full alert with all events."""
+        base = next((dict(a) for a in _CROWDSEC_ALERTS if a["id"] == alert_id), None)
+        if base:
+            # Add synthetic events list for detail view
+            base["events"] = [
+                {
+                    "timestamp": _ts(i),
+                    "meta": [{"key": "source_ip", "value": base["source_ip"]},
+                              {"key": "http_path", "value": f"/wp-login.php?attempt={i}"}],
+                }
+                for i in range(min(base["events_count"], 10))
+            ]
+        return base
+
+    @staticmethod
+    def bouncers() -> list[dict]:
+        """[CrowdSec API] GET /v1/bouncers — registered bouncers."""
+        return [dict(b) for b in _CROWDSEC_BOUNCERS]
+
+    @staticmethod
+    def machines() -> list[dict]:
+        """[CrowdSec API] GET /v1/machines — registered agents."""
+        return [dict(m) for m in _CROWDSEC_MACHINES]
+
+    @staticmethod
+    def scenarios() -> list[dict]:
+        """[CrowdSec API] Derived from GET /v1/alerts — active detection scenarios."""
+        return [dict(s) for s in _CROWDSEC_SCENARIOS]
+
+    @staticmethod
+    def metrics() -> dict:
+        """[CrowdSec API] Computed from /v1/alerts + /v1/decisions."""
+        _r = _random_module.Random(42)
+        decisions_per_hour = []
+        for i in range(24):
+            t = _NOW - timedelta(hours=24 - i)
+            base = _r.randint(0, 3)
+            spike = 8 if i in (2, 14, 21) else 0
+            decisions_per_hour.append({
+                "hour": t.strftime("%Y-%m-%dT%H:00:00"),
+                "count": base + spike,
+            })
+        return {
+            "active_decisions": len(_CROWDSEC_DECISIONS),
+            "alerts_24h": 47,
+            "scenarios_active": len(_CROWDSEC_SCENARIOS),
+            "bouncers_connected": sum(1 for b in _CROWDSEC_BOUNCERS if b["status"] == "connected"),
+            "top_countries": [
+                {"country": "CN", "code": "CN", "count": 18, "pct": 35},
+                {"country": "Russia", "code": "RU", "count": 14, "pct": 28},
+                {"country": "United States", "code": "US", "count": 8, "pct": 15},
+                {"country": "Brazil", "code": "BR", "count": 5, "pct": 10},
+                {"country": "Netherlands", "code": "NL", "count": 4, "pct": 8},
+                {"country": "Germany", "code": "DE", "count": 2, "pct": 4},
+            ],
+            "top_scenario": {"name": "crowdsecurity/ssh-bf", "count": 45},
+            "decisions_per_hour": decisions_per_hour,
+        }
+
+    @staticmethod
+    def cti_ip(ip: str) -> dict:
+        """[CrowdSec CTI] Community threat intelligence score for an IP."""
+        return _CROWDSEC_CTI.get(ip, {
+            "community_score": 0,
+            "is_known_attacker": False,
+            "reported_by": 0,
+            "background_noise": False,
+            "classifications": [],
+        })
+
+    @staticmethod
+    def sync_status() -> dict:
+        """Compare CrowdSec active decisions with MikroTik Blacklist_Automatica.
+
+        Intentionally 45.142.212.100 is only in CrowdSec (not in MikroTik)
+        to demonstrate the sync workflow in demo mode.
+        """
+        crowdsec_ips = {d["ip"] for d in _CROWDSEC_DECISIONS if d["type"] == "ban"}
+        # MikroTik Blacklist_Automatica from mock_data
+        mikrotik_ips = {"203.0.113.45", "198.51.100.22"}
+        only_crowdsec = sorted(crowdsec_ips - mikrotik_ips)
+        only_mikrotik = sorted(mikrotik_ips - crowdsec_ips)
+        synced = sorted(crowdsec_ips & mikrotik_ips)
+        return {
+            "in_sync": len(only_crowdsec) == 0 and len(only_mikrotik) == 0,
+            "only_in_crowdsec": only_crowdsec,
+            "only_in_mikrotik": only_mikrotik,
+            "synced_ips": synced,
+            "synced_count": len(synced),
+            "total_crowdsec": len(crowdsec_ips),
+            "total_mikrotik": len(mikrotik_ips),
+        }
+
+    @staticmethod
+    def hub() -> dict:
+        """[CrowdSec Hub] Installed collections and their status."""
+        return {
+            "collections": [
+                {"name": "crowdsecurity/linux", "status": "up-to-date", "version": "0.2"},
+                {"name": "crowdsecurity/nginx", "status": "up-to-date", "version": "0.1"},
+                {"name": "crowdsecurity/wordpress", "status": "up-to-date", "version": "0.1"},
+                {"name": "crowdsecurity/ssh-bf", "status": "up-to-date", "version": "2.1"},
+            ],
+            "parsers": [
+                {"name": "crowdsecurity/sshd-logs", "status": "enabled", "version": "2.3"},
+                {"name": "crowdsecurity/nginx-logs", "status": "enabled", "version": "1.0"},
+                {"name": "crowdsecurity/iptables-logs", "status": "enabled", "version": "1.0"},
+            ],
+            "last_update": _ts(60),
+        }
+
+    @staticmethod
+    def ip_context(ip: str) -> dict:
+        """Unified IP profile combining CrowdSec + MikroTik + Wazuh data."""
+        decisions = [d for d in _CROWDSEC_DECISIONS if d["ip"] == ip]
+        alerts = [a for a in _CROWDSEC_ALERTS if a["source_ip"] == ip]
+        cti = _CrowdSecMockData.cti_ip(ip)
+
+        # MikroTik data
+        mt_blacklist_ips = {"203.0.113.45", "198.51.100.22"}
+        mt_arp = next(
+            (h for h in _LAB_HOSTS if h["ip"] == ip), None
+        )
+
+        # Wazuh data
+        from services.mock_data import MockData as _md
+        wazuh_alerts = [
+            a for a in MockData.wazuh.alerts(limit=100)
+            if a.get("src_ip") == ip or a.get("agent_ip") == ip
+        ]
+        affected_agents = list({a["agent_name"] for a in wazuh_alerts})
+
+        return {
+            "ip": ip,
+            "crowdsec": {
+                "decisions": decisions,
+                "alerts": alerts[:5],
+                "community_score": cti["community_score"],
+                "is_known_attacker": cti["is_known_attacker"],
+                "reported_by": cti["reported_by"],
+                "background_noise": cti["background_noise"],
+                "classifications": cti["classifications"],
+                "country": decisions[0]["country"] if decisions else "",
+                "as_name": decisions[0]["as_name"] if decisions else "",
+            },
+            "mikrotik": {
+                "in_arp": mt_arp is not None,
+                "arp_comment": mt_arp["name"] if mt_arp else None,
+                "in_blacklist": ip in mt_blacklist_ips,
+                "firewall_rules": [],
+            },
+            "wazuh": {
+                "alerts_count": len(wazuh_alerts),
+                "last_alert": wazuh_alerts[0] if wazuh_alerts else None,
+                "agents_affected": affected_agents,
+            },
+        }
+
+
+# Attach as class-level attribute so usage is MockData.crowdsec.decisions()
+MockData.crowdsec = _CrowdSecMockData
+

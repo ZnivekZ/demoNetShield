@@ -502,3 +502,88 @@ export const systemApi = {
   getMockStatus: () =>
     api.get<APIResponse<MockStatus>>('/system/mock-status').then(r => r.data),
 };
+
+/* ── CrowdSec ───────────────────────────────────────────────────── */
+
+import type {
+  CrowdSecDecision,
+  CrowdSecAlert,
+  CrowdSecBouncer,
+  CrowdSecMachine,
+  CrowdSecScenario,
+  CrowdSecMetrics,
+  CrowdSecWhitelistEntry,
+  CrowdSecSyncStatus,
+  CrowdSecHub,
+  IpContext,
+  ManualDecisionRequest,
+  WhitelistRequest,
+  FullRemediationRequest,
+  SyncApplyRequest,
+} from '../types';
+
+export const crowdsecApi = {
+  // ── Decisions ─────────────────────────────────────────────
+  getDecisions: (params?: { ip?: string; scenario?: string; type?: string }) =>
+    api.get<APIResponse<CrowdSecDecision[]>>('/crowdsec/decisions', { params }).then(r => r.data),
+
+  getDecisionsStream: (startup = false) =>
+    api.get<APIResponse<{ new: CrowdSecDecision[]; deleted: CrowdSecDecision[] }>>(
+      '/crowdsec/decisions/stream', { params: { startup } }
+    ).then(r => r.data),
+
+  addDecision: (data: ManualDecisionRequest) =>
+    api.post<APIResponse>('/crowdsec/decisions/manual', data).then(r => r.data),
+
+  deleteDecision: (id: string) =>
+    api.delete<APIResponse>(`/crowdsec/decisions/${id}`).then(r => r.data),
+
+  deleteDecisionsByIp: (ip: string) =>
+    api.delete<APIResponse>(`/crowdsec/decisions/ip/${encodeURIComponent(ip)}`).then(r => r.data),
+
+  // ── Alerts ────────────────────────────────────────────────
+  getAlerts: (params?: { limit?: number; scenario?: string; ip?: string }) =>
+    api.get<APIResponse<CrowdSecAlert[]>>('/crowdsec/alerts', { params }).then(r => r.data),
+
+  getAlertDetail: (id: string) =>
+    api.get<APIResponse<CrowdSecAlert>>(`/crowdsec/alerts/${id}`).then(r => r.data),
+
+  // ── Infrastructure ────────────────────────────────────────
+  getBouncers: () =>
+    api.get<APIResponse<CrowdSecBouncer[]>>('/crowdsec/bouncers').then(r => r.data),
+
+  getMachines: () =>
+    api.get<APIResponse<CrowdSecMachine[]>>('/crowdsec/machines').then(r => r.data),
+
+  getScenarios: () =>
+    api.get<APIResponse<CrowdSecScenario[]>>('/crowdsec/scenarios').then(r => r.data),
+
+  getMetrics: () =>
+    api.get<APIResponse<CrowdSecMetrics>>('/crowdsec/metrics').then(r => r.data),
+
+  getHub: () =>
+    api.get<APIResponse<CrowdSecHub>>('/crowdsec/hub').then(r => r.data),
+
+  // ── Whitelist ─────────────────────────────────────────────
+  getWhitelist: () =>
+    api.get<APIResponse<CrowdSecWhitelistEntry[]>>('/crowdsec/whitelist').then(r => r.data),
+
+  addWhitelist: (data: WhitelistRequest) =>
+    api.post<APIResponse<CrowdSecWhitelistEntry>>('/crowdsec/whitelist', data).then(r => r.data),
+
+  deleteWhitelist: (id: number) =>
+    api.delete<APIResponse>(`/crowdsec/whitelist/${id}`).then(r => r.data),
+
+  // ── Hybrid ────────────────────────────────────────────────
+  getIpContext: (ip: string) =>
+    api.get<APIResponse<IpContext>>(`/crowdsec/context/ip/${encodeURIComponent(ip)}`).then(r => r.data),
+
+  fullRemediation: (data: FullRemediationRequest) =>
+    api.post<APIResponse>('/crowdsec/remediation/full', data).then(r => r.data),
+
+  getSyncStatus: () =>
+    api.get<APIResponse<CrowdSecSyncStatus>>('/crowdsec/sync/status').then(r => r.data),
+
+  applySync: (data: SyncApplyRequest) =>
+    api.post<APIResponse>('/crowdsec/sync/apply', data).then(r => r.data),
+};

@@ -77,11 +77,17 @@ class Settings(BaseSettings):
     hotspot_server_name: str = "hotspot1"
     hotspot_address_pool: str = "hs-pool-1"
 
-    # ── GLPI Asset Management ─────────────────────────────────
+    # ── GLPI Asset Management ─────────────────────────────────────────────
     glpi_url: str = "http://glpi.facultad.local"
     glpi_app_token: str = ""
     glpi_user_token: str = ""
     glpi_verify_ssl: bool = False
+
+    # ── CrowdSec IPS ──────────────────────────────────────────────────────
+    # Local API (LAPI) del agente CrowdSec. Puerto 8080 por defecto.
+    # Activar cuando CrowdSec esté instalado: MOCK_CROWDSEC=false + credenciales.
+    crowdsec_url: str = "http://localhost:8080"
+    crowdsec_api_key: str = ""
 
     # ── Mock Mode ─────────────────────────────────────────────
     # Global toggle — activa mock para TODOS los servicios
@@ -91,6 +97,7 @@ class Settings(BaseSettings):
     mock_wazuh: bool = False
     mock_glpi: bool = False
     mock_anthropic: bool = False
+    mock_crowdsec: bool = False
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -131,7 +138,7 @@ class Settings(BaseSettings):
         import os
         return any(
             os.environ.get(var) is not None
-            for var in ("MOCK_ALL", "MOCK_MIKROTIK", "MOCK_WAZUH", "MOCK_GLPI", "MOCK_ANTHROPIC")
+            for var in ("MOCK_ALL", "MOCK_MIKROTIK", "MOCK_WAZUH", "MOCK_GLPI", "MOCK_ANTHROPIC", "MOCK_CROWDSEC")
         )
 
     @property
@@ -165,6 +172,11 @@ class Settings(BaseSettings):
     def should_mock_anthropic(self) -> bool:
         """True si Anthropic debe usar datos mock."""
         return self._effective_mock_all or self.mock_anthropic
+
+    @property
+    def should_mock_crowdsec(self) -> bool:
+        """True si CrowdSec debe usar datos mock."""
+        return self._effective_mock_all or self.mock_crowdsec
 
 
 @lru_cache()

@@ -68,6 +68,11 @@ class MikroTikService:
         Establish connection to MikroTik CHR.
         Uses plaintext_login=True for lab environment.
         """
+        if self._settings.should_mock_mikrotik:
+            self._connected = True
+            logger.info("mikrotik_mock_mode_active_skipping_connection")
+            return
+
         async with self._connect_lock:
             if self._connected and self._api is not None:
                 return

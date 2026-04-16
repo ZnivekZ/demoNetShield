@@ -41,6 +41,9 @@ import {
   Activity,
   Wifi,
   Package,
+  ShieldCheck,
+  Globe,
+  Settings2,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GlobalSearch } from './common/GlobalSearch';
@@ -49,7 +52,9 @@ import { ConfirmModal } from './common/ConfirmModal';
 import { useBlockIP } from '../hooks/useSecurityActions';
 import { useMikrotikHealth } from '../hooks/useMikrotikHealth';
 import { useWazuhHealth } from '../hooks/useWazuhSummary';
+import { useCrowdSecHealth } from '../hooks/useCrowdSecMetrics';
 import { MockModeBadge } from './common/MockModeBadge';
+import { IpContextPanel } from './crowdsec/IpContextPanel';
 
 // ── Navigation structure (max 20 items total) ─────────────────
 const navGroups = [
@@ -77,6 +82,14 @@ const navGroups = [
     ],
   },
   {
+    label: 'CrowdSec',
+    items: [
+      { to: '/crowdsec', icon: ShieldCheck, label: 'Centro de Mando', end: true },
+      { to: '/crowdsec/intelligence', icon: Globe, label: 'Inteligencia', end: false },
+      { to: '/crowdsec/config', icon: Settings2, label: 'Configuración', end: false },
+    ],
+  },
+  {
     label: 'Inventario',
     items: [
       { to: '/inventory', icon: Package, label: 'GLPI', end: false },
@@ -90,10 +103,13 @@ export default function Layout() {
   // Global block IP flow (triggered by GlobalSearch or NotificationPanel)
   const [blockIPTarget, setBlockIPTarget] = useState<string | null>(null);
   const blockIPMutation = useBlockIP();
+  // Global IP context panel (CrowdSec unified view)
+  const [ipContextTarget, setIpContextTarget] = useState<string | null>(null);
 
   // Status indicators logic
   const { data: mtHealth, isLoading: mtLoading, isError: mtError } = useMikrotikHealth();
   const { data: wazuhHealth, isLoading: wazuhLoading, isError: wazuhError } = useWazuhHealth();
+  const { data: csHealth, isLoading: csLoading, isError: csError } = useCrowdSecHealth();
 
   const getStatusClass = (isLoading: boolean, isError: boolean, data: unknown) => {
     if (isLoading) return 'status-dot pending';
@@ -195,7 +211,10 @@ export default function Layout() {
 
           {/* Global Search */}
           <div style={{ flex: 1 }}>
-            <GlobalSearch onBlockIP={ip => setBlockIPTarget(ip)} />
+            <GlobalSearch
+              onBlockIP={ip => setBlockIPTarget(ip)}
+              onShowIpContext={ip => setIpContextTarget(ip)}
+            />
           </div>
 
           {/* Status dots + MockModeBadge + Notification Bell */}
@@ -208,9 +227,14 @@ export default function Layout() {
               <span className={getStatusClass(wazuhLoading, wazuhError, wazuhHealth)} />
               Wazuh
             </div>
+            <div className="flex items-center gap-1.5" title={csHealth ? `CrowdSec: ${csHealth.active_decisions} decisiones activas` : 'CrowdSec'}>
+              <span className={getStatusClass(csLoading, csError, csHealth)} />
+              CrowdSec
+            </div>
             <MockModeBadge />
             <NotificationPanel
               onBlockIP={ip => setBlockIPTarget(ip)}
+              onShowIpContext={ip => setIpContextTarget(ip)}
             />
           </div>
         </header>
@@ -233,6 +257,13 @@ export default function Layout() {
           isLoading={blockIPMutation.isPending}
         />
       )}
+
+      {/* Global IP Context Panel (CrowdSec unified view) */}
+      <IpContextPanel
+        ip={ipContextTarget}
+        onClose={() => setIpContextTarget(null)}
+        onFullBlock={ip => { setIpContextTarget(null); setBlockIPTarget(ip); }}
+      />
     </div>
   );
 }

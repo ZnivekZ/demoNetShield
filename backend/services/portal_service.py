@@ -220,6 +220,24 @@ class PortalService:
         past sessions with login/logout times.
         Resource: /ip/hotspot/host
         """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            history = MockData.portal.session_history(limit=limit)
+            if user:
+                history = [h for h in history if user.lower() in h["user"].lower()]
+            return [
+                {
+                    "user": h["user"],
+                    "mac": h["mac"],
+                    "ip": h["address"],
+                    "login_time": h["from"],
+                    "logout_time": h["till"],
+                    "duration": h["uptime"],
+                    "bytes_in": h["bytes_in"],
+                    "bytes_out": h["bytes_out"],
+                }
+                for h in history
+            ]
         await self._require_hotspot()
         try:
             hosts = await self._api_call("/ip/hotspot/host")
@@ -253,6 +271,9 @@ class PortalService:
         [MikroTik API] Aggregate real-time stats from active sessions.
         Resource: /ip/hotspot/active
         """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.portal.realtime_stats()
         await self._require_hotspot()
         try:
             sessions = await self.get_active_sessions()
@@ -284,6 +305,29 @@ class PortalService:
         [MikroTik API] Aggregated historical statistics.
         Fetches from /ip/hotspot/host and /ip/hotspot/user for aggregation.
         """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            raw = MockData.portal.summary_stats()
+            # Map mock shape → shape expected by StatsView
+            return {
+                "unique_users_today": raw.get("sessions_today", 15),
+                "unique_users_week": raw.get("sessions_this_week", 87),
+                "unique_users_month": raw.get("total_unique_users", 23),
+                "avg_session_duration_seconds": 3600,
+                "top_by_data": [
+                    {"user": u["user"], "bytes_total": u["total_bytes_in"], "sessions": u["session_count"]}
+                    for u in raw.get("top_users", [])
+                ],
+                "top_by_time": [
+                    {"user": u["user"], "total_uptime_seconds": u["session_count"] * 3600, "sessions": u["session_count"]}
+                    for u in raw.get("top_users", [])
+                ],
+                "new_registrations_30d": [
+                    {"date": f"2026-03-{(i+1):02d}", "count": (i % 3) + 1}
+                    for i in range(15)
+                ],
+                "peak_by_day": raw.get("heatmap", []),
+            }
         await self._require_hotspot()
         try:
             hosts = await self._api_call("/ip/hotspot/host")
@@ -378,6 +422,32 @@ class PortalService:
         Resource: /ip/hotspot/user
         Enriched with last_seen from /ip/hotspot/host and local DB metadata.
         """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            users = MockData.portal.users()
+            if search:
+                s = search.lower()
+                users = [u for u in users if s in u["name"].lower()]
+            if profile:
+                users = [u for u in users if u["profile"] == profile]
+            # Normalise to the same schema as the real path
+            result = [
+                {
+                    "name": u["name"],
+                    "profile": u["profile"],
+                    "mac_address": "",
+                    "limit_uptime": u.get("uptime_limit", ""),
+                    "limit_bytes_total": "",
+                    "disabled": u.get("disabled", False),
+                    "comment": u.get("comment", ""),
+                    "last_seen": "",
+                    "total_sessions": 0,
+                    "created_at": None,
+                    "created_by": "mock",
+                }
+                for u in users
+            ]
+            return result[offset:offset + limit]
         await self._require_hotspot()
         try:
             users = await self._api_call("/ip/hotspot/user")
@@ -588,6 +658,21 @@ class PortalService:
         [MikroTik API] List all hotspot user speed profiles.
         Resource: /ip/hotspot/user/profile
         """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            raw = MockData.portal.profiles()
+            return [
+                {
+                    "name": p["name"],
+                    "rate_limit": p["rate_limit"],
+                    "rate_limit_up": p["rate_limit"].split("/")[0].strip() if "/" in p["rate_limit"] else p["rate_limit"],
+                    "rate_limit_down": p["rate_limit"].split("/")[1].strip() if "/" in p["rate_limit"] else p["rate_limit"],
+                    "session_timeout": p.get("session_timeout", ""),
+                    "idle_timeout": p.get("idle_timeout", ""),
+                    "is_unregistered": p["name"] == "unregistered",
+                }
+                for p in raw
+            ]
         await self._require_hotspot()
         try:
             profiles = await self._api_call("/ip/hotspot/user/profile")
@@ -693,6 +778,9 @@ class PortalService:
         [MikroTik API] Get current Hotspot server + profile configuration.
         Resources: /ip/hotspot/server + /ip/hotspot/profile
         """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.portal.hotspot_config()
         await self._require_hotspot()
         try:
             servers = await self._api_call("/ip/hotspot/server")
@@ -837,6 +925,9 @@ class PortalService:
         Filters rules by comment 'netshield-hotspot-schedule'.
         Resource: /ip/firewall/filter
         """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.portal.schedule()
         try:
             rules = await self._api_call("/ip/firewall/filter")
             schedule_rules = [r for r in rules if r.get("comment", "") == "netshield-hotspot-schedule"]

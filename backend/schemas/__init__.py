@@ -98,6 +98,12 @@ from schemas.glpi import (
     NetworkMaintenanceRequest,
     GlpiAvailability,
 )
+from schemas.crowdsec import (
+    ManualDecisionRequest,
+    WhitelistRequest,
+    FullRemediationRequest,
+    SyncApplyRequest,
+)
 
 
 __all__ = [

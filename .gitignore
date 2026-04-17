@@ -90,3 +90,6 @@ logs/
 
 # Misc
 .gemini/
+
+# GeoIP databases (se descargan con download_geoip.py, no se commitean)
+backend/data/geoip/*.mmdb

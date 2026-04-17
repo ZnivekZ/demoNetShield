@@ -8,6 +8,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recha
 import { useMikrotikHealth, useInterfaceTraffic, useInterfaces } from '../../hooks/useMikrotikHealth';
 import { useWazuhHealth, useAgentsSummary } from '../../hooks/useWazuhSummary';
 import { RemoteCLI } from './RemoteCLI';
+import { GeoIPStatus } from './GeoIPStatus';
 
 export function SystemHealth() {
   const { data: mtHealth } = useMikrotikHealth();
@@ -175,6 +176,11 @@ export function SystemHealth() {
             ) : (
               <div className="empty-state">Sin datos de tráfico</div>
             )}
+          </div>
+
+          {/* GeoIP DB Status */}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <GeoIPStatus />
           </div>
         </div>
       )}

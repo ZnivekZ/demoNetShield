@@ -770,6 +770,9 @@ export interface MockServiceStatus {
   glpi: boolean;
   anthropic: boolean;
   crowdsec: boolean;
+  geoip: boolean;
+  suricata: boolean;
+  telegram: boolean;
 }
 
 export interface MockStatus {
@@ -795,6 +798,16 @@ export interface CrowdSecDecision {
   reported_by: number;
   is_known_attacker: boolean;
   mock?: boolean;
+  // GeoIP enrichment (injected by backend geoip_service)
+  geo?: {
+    city: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    network_type: string | null;
+    is_datacenter: boolean;
+    is_tor: boolean;
+    raw_available: boolean;
+  };
 }
 
 export interface CrowdSecAlert {
@@ -929,6 +942,11 @@ export interface CrowdSecDecisionWSMessage {
   data: CrowdSecDecision & { is_new?: boolean; timestamp: string };
 }
 
+export interface SuricataAlertWSMessage {
+  type: 'suricata_alert';
+  data: SuricataAlert;
+}
+
 export type WSMessage =
   | TrafficWSMessage
   | AlertWSMessage
@@ -936,7 +954,8 @@ export type WSMessage =
   | VlanTrafficWSMessage
   | PortalSessionWSMessage
   | PortalErrorWSMessage
-  | CrowdSecDecisionWSMessage;
+  | CrowdSecDecisionWSMessage
+  | SuricataAlertWSMessage;
 
 /* ── CrowdSec Request Types ──────────────────────────────────────── */
 
@@ -962,4 +981,402 @@ export interface FullRemediationRequest {
 export interface SyncApplyRequest {
   add_to_mikrotik: string[];
   remove_from_mikrotik: string[];
+}
+
+/* ── GeoIP Types ─────────────────────────────────────────────── */
+
+/** Full GeoIP result for a single IP address */
+export interface GeoIPResult {
+  ip: string;
+  country_code: string;  // ISO 3166-1 alpha-2 | "LOCAL" | "UNKNOWN"
+  country_name: string;
+  city: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  asn: number | null;
+  as_name: string | null;
+  network_type: string | null;  // "ISP" | "Hosting" | "Business" | "Residential" | "Local"
+  is_datacenter: boolean;
+  is_tor: boolean;
+  raw_available: boolean;  // false when using mock data
+}
+
+/** Enrichment sub-object injected into existing Wazuh alerts */
+export interface GeoIPGeo {
+  country_code: string;
+  country_name: string;
+  city: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  network_type: string | null;
+  is_datacenter: boolean;
+  is_tor: boolean;
+  raw_available: boolean;
+}
+
+export interface SourceCounts {
+  crowdsec: number;
+  wazuh: number;
+  mikrotik: number;
+}
+
+export interface TopCountryItem {
+  country_code: string;
+  country_name: string;
+  count: number;
+  percentage: number;
+  sources: SourceCounts;
+  top_asns: string[];
+}
+
+export interface TopCountriesResponse {
+  countries: TopCountryItem[];
+  total_ips: number;
+  source: string;
+  generated_at: string;
+}
+
+export interface TopASNItem {
+  asn: number;
+  as_name: string;
+  country_code: string;
+  count: number;
+  is_datacenter: boolean;
+}
+
+export interface SuggestionEvidence {
+  crowdsec_ips: string[];
+  wazuh_alerts: number;
+  affected_agents: string[];
+}
+
+export interface GeoBlockSuggestion {
+  id: string;
+  type: 'country' | 'asn';
+  target: string;       // country_code or "AS60729"
+  target_name: string;
+  reason: string;
+  evidence: SuggestionEvidence;
+  risk_level: 'high' | 'medium';
+  estimated_block_count: number;
+  suggested_duration: string;
+}
+
+export interface GeoIPDBEntry {
+  loaded: boolean;
+  path: string;
+  build_epoch: number | null;
+  description: string;
+}
+
+export interface GeoIPDBStatus {
+  city_db: GeoIPDBEntry;
+  asn_db: GeoIPDBEntry;
+  mock_mode: boolean;
+  cache_size: number;
+  cache_ttl_seconds: number;
+}
+
+/* ── Suricata IDS/IPS/NSM Types ───────────────────────────────── */
+
+export interface SuricataGeo {
+  country: string;
+  country_name: string;
+  as_name: string;
+}
+
+export interface SuricataAlert {
+  id: string;
+  timestamp: string;
+  signature_id: number;
+  signature: string;
+  category: string;
+  severity: 1 | 2 | 3;  // 1=critical 2=major 3=minor
+  protocol: string;
+  src_ip: string;
+  src_port: number;
+  dst_ip: string;
+  dst_port: number;
+  action: 'alert' | 'drop' | 'pass';
+  flow_id: string | null;
+  app_proto: string | null;
+  mitre_technique: string | null;
+  mitre_name: string | null;
+  wazuh_alert_id: string | null;
+  crowdsec_decision_id: string | null;
+  geo: SuricataGeo | null;
+  mock?: boolean;
+}
+
+export interface NetworkFlow {
+  id: string;
+  timestamp: string;
+  protocol: string;
+  src_ip: string;
+  src_port: number;
+  dst_ip: string;
+  dst_port: number;
+  bytes_toserver: number;
+  bytes_toclient: number;
+  pkts_toserver: number;
+  pkts_toclient: number;
+  app_proto: string | null;
+  state: 'new' | 'established' | 'closed';
+  duration_ms: number;
+  has_alert: boolean;
+}
+
+export interface DnsQuery {
+  id: string;
+  timestamp: string;
+  src_ip: string;
+  src_port: number;
+  dst_ip: string;
+  dst_port: number;
+  query: string;
+  type: string;
+  response: string;
+  is_suspicious: boolean;
+  flow_id: string | null;
+}
+
+export interface HttpTransaction {
+  id: string;
+  timestamp: string;
+  src_ip: string;
+  dst_ip: string;
+  dst_port: number;
+  hostname: string;
+  url: string;
+  method: string;
+  status: number;
+  user_agent: string;
+  content_type: string;
+  response_bytes: number;
+  is_suspicious: boolean;
+  flow_id: string | null;
+}
+
+export interface TlsHandshake {
+  id: string;
+  timestamp: string;
+  src_ip: string;
+  dst_ip: string;
+  dst_port: number;
+  sni: string | null;
+  version: string;
+  ja3: string | null;
+  ja3s: string | null;
+  is_suspicious: boolean;
+  flow_id: string | null;
+}
+
+export interface SuricataRule {
+  sid: number;
+  enabled: boolean;
+  ruleset: string;
+  category: string;
+  rule: string;
+  hits_total: number;
+  hits_last_hour: number;
+  last_hit: string | null;
+}
+
+export interface SuricataRuleset {
+  name: string;
+  description: string;
+  rules_count: number;
+  enabled_count: number;
+  last_updated: string | null;
+  version: string | null;
+  is_active: boolean;
+}
+
+export interface EngineStats {
+  running: boolean;
+  mode: 'ids' | 'ips' | 'nsm';
+  version: string;
+  uptime_seconds: number;
+  uptime_label: string;
+  threads: { detect: number; output: number; capture: number };
+  packets_captured: number;
+  packets_decoded: number;
+  packets_dropped: number;
+  alerts_total: number;
+  flows_active: number;
+  bytes_processed: number;
+  interface: string;
+  rules_loaded: number;
+  rules_failed: number;
+  last_reload: string | null;
+  mock?: boolean;
+}
+
+export interface EngineStatPoint {
+  minute: string;
+  packets_per_sec: number;
+  alerts_per_min: number;
+  dropped: number;
+}
+
+export interface AlertTimelinePoint {
+  minute: string;
+  count_ids: number;
+  count_ips: number;
+}
+
+export interface TopSignature {
+  sid: number;
+  signature: string;
+  category: string;
+  hits: number;
+  last_hit: string | null;
+}
+
+export interface CategoryDistribution {
+  category: string;
+  count: number;
+  color: string;
+}
+
+export interface FlowsStats {
+  total_flows: number;
+  active_flows: number;
+  top_protocols: { proto: string; count: number; bytes: number }[];
+  top_app_protos: { app_proto: string; count: number; bytes: number }[];
+  top_src_ips: { ip: string; flows: number; bytes: number; has_alerts?: boolean }[];
+  top_dst_ports: { port: number; count: number }[];
+}
+
+export interface SuricataCorrelation {
+  ip: string;
+  suricata_alerts: number;
+  suricata_signatures: string[];
+  crowdsec_decision_id: string | null;
+  crowdsec_scenario: string | null;
+  crowdsec_type: string | null;
+  correlation_type: 'confirmed_threat' | 'correlated' | 'suricata_only';
+  geo: SuricataGeo | null;
+}
+
+export interface WazuhCorrelation {
+  suricata_alert_id: string;
+  suricata_signature: string;
+  suricata_timestamp: string;
+  wazuh_alert_id: string;
+  wazuh_description: string;
+  wazuh_timestamp: string;
+  wazuh_agent: string;
+  delta_seconds: number;
+  correlation_strength: 'high' | 'medium' | 'low';
+}
+
+export interface AutoResponseConfig {
+  enabled: boolean;
+  auto_trigger: boolean;
+  suricata_threshold: number;
+  wazuh_level_required: number;
+  actions: {
+    crowdsec_ban: boolean;
+    mikrotik_block: boolean;
+    default_duration: string;
+  };
+  last_updated: string;
+  updated_by: string;
+}
+
+export interface AutoResponseHistoryEntry {
+  id: string;
+  ip: string;
+  triggered_at: string;
+  triggered_by: string;
+  trigger_alert_id?: string;
+  suricata_alerts_count: number;
+  wazuh_level: number | null;
+  actions_taken: string[];
+  crowdsec_decision_id?: string;
+  mikrotik_rule_id?: string;
+  duration: string;
+  reason: string;
+  mock?: boolean;
+}
+
+export interface AutoResponseTriggerResult {
+  success: boolean;
+  ip: string;
+  trigger_alert_id: string;
+  actions_taken: string[];
+  history_entry_id: string;
+  crowdsec?: unknown;
+  mikrotik?: unknown;
+  error?: string;
+}
+
+export interface SuricataIpContext {
+  ip: string;
+  alerts_count: number;
+  recent_alerts: SuricataAlert[];
+  flows_count: number;
+  top_signatures: string[];
+  last_seen: string | null;
+}
+
+/* ── Telegram Bot Types ──────────────────────────────────────────────── */
+
+export interface TelegramStatus {
+  connected: boolean;
+  bot_username: string | null;
+  chat_id: string | null;
+  pending_messages: number;
+  last_message_at: string | null;
+  mock: boolean;
+}
+
+export interface TelegramReportConfig {
+  id: number;
+  name: string;
+  enabled: boolean;
+  trigger: 'scheduled' | 'on_alert' | 'on_threshold';
+  schedule: string | null;
+  sources: string[];
+  min_severity: number;
+  audience: 'executive' | 'technical' | 'compliance';
+  include_summary: boolean;
+  include_charts: boolean;
+  chat_id: string | null;
+  last_triggered: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TelegramReportConfigCreate {
+  name: string;
+  enabled?: boolean;
+  trigger: 'scheduled' | 'on_alert' | 'on_threshold';
+  schedule?: string | null;
+  sources: string[];
+  min_severity?: number;
+  audience?: 'executive' | 'technical' | 'compliance';
+  include_summary?: boolean;
+  include_charts?: boolean;
+  chat_id?: string | null;
+}
+
+export interface TelegramMessageLog {
+  id: number;
+  direction: 'outbound' | 'inbound';
+  chat_id: string;
+  message_type: 'alert' | 'summary' | 'report' | 'test' | 'bot_query' | 'bot_response';
+  content_summary: string;
+  status: 'sent' | 'failed' | 'pending';
+  error: string | null;
+  created_at: string;
+}
+
+export interface TelegramSendResult {
+  ok: boolean;
+  message_id?: number;
+  chat_id?: string;
+  error?: string;
+  mock?: boolean;
 }

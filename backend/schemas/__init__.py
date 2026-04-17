@@ -104,6 +104,24 @@ from schemas.crowdsec import (
     FullRemediationRequest,
     SyncApplyRequest,
 )
+from schemas.suricata import (
+    AutoResponseTriggerRequest,
+    AutoResponseConfigUpdate,
+    RuleToggleRequest,
+    AlertFilterParams,
+    FlowFilterParams,
+    RuleFilterParams,
+)
+from schemas.telegram import (
+    TelegramAlert,
+    TelegramReportConfigCreate,
+    TelegramReportConfigUpdate,
+    TelegramReportConfigResponse,
+    TelegramBotQuery,
+    TelegramMessageLogResponse,
+    TelegramStatusResponse,
+    TelegramSendSummaryRequest,
+)
 
 
 __all__ = [
@@ -154,4 +172,18 @@ __all__ = [
     "SinkholeRequest",
     "PhishingBlockIPRequest",
     "PhishingSimulateRequest",
+    "AutoResponseTriggerRequest",
+    "AutoResponseConfigUpdate",
+    "RuleToggleRequest",
+    "AlertFilterParams",
+    "FlowFilterParams",
+    "RuleFilterParams",
+    "TelegramAlert",
+    "TelegramReportConfigCreate",
+    "TelegramReportConfigUpdate",
+    "TelegramReportConfigResponse",
+    "TelegramBotQuery",
+    "TelegramMessageLogResponse",
+    "TelegramStatusResponse",
+    "TelegramSendSummaryRequest",
 ]

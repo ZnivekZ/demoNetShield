@@ -191,22 +191,54 @@ class WazuhService:
         """
         if self._settings.should_mock_wazuh:
             from services.mock_data import MockData
-            return MockData.wazuh.alerts(limit=limit, level_min=level_min)
-        try:
-            params: dict[str, Any] = {
-                "limit": limit,
-                "offset": offset,
-                "sort": "-timestamp",
-            }
-            if level_min is not None:
-                params["q"] = f"rule.level>={level_min}"
+            alerts = MockData.wazuh.alerts(limit=limit, level_min=level_min)
+        else:
+            try:
+                params: dict[str, Any] = {
+                    "limit": limit,
+                    "offset": offset,
+                    "sort": "-timestamp",
+                }
+                if level_min is not None:
+                    params["q"] = f"rule.level>={level_min}"
 
-            data = await self._api_request("GET", "/alerts", params=params)
-            alerts = data.get("data", {}).get("affected_items", [])
-            return self._normalize_alerts(alerts)
-        except Exception as e:
-            logger.error("wazuh_get_alerts_failed", error=str(e))
-            raise
+                data = await self._api_request("GET", "/alerts", params=params)
+                raw_alerts = data.get("data", {}).get("affected_items", [])
+                alerts = self._normalize_alerts(raw_alerts)
+            except Exception as e:
+                logger.error("wazuh_get_alerts_failed", error=str(e))
+                raise
+
+        # ── GeoIP enrichment (silencioso — nunca rompe el endpoint) ──────
+        # Enriquece alertas con src_ip externas: ciudad, lat/lon, tipo de red.
+        try:
+            from services.geoip_service import GeoIPService
+            external_ips = list({
+                a["src_ip"] for a in alerts
+                if a.get("src_ip") and not a["src_ip"].startswith(("192.168.", "10.", "172."))
+            })
+            if external_ips:
+                geo_results = GeoIPService.lookup_bulk(external_ips)
+                geo_map = {r["ip"]: r for r in geo_results}
+                for alert in alerts:
+                    src = alert.get("src_ip", "")
+                    if src in geo_map:
+                        g = geo_map[src]
+                        alert["geo"] = {
+                            "country_code": g.get("country_code", ""),
+                            "country_name": g.get("country_name", ""),
+                            "city": g.get("city"),
+                            "latitude": g.get("latitude"),
+                            "longitude": g.get("longitude"),
+                            "network_type": g.get("network_type"),
+                            "is_datacenter": g.get("is_datacenter", False),
+                            "is_tor": g.get("is_tor", False),
+                            "raw_available": g.get("raw_available", False),
+                        }
+        except Exception as _geo_err:
+            logger.debug("wazuh.geo_enrichment_skipped", error=str(_geo_err))
+
+        return alerts
 
     async def get_alerts_by_agent(
         self, agent_id: str, limit: int = 50, offset: int = 0

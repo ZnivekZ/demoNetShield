@@ -28,10 +28,16 @@ from database import close_db, init_db
 from routers import cli, mikrotik, network, phishing, portal, reports, security, vlans, wazuh
 from routers import glpi as glpi_router
 from routers import crowdsec as crowdsec_router
+from routers import geoip as geoip_router
+from routers import suricata as suricata_router
 from services.mikrotik_service import get_mikrotik_service
 from services.wazuh_service import get_wazuh_service
 from services.glpi_service import get_glpi_service
 from services.crowdsec_service import get_crowdsec_service
+from services.geoip_service import GeoIPService
+from services.suricata_service import get_suricata_service
+from services.telegram_service import get_telegram_service
+from services.telegram_scheduler import get_telegram_scheduler
 
 # ── Structured Logging Setup ─────────────────────────────────────
 
@@ -77,6 +83,28 @@ async def lifespan(app: FastAPI):
         logger.warning("mikrotik_initial_connection_failed", error=str(e),
                        msg="Will retry on first API request")
 
+    # Initialize GeoIP service (loads .mmdb readers into memory, or sets mock mode)
+    GeoIPService.initialize()
+
+    # Initialize Suricata service (verify socket connectivity, or set mock mode)
+    try:
+        sur_service = get_suricata_service()
+        await sur_service.connect()
+    except Exception as e:
+        logger.warning("suricata_initial_connection_failed", error=str(e))
+
+    # Initialize Telegram bot and scheduler
+    try:
+        tg_service = get_telegram_service()
+        await tg_service.connect()
+    except Exception as e:
+        logger.warning("telegram_initial_connection_failed", error=str(e))
+    try:
+        tg_scheduler = get_telegram_scheduler()
+        await tg_scheduler.start()
+    except Exception as e:
+        logger.warning("telegram_scheduler_start_failed", error=str(e))
+
     yield
 
     # Shutdown
@@ -99,6 +127,21 @@ async def lifespan(app: FastAPI):
     try:
         cs_service = get_crowdsec_service()
         await cs_service.close()
+    except Exception:
+        pass
+    try:
+        sur_service = get_suricata_service()
+        await sur_service.close()
+    except Exception:
+        pass
+    try:
+        tg_scheduler = get_telegram_scheduler()
+        await tg_scheduler.stop()
+    except Exception:
+        pass
+    try:
+        tg_service = get_telegram_service()
+        await tg_service.close()
     except Exception:
         pass
     await close_db()
@@ -139,6 +182,8 @@ app.include_router(cli.router)
 app.include_router(portal.router)
 app.include_router(glpi_router.router)
 app.include_router(crowdsec_router.router)
+app.include_router(geoip_router.router)
+app.include_router(suricata_router.router)
 
 
 # ── Root & Health Check ───────────────────────────────────────────
@@ -619,6 +664,59 @@ async def websocket_crowdsec_decisions(websocket: WebSocket):
     except Exception as e:
         logger.error("websocket_crowdsec_decisions_error", error=str(e))
         crowdsec_decision_manager.disconnect(websocket)
+
+
+# ── WebSocket: Suricata Alerts ──────────────────────────────
+
+suricata_alert_manager = ConnectionManager()
+
+
+@app.websocket("/ws/suricata/alerts")
+async def websocket_suricata_alerts(websocket: WebSocket):
+    """
+    WebSocket endpoint para alertas Suricata en tiempo real.
+    - Mock mode: emite una alerta cada ~4 ticks (~20s) via suricata_alert_tick.
+    - Real mode: consulta el Wazuh API cada 10s filtrando rule.groups=suricata.
+    Frontend suricata/AlertsView se suscribe para recibir alertas sin polling.
+    """
+    await suricata_alert_manager.connect(websocket)
+    wazuh_service = get_wazuh_service()
+    last_alert_id: str | None = None
+    tick = 0
+
+    try:
+        while True:
+            try:
+                if settings.should_mock_suricata:
+                    from services.mock_data import MockData
+                    alert = MockData.websocket.suricata_alert_tick(tick)
+                    if alert:
+                        await websocket.send_json({
+                            "type": "suricata_alert",
+                            "data": alert,
+                        })
+                else:
+                    # Real: consultar Wazuh con rule.groups=suricata
+                    sur_service = get_suricata_service()
+                    alerts = await sur_service.get_alerts(limit=10)
+                    if alerts and alerts[0].get("id") != last_alert_id:
+                        last_alert_id = alerts[0].get("id")
+                        await websocket.send_json({
+                            "type": "suricata_alert",
+                            "data": alerts[0],
+                        })
+            except Exception as e:
+                await websocket.send_json({
+                    "type": "error",
+                    "data": {"message": f"Suricata WS error: {str(e)}"},
+                })
+            tick += 1
+            await asyncio.sleep(5)  # Poll every 5s
+    except WebSocketDisconnect:
+        suricata_alert_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error("websocket_suricata_alerts_error", error=str(e))
+        suricata_alert_manager.disconnect(websocket)
 
 
 # ── Run ───────────────────────────────────────────────────────────

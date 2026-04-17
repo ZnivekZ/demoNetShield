@@ -50,6 +50,37 @@ import type {
   GlpiQuarantineRequest,
   GlpiAvailability,
   MockStatus,
+  // GeoIP
+  GeoIPResult,
+  GeoIPDBStatus,
+  TopCountriesResponse,
+  GeoBlockSuggestion,
+  // Suricata
+  SuricataAlert,
+  NetworkFlow,
+  DnsQuery,
+  HttpTransaction,
+  TlsHandshake,
+  SuricataRule,
+  SuricataRuleset,
+  EngineStats,
+  EngineStatPoint,
+  AlertTimelinePoint as SuricataAlertTimelinePoint,
+  TopSignature,
+  CategoryDistribution,
+  FlowsStats,
+  SuricataCorrelation,
+  WazuhCorrelation,
+  AutoResponseConfig,
+  AutoResponseHistoryEntry,
+  AutoResponseTriggerResult,
+  SuricataIpContext,
+  // Telegram
+  TelegramStatus,
+  TelegramReportConfig,
+  TelegramReportConfigCreate,
+  TelegramMessageLog,
+  TelegramSendResult,
 } from '../types';
 
 const api = axios.create({
@@ -586,4 +617,212 @@ export const crowdsecApi = {
 
   applySync: (data: SyncApplyRequest) =>
     api.post<APIResponse>('/crowdsec/sync/apply', data).then(r => r.data),
+};
+
+/* ── GeoIP ─────────────────────────────────────────────── */
+
+export const geoipApi = {
+  /** Geolocalize a single IP address */
+  lookup: (ip: string) =>
+    api.get<APIResponse<GeoIPResult>>(`/geoip/lookup/${encodeURIComponent(ip)}`).then(r => r.data),
+
+  /** Batch geolocalize up to 200 IPs */
+  lookupBulk: (ips: string[]) =>
+    api.post<APIResponse<GeoIPResult[]>>('/geoip/lookup/bulk', { ips }).then(r => r.data),
+
+  /** Top attacking countries, optionally filtered by source */
+  getTopCountries: (params?: { limit?: number; source?: string }) =>
+    api.get<APIResponse<TopCountriesResponse>>('/geoip/stats/top-countries', { params }).then(r => r.data),
+
+  /** Top attacking ASNs */
+  getTopASNs: (params?: { limit?: number }) =>
+    api.get<APIResponse<{ asns: unknown[]; total_ips: number; generated_at: string }>>(
+      '/geoip/stats/top-asns', { params }
+    ).then(r => r.data),
+
+  /** Automatic geo-block suggestions */
+  getSuggestions: () =>
+    api.get<APIResponse<GeoBlockSuggestion[]>>('/geoip/suggestions/geo-block').then(r => r.data),
+
+  /** Apply a geo-block suggestion */
+  applySuggestion: (id: string, duration: string) =>
+    api.post<APIResponse>(`/geoip/suggestions/${encodeURIComponent(id)}/apply`, { duration }).then(r => r.data),
+
+  /** Status of the GeoLite2 DB files and TTLCache */
+  getDBStatus: () =>
+    api.get<APIResponse<GeoIPDBStatus>>('/geoip/db/status').then(r => r.data),
+};
+
+/* ── Suricata ───────────────────────────────────────────────── */
+
+export const suricataApi = {
+  // ── Engine ──────────────────────────────────────────────
+  getEngineStatus: () =>
+    api.get<APIResponse<EngineStats>>('/suricata/engine/status').then(r => r.data),
+
+  getEngineStats: (minutes = 30) =>
+    api.get<APIResponse<{ stats: EngineStats; series: EngineStatPoint[] }>>(
+      '/suricata/engine/stats', { params: { minutes } }
+    ).then(r => r.data),
+
+  getEngineMode: () =>
+    api.get<APIResponse<{ mode: string; interface: string; version: string }>>('/suricata/engine/mode').then(r => r.data),
+
+  reloadRules: () =>
+    api.post<APIResponse<{ success: boolean; rules_loaded: number; rules_failed: number; reload_time_ms: number }>>(
+      '/suricata/engine/reload-rules'
+    ).then(r => r.data),
+
+  // ── Alerts ─────────────────────────────────────────────
+  getAlerts: (params?: {
+    limit?: number; offset?: number;
+    src_ip?: string; dst_ip?: string;
+    category?: string; severity?: number;
+  }) =>
+    api.get<APIResponse<{ alerts: SuricataAlert[]; total: number; offset: number }>>(
+      '/suricata/alerts', { params }
+    ).then(r => r.data),
+
+  getAlertsTimeline: (minutes = 120) =>
+    api.get<APIResponse<{ timeline: SuricataAlertTimelinePoint[]; minutes: number }>>(
+      '/suricata/alerts/timeline', { params: { minutes } }
+    ).then(r => r.data),
+
+  getTopSignatures: (limit = 10) =>
+    api.get<APIResponse<{ signatures: TopSignature[] }>>(
+      '/suricata/alerts/top-signatures', { params: { limit } }
+    ).then(r => r.data),
+
+  getCategories: () =>
+    api.get<APIResponse<{ categories: CategoryDistribution[] }>>('/suricata/alerts/categories').then(r => r.data),
+
+  getAlertDetail: (alertId: string) =>
+    api.get<APIResponse<SuricataAlert>>(`/suricata/alerts/${encodeURIComponent(alertId)}`).then(r => r.data),
+
+  // ── Flows NSM ───────────────────────────────────────────
+  getFlows: (params?: {
+    limit?: number; offset?: number;
+    src_ip?: string; proto?: string;
+    app_proto?: string; has_alert?: boolean;
+  }) =>
+    api.get<APIResponse<{ flows: NetworkFlow[]; total: number; offset: number }>>(
+      '/suricata/flows', { params }
+    ).then(r => r.data),
+
+  getFlowsStats: () =>
+    api.get<APIResponse<FlowsStats>>('/suricata/flows/stats').then(r => r.data),
+
+  getDnsQueries: (params?: { limit?: number; suspicious_only?: boolean }) =>
+    api.get<APIResponse<{ queries: DnsQuery[]; total: number }>>(
+      '/suricata/flows/dns', { params }
+    ).then(r => r.data),
+
+  getHttpTransactions: (params?: { limit?: number; suspicious_only?: boolean }) =>
+    api.get<APIResponse<{ transactions: HttpTransaction[]; total: number }>>(
+      '/suricata/flows/http', { params }
+    ).then(r => r.data),
+
+  getTlsHandshakes: (params?: { limit?: number; suspicious_only?: boolean }) =>
+    api.get<APIResponse<{ handshakes: TlsHandshake[]; total: number }>>(
+      '/suricata/flows/tls', { params }
+    ).then(r => r.data),
+
+  // ── Rules ──────────────────────────────────────────────
+  getRules: (params?: {
+    limit?: number; offset?: number;
+    enabled?: boolean; ruleset?: string; category?: string;
+  }) =>
+    api.get<APIResponse<{ rules: SuricataRule[]; total: number; offset: number }>>(
+      '/suricata/rules', { params }
+    ).then(r => r.data),
+
+  getRulesets: () =>
+    api.get<APIResponse<{ rulesets: SuricataRuleset[] }>>('/suricata/rules/rulesets').then(r => r.data),
+
+  getRuleDetail: (sid: number) =>
+    api.get<APIResponse<SuricataRule>>(`/suricata/rules/${sid}`).then(r => r.data),
+
+  toggleRule: (sid: number, enabled: boolean) =>
+    api.put<APIResponse<{ sid: number; enabled: boolean; message: string }>>(
+      `/suricata/rules/${sid}/toggle`, { enabled }
+    ).then(r => r.data),
+
+  updateRules: () =>
+    api.post<APIResponse<{ success: boolean; message: string; rules_updated: number }>>(
+      '/suricata/rules/update'
+    ).then(r => r.data),
+
+  // ── Correlation ─────────────────────────────────────────
+  getCorrelationCrowdSec: () =>
+    api.get<APIResponse<{ correlations: SuricataCorrelation[]; total: number }>>(
+      '/suricata/correlation/crowdsec'
+    ).then(r => r.data),
+
+  getCorrelationWazuh: () =>
+    api.get<APIResponse<{ correlations: WazuhCorrelation[]; total: number }>>(
+      '/suricata/correlation/wazuh'
+    ).then(r => r.data),
+
+  // ── Auto-Response ────────────────────────────────────────
+  triggerAutoResponse: (data: {
+    ip: string;
+    trigger_alert_id: string;
+    duration?: string;
+    reason?: string;
+  }) =>
+    api.post<APIResponse<AutoResponseTriggerResult>>('/suricata/autoresponse/trigger', data).then(r => r.data),
+
+  getAutoResponseConfig: () =>
+    api.get<APIResponse<{ config: AutoResponseConfig; recent_history: AutoResponseHistoryEntry[] }>>(
+      '/suricata/autoresponse/config'
+    ).then(r => r.data),
+
+  updateAutoResponseConfig: (data: Partial<AutoResponseConfig & { crowdsec_ban?: boolean; mikrotik_block?: boolean; default_duration?: string }>) =>
+    api.put<APIResponse<AutoResponseConfig>>('/suricata/autoresponse/config', data).then(r => r.data),
+
+  // ── IP Context ──────────────────────────────────────────
+  /** Alerts + flows for a specific IP — used by IpContextPanel */
+  getIpContext: (ip: string) =>
+    api.get<APIResponse<SuricataIpContext>>(
+      `/suricata/alerts`, { params: { src_ip: ip, limit: 10 } }
+    ).then(r => r.data),
+};
+
+// ── Telegram Bot API ──────────────────────────────────────────────────────────
+
+export const telegramApi = {
+  // Status
+  getStatus: () =>
+    api.get<APIResponse<TelegramStatus>>('/reports/telegram/status').then(r => r.data),
+
+  // Test message
+  sendTest: () =>
+    api.post<APIResponse<TelegramSendResult>>('/reports/telegram/test').then(r => r.data),
+
+  // Report configs CRUD
+  getConfigs: () =>
+    api.get<APIResponse<TelegramReportConfig[]>>('/reports/telegram/configs').then(r => r.data),
+
+  createConfig: (data: TelegramReportConfigCreate) =>
+    api.post<APIResponse<TelegramReportConfig>>('/reports/telegram/configs', data).then(r => r.data),
+
+  updateConfig: (id: number, data: Partial<TelegramReportConfigCreate>) =>
+    api.put<APIResponse<TelegramReportConfig>>(`/reports/telegram/configs/${id}`, data).then(r => r.data),
+
+  deleteConfig: (id: number) =>
+    api.delete<APIResponse<{ deleted: boolean; id: number }>>(`/reports/telegram/configs/${id}`).then(r => r.data),
+
+  triggerConfig: (id: number) =>
+    api.post<APIResponse<{ triggered: boolean; config_id: number }>>(`/reports/telegram/configs/${id}/trigger-now`).then(r => r.data),
+
+  // Manual send
+  sendAlert: (data: { title: string; severity: string; source: string; description?: string; ip?: string; agent?: string }) =>
+    api.post<APIResponse<TelegramSendResult>>('/reports/telegram/send-alert', data).then(r => r.data),
+
+  sendSummary: (data?: { sources?: string[]; chat_id?: string }) =>
+    api.post<APIResponse<TelegramSendResult>>('/reports/telegram/send-summary', data ?? {}).then(r => r.data),
+
+  // Logs
+  getLogs: (params?: { limit?: number; direction?: string; message_type?: string }) =>
+    api.get<APIResponse<TelegramMessageLog[]>>('/reports/telegram/logs', { params }).then(r => r.data),
 };

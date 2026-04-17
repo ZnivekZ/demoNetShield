@@ -9,6 +9,9 @@ Mock Mode:
   MOCK_WAZUH=true      → solo Wazuh en mock
   MOCK_GLPI=true       → solo GLPI en mock
   MOCK_ANTHROPIC=true  → solo Anthropic en mock
+  MOCK_GEOIP=true      → solo GeoIP en mock (true por defecto hasta descargar DB)
+  MOCK_SURICATA=true   → solo Suricata en mock (true por defecto hasta instalación)
+  MOCK_TELEGRAM=true   → solo Telegram en mock (true por defecto hasta configurar bot)
 
   Retrocompatibilidad: si APP_ENV=lab y NO hay ninguna variable MOCK_*
   definida explícitamente, se activa MOCK_ALL automáticamente.
@@ -89,6 +92,35 @@ class Settings(BaseSettings):
     crowdsec_url: str = "http://localhost:8080"
     crowdsec_api_key: str = ""
 
+    # ── GeoIP (MaxMind GeoLite2) ──────────────────────────────────────────
+    # Bases de datos locales .mmdb para geolocalización sin API externa.
+    # Descargar con: python backend/scripts/download_geoip.py
+    # Docs: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
+    geoip_city_db: str = "backend/data/geoip/GeoLite2-City.mmdb"
+    geoip_asn_db: str = "backend/data/geoip/GeoLite2-ASN.mmdb"
+    maxmind_license_key: str = ""  # Requerida para descargar la DB
+    mock_geoip: bool = True  # True por defecto hasta descargar la DB
+
+    # ── Suricata IDS/IPS/NSM ──────────────────────────────────────────────
+    # Motor de análisis de red. Datos accesibles via:
+    #   1. Unix socket para control del motor (reload-rules, stats)
+    #   2. eve.json leído por el agente Wazuh → Wazuh API
+    # Activar real: MOCK_SURICATA=false + Suricata instalado con socket accesible.
+    suricata_socket: str = "/var/run/suricata/suricata.socket"
+    suricata_eve_log: str = "/var/log/suricata/eve.json"
+    suricata_host: str = "192.168.88.50"  # Host donde corre Suricata
+    mock_suricata: bool = True  # True por defecto hasta instalación
+
+    # ── Telegram Bot ──────────────────────────────────────────────────────
+    # Bot de Telegram para notificaciones bidireccionales.
+    # Crear el bot con @BotFather, obtener el token, y agregar el bot al grupo/canal.
+    # Activar real: MOCK_TELEGRAM=false + TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID.
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""  # Chat/Group/Channel ID principal
+    telegram_webhook_secret: str = ""  # Secreto para validar webhook inbound
+    telegram_admin_chat_ids: str = ""  # IDs separados por coma (autorizados para consultas)
+    mock_telegram: bool = True  # True por defecto hasta configurar bot
+
     # ── Mock Mode ─────────────────────────────────────────────
     # Global toggle — activa mock para TODOS los servicios
     mock_all: bool = False
@@ -98,6 +130,8 @@ class Settings(BaseSettings):
     mock_glpi: bool = False
     mock_anthropic: bool = False
     mock_crowdsec: bool = False
+    # mock_suricata está definida arriba (True por defecto hasta instalación)
+    # mock_telegram está definida arriba (True por defecto hasta configurar bot)
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -138,7 +172,11 @@ class Settings(BaseSettings):
         import os
         return any(
             os.environ.get(var) is not None
-            for var in ("MOCK_ALL", "MOCK_MIKROTIK", "MOCK_WAZUH", "MOCK_GLPI", "MOCK_ANTHROPIC", "MOCK_CROWDSEC")
+            for var in (
+                "MOCK_ALL", "MOCK_MIKROTIK", "MOCK_WAZUH", "MOCK_GLPI",
+                "MOCK_ANTHROPIC", "MOCK_CROWDSEC", "MOCK_GEOIP", "MOCK_SURICATA",
+                "MOCK_TELEGRAM",
+            )
         )
 
     @property
@@ -177,6 +215,37 @@ class Settings(BaseSettings):
     def should_mock_crowdsec(self) -> bool:
         """True si CrowdSec debe usar datos mock."""
         return self._effective_mock_all or self.mock_crowdsec
+
+    @property
+    def should_mock_geoip(self) -> bool:
+        """True si GeoIP debe usar datos mock.
+        Por defecto True hasta que se descargue la DB.
+        MOCK_ALL=true también activa el mock de GeoIP.
+        """
+        return self._effective_mock_all or self.mock_geoip
+
+    @property
+    def should_mock_suricata(self) -> bool:
+        """True si Suricata debe usar datos mock.
+        Por defecto True hasta que se instale Suricata y se configure el socket.
+        MOCK_ALL=true también activa el mock de Suricata.
+        """
+        return self._effective_mock_all or self.mock_suricata
+
+    @property
+    def should_mock_telegram(self) -> bool:
+        """True si Telegram debe usar datos mock.
+        Por defecto True hasta que se configure el bot.
+        MOCK_ALL=true también activa el mock de Telegram.
+        """
+        return self._effective_mock_all or self.mock_telegram
+
+    @property
+    def telegram_admin_ids_list(self) -> list[str]:
+        """Lista de chat IDs autorizados para consultas al bot."""
+        if not self.telegram_admin_chat_ids:
+            return []
+        return [cid.strip() for cid in self.telegram_admin_chat_ids.split(",") if cid.strip()]
 
 
 @lru_cache()

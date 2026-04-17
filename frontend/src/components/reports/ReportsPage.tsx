@@ -22,8 +22,10 @@ import {
   Undo2,
   Redo2,
   Upload,
+  Bot,
 } from 'lucide-react';
 import { reportsApi } from '../../services/api';
+import { TelegramTab } from './TelegramTab';
 
 const DATA_SOURCES = [
   { id: 'wazuh_alerts', label: 'Alertas Wazuh', icon: '🔔' },
@@ -51,6 +53,7 @@ const AUDIENCES = [
 ];
 
 export default function ReportsPage() {
+  const [activeTab, setActiveTab] = useState<'reports' | 'telegram'>('reports');
   const [prompt, setPrompt] = useState('');
   const [audience, setAudience] = useState('technical');
   const [selectedSources, setSelectedSources] = useState<string[]>([
@@ -142,14 +145,46 @@ export default function ReportsPage() {
       <div>
         <h1 className="text-xl font-bold text-surface-100 flex items-center gap-2">
           <FileText className="w-5 h-5 text-brand-400" />
-          Reportes con IA
+          Reportes
         </h1>
         <p className="text-sm text-surface-500 mt-0.5">
-          Genera reportes de seguridad inteligentes con Claude AI
+          Reportes con IA y notificaciones automáticas vía Telegram
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Top-level tab switcher */}
+      <div style={{
+        display: 'flex', gap: '0.25rem',
+        background: 'var(--color-surface-800)',
+        padding: '0.3rem', borderRadius: 10, width: 'fit-content',
+      }}>
+        {[
+          { id: 'reports' as const, label: 'Generador IA', icon: <FileText size={14} /> },
+          { id: 'telegram' as const, label: 'Telegram', icon: <Bot size={14} /> },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            id={`reports-tab-${tab.id}`}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.4rem 0.85rem', borderRadius: 7, border: 'none', cursor: 'pointer',
+              fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.15s',
+              background: activeTab === tab.id ? 'rgba(99,102,241,0.25)' : 'transparent',
+              color: activeTab === tab.id ? 'var(--color-brand-300)' : 'var(--color-surface-400)',
+              boxShadow: activeTab === tab.id ? '0 0 0 1px rgba(99,102,241,0.35)' : 'none',
+            }}
+          >
+            {tab.icon} {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Telegram tab */}
+      {activeTab === 'telegram' && <TelegramTab />}
+
+      {/* AI Reports tab */}
+      {activeTab === 'reports' && <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Configuration Panel */}
         <div className="space-y-4 animate-fade-in-up">
           {/* Prompt */}
@@ -344,7 +379,7 @@ export default function ReportsPage() {
             </button>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

@@ -11,6 +11,8 @@ import { ScenariosTable } from './ScenariosTable';
 import { TopAttackers } from './TopAttackers';
 import { IpContextPanel } from './IpContextPanel';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { TopCountriesWidget } from '../geoip/TopCountriesWidget';
+import { GeoBlockSuggestions } from '../geoip/GeoBlockSuggestions';
 
 export function CrowdSecIntelligence() {
   const metricsQuery = useCrowdSecMetrics();
@@ -43,7 +45,7 @@ export function CrowdSecIntelligence() {
             CrowdSec — Inteligencia
           </h1>
           <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-400)', margin: 0 }}>
-            Geografía de amenazas · Técnicas detectadas · Atacantes activos
+            Geografía de amenazas · Técnicas detectadas · Atacantes activos · Geo-bloqueo automático
           </p>
         </div>
       </div>
@@ -66,12 +68,19 @@ export function CrowdSecIntelligence() {
         ) : (
           <ScenariosTable scenarios={scenarios} />
         )}
-        <TopAttackers
-          decisions={decisions}
-          onBlock={ip => setBlockTarget(ip)}
-          onRowClick={ip => setSelectedIp(ip)}
-        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <TopAttackers
+            decisions={decisions}
+            onBlock={ip => setBlockTarget(ip)}
+            onRowClick={ip => setSelectedIp(ip)}
+          />
+          {/* TopCountries cross-source — wider view than dashboard, shows 7 countries */}
+          <TopCountriesWidget onBlockCountry={cc => setBlockTarget(cc)} />
+        </div>
       </div>
+
+      {/* Geo-block suggestions  */}
+      <GeoBlockSuggestions />
 
       {/* IP Context Panel */}
       <IpContextPanel

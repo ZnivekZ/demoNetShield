@@ -134,16 +134,43 @@ class CrowdSecService:
                 decisions = [d for d in decisions if scenario in d.get("scenario", "")]
             if type_:
                 decisions = [d for d in decisions if d["type"] == type_]
-            return decisions
-        params = {}
-        if ip:
-            params["ip"] = ip
-        if scenario:
-            params["scenario"] = scenario
-        if type_:
-            params["type"] = type_
-        result = await self._request("GET", "/v1/decisions", params=params)
-        return result if isinstance(result, list) else []
+        else:
+            params = {}
+            if ip:
+                params["ip"] = ip
+            if scenario:
+                params["scenario"] = scenario
+            if type_:
+                params["type"] = type_
+            result = await self._request("GET", "/v1/decisions", params=params)
+            decisions = result if isinstance(result, list) else []
+
+        # ── GeoIP enrichment (silencioso, never breaks the endpoint) ──────
+        # CrowdSec ya provee country y as_name. GeoIP agrega city, lat/lon,
+        # network_type, is_datacenter, is_tor al campo "geo" de cada decisión.
+        try:
+            from services.geoip_service import GeoIPService
+            ips = list({d["ip"] for d in decisions if d.get("ip")})
+            if ips:
+                geo_results = GeoIPService.lookup_bulk(ips)
+                geo_map = {r["ip"]: r for r in geo_results}
+                for d in decisions:
+                    d_ip = d.get("ip", "")
+                    if d_ip in geo_map:
+                        g = geo_map[d_ip]
+                        d["geo"] = {
+                            "city": g.get("city"),
+                            "latitude": g.get("latitude"),
+                            "longitude": g.get("longitude"),
+                            "network_type": g.get("network_type"),
+                            "is_datacenter": g.get("is_datacenter", False),
+                            "is_tor": g.get("is_tor", False),
+                            "raw_available": g.get("raw_available", False),
+                        }
+        except Exception as _geo_err:
+            logger.debug("crowdsec.geo_enrichment_skipped", error=str(_geo_err))
+
+        return decisions
 
     async def get_decisions_stream(self, startup: bool = False) -> dict:
         """[LAPI] GET /v1/decisions/stream — incremental decision updates."""

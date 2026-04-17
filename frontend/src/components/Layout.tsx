@@ -44,6 +44,10 @@ import {
   ShieldCheck,
   Globe,
   Settings2,
+  Radar,
+  Eye,
+  BookOpen,
+  AlertTriangle,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GlobalSearch } from './common/GlobalSearch';
@@ -53,6 +57,7 @@ import { useBlockIP } from '../hooks/useSecurityActions';
 import { useMikrotikHealth } from '../hooks/useMikrotikHealth';
 import { useWazuhHealth } from '../hooks/useWazuhSummary';
 import { useCrowdSecHealth } from '../hooks/useCrowdSecMetrics';
+import { useSuricataEngine } from '../hooks/useSuricataEngine';
 import { MockModeBadge } from './common/MockModeBadge';
 import { IpContextPanel } from './crowdsec/IpContextPanel';
 
@@ -90,6 +95,15 @@ const navGroups = [
     ],
   },
   {
+    label: 'Suricata',
+    items: [
+      { to: '/suricata', icon: Radar, label: 'Motor IDS/IPS', end: true },
+      { to: '/suricata/alerts', icon: AlertTriangle, label: 'Alertas', end: false },
+      { to: '/suricata/network', icon: Eye, label: 'Red NSM', end: false },
+      { to: '/suricata/rules', icon: BookOpen, label: 'Reglas', end: false },
+    ],
+  },
+  {
     label: 'Inventario',
     items: [
       { to: '/inventory', icon: Package, label: 'GLPI', end: false },
@@ -110,6 +124,7 @@ export default function Layout() {
   const { data: mtHealth, isLoading: mtLoading, isError: mtError } = useMikrotikHealth();
   const { data: wazuhHealth, isLoading: wazuhLoading, isError: wazuhError } = useWazuhHealth();
   const { data: csHealth, isLoading: csLoading, isError: csError } = useCrowdSecHealth();
+  const { isHealthy: surHealthy, isLoadingStatus: surLoading } = useSuricataEngine();
 
   const getStatusClass = (isLoading: boolean, isError: boolean, data: unknown) => {
     if (isLoading) return 'status-dot pending';
@@ -230,6 +245,10 @@ export default function Layout() {
             <div className="flex items-center gap-1.5" title={csHealth ? `CrowdSec: ${csHealth.active_decisions} decisiones activas` : 'CrowdSec'}>
               <span className={getStatusClass(csLoading, csError, csHealth)} />
               CrowdSec
+            </div>
+            <div className="flex items-center gap-1.5" title={surHealthy ? 'Suricata: online' : 'Suricata: offline o en mock'}>
+              <span className={getStatusClass(surLoading, !surHealthy && !surLoading, surHealthy ? {} : null)} />
+              Suricata
             </div>
             <MockModeBadge />
             <NotificationPanel

@@ -40,6 +40,10 @@ class MockService:
     _crowdsec_whitelist: list[dict] | None = None
     _next_crowdsec_id: int = 200
     _next_whitelist_id: int = 100
+    # Suricata mutable state
+    _suricata_autoresponse_config: dict | None = None
+    _suricata_autoresponse_history: list[dict] | None = None
+    _next_autoresponse_id: int = 10
 
     # ── Initialization ─────────────────────────────────────────────────────
 
@@ -74,6 +78,9 @@ class MockService:
         cls._crowdsec_whitelist = None
         cls._next_crowdsec_id = 200
         cls._next_whitelist_id = 100
+        cls._suricata_autoresponse_config = None
+        cls._suricata_autoresponse_history = None
+        cls._next_autoresponse_id = 10
         logger.info("mock_service_reset")
 
     # ── Status ─────────────────────────────────────────────────────────────
@@ -88,6 +95,9 @@ class MockService:
             "glpi": settings.should_mock_glpi,
             "anthropic": settings.should_mock_anthropic,
             "crowdsec": settings.should_mock_crowdsec,
+            "geoip": settings.should_mock_geoip,
+            "suricata": settings.should_mock_suricata,
+            "telegram": settings.should_mock_telegram,
         }
         return {
             "mock_all": settings._effective_mock_all,
@@ -418,6 +428,67 @@ class MockService:
         removed = len(cls._crowdsec_whitelist) < before
         logger.info("mock_crowdsec_delete_whitelist", id=whitelist_id, removed=removed)
         return removed
+
+    # ── Suricata Auto-response CRUD ─────────────────────────────────────────
+
+    @classmethod
+    def _ensure_suricata_autoresponse_config(cls) -> dict:
+        if cls._suricata_autoresponse_config is None:
+            from services.mock_data import MockData
+            cls._suricata_autoresponse_config = dict(MockData.suricata.autoresponse_config())
+        return cls._suricata_autoresponse_config
+
+    @classmethod
+    def _ensure_suricata_autoresponse_history(cls) -> list[dict]:
+        if cls._suricata_autoresponse_history is None:
+            from services.mock_data import MockData
+            cls._suricata_autoresponse_history = list(MockData.suricata.autoresponse_history())
+        return cls._suricata_autoresponse_history
+
+    @classmethod
+    def suricata_get_autoresponse_config(cls) -> dict:
+        return dict(cls._ensure_suricata_autoresponse_config())
+
+    @classmethod
+    def suricata_update_autoresponse_config(cls, data: dict) -> dict:
+        from datetime import datetime, timezone
+        cfg = cls._ensure_suricata_autoresponse_config()
+        for k, v in data.items():
+            if v is not None and k in cfg:
+                cfg[k] = v
+        cfg["last_updated"] = datetime.now(timezone.utc).isoformat()
+        cfg["updated_by"] = "admin"
+        logger.info("mock_suricata_autoresponse_config_updated")
+        return dict(cfg)
+
+    @classmethod
+    def suricata_add_autoresponse_trigger(
+        cls,
+        ip: str,
+        trigger_alert_id: str,
+        duration: str,
+        reason: str,
+        actions_taken: list[str],
+    ) -> dict:
+        from datetime import datetime, timezone
+        history = cls._ensure_suricata_autoresponse_history()
+        cls._next_autoresponse_id += 1
+        entry = {
+            "id": f"ar-{cls._next_autoresponse_id:03d}",
+            "ip": ip,
+            "triggered_at": datetime.now(timezone.utc).isoformat(),
+            "triggered_by": "admin",
+            "trigger_alert_id": trigger_alert_id,
+            "suricata_alerts_count": 1,
+            "wazuh_level": None,
+            "actions_taken": actions_taken,
+            "duration": duration,
+            "reason": reason,
+            "mock": True,
+        }
+        history.insert(0, entry)
+        logger.info("mock_suricata_autoresponse_triggered", ip=ip)
+        return entry
 
 
 def get_mock_service() -> MockService:

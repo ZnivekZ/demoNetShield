@@ -73,6 +73,15 @@ TOOLS = [
             "required": [],
         },
     },
+    {
+        "name": "get_system_health",
+        "description": "Fetch health status from all systems: MikroTik (CPU/RAM/uptime), Wazuh (agents/alerts count), CrowdSec (active decisions), and Suricata (engine status). Use this for status queries.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
 ]
 
 # ── System prompts by audience ────────────────────────────────────
@@ -106,6 +115,18 @@ Your writing must be:
 - Provide checklists for remediation tasks
 Output the report as clean HTML suitable for PDF export.""",
 }
+
+TELEGRAM_SYSTEM_PROMPT = """You are the NetShield security bot responding to queries via Telegram.
+Your responses must be:
+- Concise: maximum 500 words, prefer bullet points and short lines
+- Use Telegram HTML format: <b>bold</b>, <i>italic</i>, <code>code</code>
+- Use emojis for visual hierarchy: 🚨 ✅ ⚠️ 🔒 📊 💻
+- NEVER execute destructive actions (block, quarantine, delete)
+- Only report information, status, and recommendations
+- If asked to perform an action, explain that actions must be taken from the dashboard
+- Include relevant numbers, timestamps, and IP addresses when available
+- Be helpful and security-focused
+"""
 
 
 class AIService:
@@ -150,6 +171,8 @@ class AIService:
         elif tool_name == "get_arp_table":
             mt = get_mikrotik_service()
             return await mt.get_arp_table()
+        elif tool_name == "get_system_health":
+            return await self._get_system_health()
         else:
             return {"error": f"Unknown tool: {tool_name}"}
 
@@ -297,6 +320,106 @@ Output as clean, well-formatted HTML."""
             "data_sources_used": list(set(data_sources_used)),
             "tokens_used": total_tokens,
         }
+
+    async def _get_system_health(self) -> dict:
+        """Aggregate health data from all services for Telegram bot queries."""
+        result = {}
+        try:
+            mt = get_mikrotik_service()
+            result["mikrotik"] = await mt.get_health()
+        except Exception as e:
+            result["mikrotik"] = {"error": str(e)}
+        try:
+            wazuh = get_wazuh_service()
+            agents = await wazuh.get_agents()
+            alerts = await wazuh.get_alerts(limit=100)
+            active_agents = sum(1 for a in agents if a.get("status") == "active")
+            critical = sum(1 for a in alerts if int(a.get("rule_level", 0)) >= 12)
+            result["wazuh"] = {
+                "total_agents": len(agents),
+                "active_agents": active_agents,
+                "alerts_count": len(alerts),
+                "critical_alerts": critical,
+            }
+        except Exception as e:
+            result["wazuh"] = {"error": str(e)}
+        try:
+            from services.crowdsec_service import get_crowdsec_service
+            cs = get_crowdsec_service()
+            decisions = await cs.get_decisions()
+            result["crowdsec"] = {"active_decisions": len(decisions)}
+        except Exception as e:
+            result["crowdsec"] = {"error": str(e)}
+        try:
+            from services.suricata_service import get_suricata_service
+            sur = get_suricata_service()
+            status = await sur.get_engine_status()
+            result["suricata"] = status
+        except Exception as e:
+            result["suricata"] = {"error": str(e)}
+        return result
+
+    async def answer_telegram_query(self, query: str, chat_id: str) -> str:
+        """
+        Answer a Telegram bot query using Claude with all tools available.
+        Returns plain text (Telegram HTML) instead of full HTML report.
+        """
+        if self._settings.should_mock_anthropic:
+            from services.mock_data import MockData
+            return MockData.telegram.bot_query_response(query)
+
+        client = self._get_client()
+        user_content = (
+            f"User query from Telegram (chat_id: {chat_id}):\n\n{query}\n\n"
+            "Use the available tools to fetch current data before answering. "
+            "Respond concisely in Telegram HTML format."
+        )
+
+        messages = [{"role": "user", "content": user_content}]
+        total_tokens = 0
+
+        # Agentic loop (same pattern as generate_report but with lower token limit)
+        for iteration in range(5):  # Max 5 tool calls for Telegram
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2048,
+                system=TELEGRAM_SYSTEM_PROMPT,
+                tools=TOOLS,
+                messages=messages,
+            )
+            total_tokens += response.usage.input_tokens + response.usage.output_tokens
+
+            if response.stop_reason == "tool_use":
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        tool_result = await self._execute_tool(block.name, block.input)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": json.dumps(
+                                tool_result, default=str, ensure_ascii=False
+                            )[:20000],
+                        })
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": tool_results})
+            else:
+                break
+
+        # Extract text response
+        text = ""
+        for block in response.content:
+            if hasattr(block, "text"):
+                text += block.text
+
+        logger.info(
+            "ai_telegram_query_answered",
+            query=query[:50],
+            tokens=total_tokens,
+            iterations=iteration + 1,
+        )
+
+        return text
 
 
 def get_ai_service() -> AIService:

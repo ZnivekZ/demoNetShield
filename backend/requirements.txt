@@ -40,3 +40,13 @@ python-multipart==0.0.20
 # Utilities
 orjson==3.10.13
 tenacity==9.0.0
+
+# GeoIP (MaxMind GeoLite2 — geolocalización local de IPs)
+geoip2==4.8.1
+cachetools==5.5.0
+
+# Telegram Bot (notificaciones bidireccionales)
+python-telegram-bot>=20.0
+
+# Scheduler (reportes automáticos Telegram)
+apscheduler>=3.10.0

@@ -7,6 +7,8 @@ import { useState } from 'react';
 import { ShieldOff, ChevronDown, ChevronUp } from 'lucide-react';
 import type { CrowdSecDecision } from '../../types';
 import { CommunityScoreBadge } from './CommunityScoreBadge';
+import { CountryFlag } from '../geoip/CountryFlag';
+import { NetworkTypeBadge } from '../geoip/NetworkTypeBadge';
 import { formatDistanceToNow } from '../utils/time';
 
 interface Props {
@@ -94,7 +96,7 @@ export function DecisionsTable({ decisions, isLoading, onRowClick, onUnblock }: 
                 <th>IP</th>
                 <th>Scenario</th>
                 <th>Tipo</th>
-                <th>País</th>
+                <th>País / Red</th>
                 <th>Origen</th>
                 <th
                   style={{ cursor: 'pointer', userSelect: 'none' }}
@@ -146,7 +148,24 @@ export function DecisionsTable({ decisions, isLoading, onRowClick, onUnblock }: 
                     </span>
                   </td>
                   <td style={{ color: 'var(--color-surface-400)', fontSize: '0.7rem' }}>
-                    {d.country}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                      {d.country && (
+                        <CountryFlag code={d.country} size="sm" tooltip />
+                      )}
+                      <span>{d.country || '—'}</span>
+                      {d.geo?.city && (
+                        <span style={{ color: 'var(--color-surface-500)', fontSize: '0.65rem' }}>
+                          ({d.geo.city})
+                        </span>
+                      )}
+                      {(d.geo?.is_datacenter || d.geo?.network_type) && (
+                        <NetworkTypeBadge
+                          networkType={d.geo?.network_type ?? null}
+                          isDatacenter={d.geo?.is_datacenter}
+                          isTor={d.geo?.is_tor}
+                        />
+                      )}
+                    </div>
                   </td>
                   <td>
                     <span className={`badge ${ORIGIN_BADGE[d.origin] ?? 'badge-success'}`} style={{ fontSize: '0.6rem' }}>

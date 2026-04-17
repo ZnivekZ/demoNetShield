@@ -34,6 +34,11 @@ import { InventoryPage } from './components/inventory/InventoryPage';
 import { CrowdSecCommandCenter } from './components/crowdsec/CommandCenter';
 import { CrowdSecIntelligence } from './components/crowdsec/IntelligenceView';
 import { CrowdSecConfig } from './components/crowdsec/ConfigView';
+// Suricata
+import { SuricataMotorPage } from './components/suricata/MotorPage';
+import { SuricataAlertsPage } from './components/suricata/AlertsPage';
+import { SuricataNSMPage } from './components/suricata/NSMPage';
+import { SuricataRulesPage } from './components/suricata/RulesPage';
 
 
 const queryClient = new QueryClient({
@@ -74,6 +79,11 @@ export default function App() {
             <Route path="/crowdsec/intelligence" element={<CrowdSecIntelligence />} />
             <Route path="/crowdsec/config" element={<CrowdSecConfig />} />
 
+            {/* Suricata IDS/IPS/NSM */}
+            <Route path="/suricata" element={<SuricataMotorPage />} />
+            <Route path="/suricata/alerts" element={<SuricataAlertsPage />} />
+            <Route path="/suricata/network" element={<SuricataNSMPage />} />
+            <Route path="/suricata/rules" element={<SuricataRulesPage />} />
 
             {/* Legacy redirect — VLANs page merged into /network */}
             <Route path="/vlans" element={<Navigate to="/network" replace />} />

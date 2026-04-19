@@ -762,6 +762,137 @@ export interface GlpiAvailability {
   url: string;
 }
 
+/* ── GLPI Full Detail Types (from Collector) ──────────────────── */
+
+export interface GlpiProcessorInfo {
+  name: string;
+  frequency: number;
+  cores: number;
+  threads: number;
+  serial: string;
+}
+
+export interface GlpiMemoryInfo {
+  name: string;
+  size_mb: number;
+  serial: string;
+}
+
+export interface GlpiHardDriveInfo {
+  name: string;
+  capacity_mb: number;
+  serial: string;
+}
+
+export interface GlpiGraphicCardInfo {
+  name: string;
+  memory_mb: number;
+}
+
+export interface GlpiControllerInfo {
+  name: string;
+}
+
+export interface GlpiFirmwareInfo {
+  name: string;
+  serial: string;
+}
+
+export interface GlpiHardwareDetail {
+  processors: GlpiProcessorInfo[];
+  memory: GlpiMemoryInfo[];
+  hard_drives: GlpiHardDriveInfo[];
+  graphic_cards: GlpiGraphicCardInfo[];
+  sound_cards: { name: string }[];
+  network_cards: { name: string; mac: string }[];
+  controllers: GlpiControllerInfo[];
+  firmware: GlpiFirmwareInfo[];
+}
+
+export interface GlpiDiskInfo {
+  name: string;
+  mountpoint: string;
+  device: string;
+  filesystem: string;
+  total_mb: number;
+  free_mb: number;
+  encrypted: boolean;
+}
+
+export interface GlpiSoftwareEntry {
+  name: string;
+  version: string;
+  category: string;
+  is_valid: boolean;
+}
+
+export interface GlpiAuditEntry {
+  id: number;
+  date: string;
+  user: string;
+  action: string;
+  field: string;
+  old_value: string;
+  new_value: string;
+}
+
+export interface GlpiRelationship {
+  type: string;
+  target_name: string;
+  target_type: string;
+}
+
+export interface GlpiNetworkInterface {
+  name: string;
+  mac: string;
+  speed: number;
+  type: string;
+  ips: string[];
+}
+
+export interface GlpiAssetFullDetail {
+  asset_id: number;
+  last_sync: string | null;
+  identification: {
+    id: number;
+    name: string;
+    serial: string;
+    otherserial: string;
+    uuid: string;
+    entity: string;
+    type: string;
+    model: string;
+    manufacturer: string;
+    comment: string;
+    last_update: string;
+    date_creation: string;
+    last_inventory: string;
+    last_boot: string;
+  };
+  location: {
+    location_id: number | null;
+    location_name: string;
+    contact: string;
+    contact_num: string;
+  };
+  status: {
+    state_id: number;
+    is_deleted: boolean;
+    is_dynamic: boolean;
+  };
+  network: {
+    interfaces: GlpiNetworkInterface[];
+    primary_ip: string;
+    primary_mac: string;
+  };
+  hardware: GlpiHardwareDetail;
+  disks: GlpiDiskInfo[];
+  software: GlpiSoftwareEntry[];
+  audit: GlpiAuditEntry[];
+  tickets: { id: number; title: string; status: number; priority: number; date: string }[];
+  relationships: GlpiRelationship[];
+}
+
 // ── Mock Status ────────────────────────────────────────────────────────────
 
 export interface MockServiceStatus {

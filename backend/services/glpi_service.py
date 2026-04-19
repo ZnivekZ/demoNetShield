@@ -221,6 +221,31 @@ class GLPIService:
             from services.mock_service import MockService
             return MockService.glpi_get_assets(search=search, status=status, location_id=location, limit=limit, offset=offset)
         try:
+            # Try to use collector cache first (populated every 5 min)
+            try:
+                from services.glpi_collector import get_glpi_collector
+                collector = get_glpi_collector()
+                cached = collector.get_cached_assets()
+                if cached:
+                    result = [self._normalize_computer(c) for c in cached]
+                    # Apply filters
+                    if search:
+                        q = search.lower()
+                        result = [
+                            c for c in result
+                            if q in c["name"].lower()
+                            or q in (c.get("ip") or "").lower()
+                            or q in (c.get("serial") or "").lower()
+                        ]
+                    if status:
+                        result = [c for c in result if c.get("status") == status]
+                    # Apply pagination
+                    result = result[offset:offset + limit]
+                    logger.debug("glpi_computers_from_collector", count=len(result))
+                    return result
+            except Exception:
+                pass  # Fall through to direct API call
+
             params: dict[str, Any] = {
                 "range": f"{offset}-{offset + limit - 1}",
                 "expand_dropdowns": 1,

@@ -60,6 +60,8 @@ import { useCrowdSecHealth } from '../hooks/useCrowdSecMetrics';
 import { useSuricataEngine } from '../hooks/useSuricataEngine';
 import { MockModeBadge } from './common/MockModeBadge';
 import { IpContextPanel } from './crowdsec/IpContextPanel';
+import { useQuery } from '@tanstack/react-query';
+import { glpiApi } from '../services/api';
 
 // ── Navigation structure (max 20 items total) ─────────────────
 const navGroups = [
@@ -125,6 +127,14 @@ export default function Layout() {
   const { data: wazuhHealth, isLoading: wazuhLoading, isError: wazuhError } = useWazuhHealth();
   const { data: csHealth, isLoading: csLoading, isError: csError } = useCrowdSecHealth();
   const { isHealthy: surHealthy, isLoadingStatus: surLoading } = useSuricataEngine();
+
+  // GLPI heartbeat
+  const { data: glpiHealth, isLoading: glpiLoading, isError: glpiError } = useQuery({
+    queryKey: ['glpi', 'status', 'heartbeat'],
+    queryFn: () => glpiApi.getStatus(),
+    refetchInterval: 30_000,
+    select: (res) => res.data,
+  });
 
   const getStatusClass = (isLoading: boolean, isError: boolean, data: unknown) => {
     if (isLoading) return 'status-dot pending';
@@ -249,6 +259,10 @@ export default function Layout() {
             <div className="flex items-center gap-1.5" title={surHealthy ? 'Suricata: online' : 'Suricata: offline o en mock'}>
               <span className={getStatusClass(surLoading, !surHealthy && !surLoading, surHealthy ? {} : null)} />
               Suricata
+            </div>
+            <div className="flex items-center gap-1.5" title={glpiHealth?.available ? `GLPI: ${glpiHealth.url}` : 'GLPI: desconectado'}>
+              <span className={getStatusClass(glpiLoading, glpiError || (!glpiLoading && !glpiHealth?.available), glpiHealth?.available ? {} : null)} />
+              GLPI
             </div>
             <MockModeBadge />
             <NotificationPanel

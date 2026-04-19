@@ -193,6 +193,34 @@ async def get_asset(
         return APIResponse.fail(f"Error al obtener activo #{asset_id}: {str(e)}")
 
 
+@router.get("/assets/{asset_id}/full-detail")
+async def get_asset_full_detail(
+    asset_id: int,
+) -> APIResponse:
+    """
+    [GLPI Collector] Get full parsed detail of an asset from the collector cache.
+    Includes: identification, location, status, network, hardware, disks, software,
+    audit logs, tickets, and relationships.
+    """
+    try:
+        from services.glpi_collector import get_glpi_collector
+        collector = get_glpi_collector()
+        detail = collector.get_full_detail(asset_id)
+        if detail is None:
+            return APIResponse.fail(
+                f"Activo #{asset_id} no encontrado en cache del collector. "
+                f"Espere al próximo ciclo de sincronización."
+            )
+        return APIResponse.ok({
+            **detail,
+            "asset_id": asset_id,
+            "last_sync": collector.get_last_sync(),
+        })
+    except Exception as e:
+        logger.error("api_glpi_full_detail_failed", asset_id=asset_id, error=str(e))
+        return APIResponse.fail(f"Error al obtener detalle completo: {str(e)}")
+
+
 @router.get("/assets/{asset_id}/network-context")
 async def get_asset_network_context(
     asset_id: int,

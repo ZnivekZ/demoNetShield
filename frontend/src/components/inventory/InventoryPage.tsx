@@ -4,7 +4,7 @@
  * Integrated in App.tsx as /inventory route.
  */
 import { useState } from 'react';
-import { Activity, Monitor, Ticket, Users, Package, AlertTriangle } from 'lucide-react';
+import { Activity, Monitor, Ticket, Users, Package } from 'lucide-react';
 import { HealthView } from './HealthView';
 import { AssetsView } from './AssetsView';
 import { TicketsView } from './TicketsView';
@@ -32,8 +32,6 @@ export function InventoryPage() {
     select: (res) => res.data,
   });
 
-  const isMock = glpiStatus && !glpiStatus?.available;
-
   return (
     <div className="inventory-page">
       {/* Page Header */}
@@ -52,15 +50,15 @@ export function InventoryPage() {
 
         {/* GLPI status badge */}
         <div className="inventory-header__status">
-          {isMock ? (
-            <div className="inventory-status-badge inventory-status-badge--mock">
-              <AlertTriangle size={12} />
-              <span>Modo Demo — GLPI no disponible</span>
-            </div>
-          ) : (
+          {glpiStatus?.available ? (
             <div className="inventory-status-badge inventory-status-badge--live">
               <span className="status-dot active" />
               <span>GLPI Conectado</span>
+            </div>
+          ) : (
+            <div className="inventory-status-badge inventory-status-badge--live" style={{ opacity: 0.7 }}>
+              <span className="status-dot disconnected" />
+              <span>GLPI Sin conexión</span>
             </div>
           )}
         </div>

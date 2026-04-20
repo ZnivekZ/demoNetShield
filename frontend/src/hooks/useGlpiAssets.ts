@@ -61,6 +61,16 @@ export function useGlpiAssetNetworkContext(id: number | null) {
   });
 }
 
+export function useGlpiAssetFullDetail(id: number | null) {
+  return useQuery({
+    queryKey: ['glpi', 'assets', id, 'full-detail'],
+    queryFn: () => glpiApi.getAssetFullDetail(id!),
+    enabled: id !== null,
+    staleTime: 60_000,
+    select: (res) => res.data,
+  });
+}
+
 // ── Mutations ─────────────────────────────────────────────────────
 
 export function useCreateGlpiAsset() {

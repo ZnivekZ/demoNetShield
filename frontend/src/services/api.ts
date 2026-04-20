@@ -49,6 +49,7 @@ import type {
   GlpiUser,
   GlpiQuarantineRequest,
   GlpiAvailability,
+  GlpiAssetFullDetail,
   MockStatus,
   // GeoIP
   GeoIPResult,
@@ -476,6 +477,9 @@ export const glpiApi = {
 
   getAssetNetworkContext: (id: number) =>
     api.get<APIResponse<GlpiNetworkContext>>(`/glpi/assets/${id}/network-context`).then(r => r.data),
+
+  getAssetFullDetail: (id: number) =>
+    api.get<APIResponse<GlpiAssetFullDetail>>(`/glpi/assets/${id}/full-detail`).then(r => r.data),
 
   createAsset: (data: GlpiAssetCreate) =>
     api.post<APIResponse>('/glpi/assets', data).then(r => r.data),

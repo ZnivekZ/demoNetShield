@@ -40,6 +40,7 @@ from services.geoip_service import GeoIPService
 from services.suricata_service import get_suricata_service
 from services.telegram_service import get_telegram_service
 from services.telegram_scheduler import get_telegram_scheduler
+from services.glpi_collector import get_glpi_collector
 
 # ── Structured Logging Setup ─────────────────────────────────────
 
@@ -107,6 +108,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("telegram_scheduler_start_failed", error=str(e))
 
+    # Start GLPI Collector (periodic sync every 5 min)
+    try:
+        glpi_collector = get_glpi_collector()
+        await glpi_collector.start()
+    except Exception as e:
+        logger.warning("glpi_collector_start_failed", error=str(e))
+
     yield
 
     # Shutdown
@@ -134,6 +142,11 @@ async def lifespan(app: FastAPI):
     try:
         sur_service = get_suricata_service()
         await sur_service.close()
+    except Exception:
+        pass
+    try:
+        glpi_collector = get_glpi_collector()
+        await glpi_collector.stop()
     except Exception:
         pass
     try:

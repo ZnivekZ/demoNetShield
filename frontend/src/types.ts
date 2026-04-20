@@ -1380,3 +1380,207 @@ export interface TelegramSendResult {
   error?: string;
   mock?: boolean;
 }
+
+/* ── Custom Views Types ──────────────────────────────── */
+
+export interface WidgetConfig {
+  /** ID único del widget dentro de la vista (generado en el frontend) */
+  id: string;
+  /** Tipo del widget — coincide con el catálogo del backend */
+  type: string;
+  /** Título visible del widget */
+  title: string;
+  /** Tamaño del widget en el grid */
+  size: 'small' | 'medium' | 'large' | 'full';
+  /** Configuración específica del widget (filters, limits, etc.) */
+  config: Record<string, unknown>;
+}
+
+export interface CustomView {
+  id: string;
+  name: string;
+  description: string | null;
+  widgets: WidgetConfig[];
+  icon: string | null;
+  color: string | null;
+  is_default: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CustomViewCreate {
+  name: string;
+  description?: string;
+  widgets: WidgetConfig[];
+  icon?: string;
+  color?: string;
+}
+
+export interface CustomViewUpdate {
+  name?: string;
+  description?: string;
+  widgets?: WidgetConfig[];
+  icon?: string;
+  color?: string;
+}
+
+export interface WidgetConfigSchema {
+  type: 'number' | 'string' | 'boolean';
+  default: unknown;
+  label: string;
+}
+
+export interface WidgetCatalogItem {
+  type: string;
+  title: string;
+  description: string;
+  icon: string;
+  source: 'wazuh' | 'mikrotik' | 'crowdsec' | 'suricata' | 'glpi' | 'phishing' | 'general' | 'mixed';
+  category?: 'standard' | 'visual' | 'technical' | 'hybrid';
+  default_size: WidgetConfig['size'];
+  available_sizes: WidgetConfig['size'][];
+  config_schema: Record<string, WidgetConfigSchema>;
+  preview_color?: string;
+}
+
+export interface WidgetCategory {
+  id: 'standard' | 'visual' | 'technical' | 'hybrid';
+  label: string;
+  description: string;
+  icon: string;
+  widgets: WidgetCatalogItem[];
+}
+
+export interface WidgetCatalogResponse {
+  categories: WidgetCategory[];
+}
+
+/* ── Widget Data Types (new endpoints) ────────────────────────── */
+
+export interface ThreatLevelSource {
+  count: number;
+  score: number;
+  weight: number;
+  label: string;
+}
+
+export interface ThreatLevelData {
+  score: number;
+  breakdown: {
+    wazuh: ThreatLevelSource;
+    crowdsec: ThreatLevelSource;
+    suricata: ThreatLevelSource;
+  };
+  generated_at: string;
+}
+
+export interface ActivityHeatmapData {
+  matrix: number[][];  // [7][24] — day x hour
+  labels_day: string[];
+  max_value: number;
+  generated_at: string;
+}
+
+export interface CorrelationPoint {
+  timestamp: string;
+  wazuh_alerts: number;
+  suricata_alerts: number;
+  crowdsec_decisions: number;
+}
+
+export interface CorrelationTimelineData {
+  series: CorrelationPoint[];
+  minutes: number;
+  generated_at: string;
+}
+
+export interface ConfirmedThreatGeo {
+  country_code: string;
+  country_name: string;
+  city: string | null;
+  as_name: string | null;
+}
+
+export interface ConfirmedThreat {
+  ip: string;
+  sources: string[];  // 'suricata' | 'crowdsec' | 'wazuh'
+  confirmation_level: number;  // 2 or 3
+  score: number;
+  geo: ConfirmedThreatGeo | null;
+  suricata_signatures: string[];
+  crowdsec_scenario: string | null;
+  wazuh_level: number;
+  last_seen: string;
+}
+
+export interface ConfirmedThreatsData {
+  threats: ConfirmedThreat[];
+  total: number;
+  generated_at: string;
+}
+
+export interface IncidentStep {
+  step: 'detection' | 'alert' | 'block' | 'ticket' | 'resolution';
+  label: string;
+  icon: string;
+  status: 'done' | 'pending' | 'failed';
+  timestamp: string | null;
+  source: 'wazuh' | 'crowdsec' | 'mikrotik' | 'glpi' | 'suricata' | null;
+  detail: string | null;
+}
+
+export interface IncidentLifecycleData {
+  ip: string;
+  steps: IncidentStep[];
+  complete: boolean;
+  generated_at: string;
+}
+
+export interface AssetCorrelation {
+  asset_name: string;
+  asset_id: number | null;
+  asset_owner: string;
+  asset_location: string;
+  dst_ip: string;
+  suricata_severity: 1 | 2 | 3;
+  suricata_signature: string;
+  suricata_category: string;
+  wazuh_agent: boolean;
+  timestamp: string;
+}
+
+export interface SuricataAssetCorrelationData {
+  correlations: AssetCorrelation[];
+  total: number;
+  generated_at: string;
+}
+
+export interface WorldThreatCountry {
+  country_code: string;
+  country_name: string;
+  score: number;  // 0-100
+  crowdsec_count: number;
+  wazuh_count: number;
+  suricata_count: number;
+  top_asn: string;
+  wazuh_max_level: number;
+  suricata_top_signature: string;
+}
+
+export interface WorldThreatMapData {
+  countries: WorldThreatCountry[];
+  total_countries_with_activity: number;
+  generated_at: string;
+}
+
+export interface ViewReportResult {
+  success: boolean;
+  pdf_url: string | null;
+  telegram_sent: boolean;
+  report_summary: string;
+  html_content?: string;
+  view_id: string;
+  widget_ids: string[];
+  audience: string;
+  mock?: boolean;
+}

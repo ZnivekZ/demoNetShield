@@ -10,7 +10,7 @@
 import { useState } from 'react';
 import {
   BookOpen, ToggleLeft, ToggleRight, RefreshCw,
-  CheckCircle2, XCircle, Search, Filter,
+  CheckCircle2, XCircle, Search,
 } from 'lucide-react';
 import { useSuricataRules } from '../../hooks/useSuricataRules';
 import { ConfirmModal } from '../common/ConfirmModal';

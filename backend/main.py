@@ -30,6 +30,8 @@ from routers import glpi as glpi_router
 from routers import crowdsec as crowdsec_router
 from routers import geoip as geoip_router
 from routers import suricata as suricata_router
+from routers import views as views_router
+from routers import widgets as widgets_router
 from services.mikrotik_service import get_mikrotik_service
 from services.wazuh_service import get_wazuh_service
 from services.glpi_service import get_glpi_service
@@ -184,6 +186,8 @@ app.include_router(glpi_router.router)
 app.include_router(crowdsec_router.router)
 app.include_router(geoip_router.router)
 app.include_router(suricata_router.router)
+app.include_router(views_router.router)
+app.include_router(widgets_router.router)
 
 
 # ── Root & Health Check ───────────────────────────────────────────

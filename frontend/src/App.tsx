@@ -39,6 +39,10 @@ import { SuricataMotorPage } from './components/suricata/MotorPage';
 import { SuricataAlertsPage } from './components/suricata/AlertsPage';
 import { SuricataNSMPage } from './components/suricata/NSMPage';
 import { SuricataRulesPage } from './components/suricata/RulesPage';
+// Custom Views
+import ViewsListPage from './components/views/ViewsListPage';
+import ViewBuilderPage from './components/views/ViewBuilderPage';
+import ViewDetailPage from './components/views/ViewDetailPage';
 
 
 const queryClient = new QueryClient({
@@ -87,6 +91,12 @@ export default function App() {
 
             {/* Legacy redirect — VLANs page merged into /network */}
             <Route path="/vlans" element={<Navigate to="/network" replace />} />
+
+            {/* Custom Views */}
+            <Route path="/views" element={<ViewsListPage />} />
+            <Route path="/views/new" element={<ViewBuilderPage />} />
+            <Route path="/views/:id" element={<ViewDetailPage />} />
+            <Route path="/views/:id/edit" element={<ViewBuilderPage />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />

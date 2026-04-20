@@ -10,6 +10,25 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
     <title>NetShield Dashboard</title>
+    <!--
+      Anti-FOUC (Flash of Unstyled Content) script.
+      Lee tema y escala de fuente de localStorage ANTES de que React
+      monte, para que el tema correcto se aplique en el primer paint.
+      Debe ser inline y ejecutarse de forma síncrona.
+    -->
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('netshield_theme') || 'dark';
+          var scale = localStorage.getItem('netshield_font_scale') || '1';
+          document.documentElement.setAttribute('data-theme', theme);
+          document.documentElement.style.setProperty('--font-scale', scale);
+        } catch (e) {
+          // localStorage no disponible (modo privado, etc.) — usar defaults
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

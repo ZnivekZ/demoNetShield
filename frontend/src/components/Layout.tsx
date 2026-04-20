@@ -48,6 +48,7 @@ import {
   Eye,
   BookOpen,
   AlertTriangle,
+  LayoutDashboard,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GlobalSearch } from './common/GlobalSearch';
@@ -60,6 +61,7 @@ import { useCrowdSecHealth } from '../hooks/useCrowdSecMetrics';
 import { useSuricataEngine } from '../hooks/useSuricataEngine';
 import { MockModeBadge } from './common/MockModeBadge';
 import { IpContextPanel } from './crowdsec/IpContextPanel';
+import { SettingsDrawer } from './common/SettingsDrawer';
 
 // ── Navigation structure (max 20 items total) ─────────────────
 const navGroups = [
@@ -109,10 +111,17 @@ const navGroups = [
       { to: '/inventory', icon: Package, label: 'GLPI', end: false },
     ],
   },
+  {
+    label: 'Mis Vistas',
+    items: [
+      { to: '/views', icon: LayoutDashboard, label: 'Vistas personalizadas', end: false },
+    ],
+  },
 ];
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Global block IP flow (triggered by GlobalSearch or NotificationPanel)
   const [blockIPTarget, setBlockIPTarget] = useState<string | null>(null);
@@ -255,6 +264,16 @@ export default function Layout() {
               onBlockIP={ip => setBlockIPTarget(ip)}
               onShowIpContext={ip => setIpContextTarget(ip)}
             />
+            {/* Settings gear button */}
+            <button
+              id="settings-drawer-toggle"
+              className="settings-gear-btn"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Abrir Centro de Control"
+              title="Centro de Control"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
           </div>
         </header>
 
@@ -282,6 +301,12 @@ export default function Layout() {
         ip={ipContextTarget}
         onClose={() => setIpContextTarget(null)}
         onFullBlock={ip => { setIpContextTarget(null); setBlockIPTarget(ip); }}
+      />
+
+      {/* Settings Drawer — Centro de Control */}
+      <SettingsDrawer
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
       />
     </div>
   );

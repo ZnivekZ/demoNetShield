@@ -826,3 +826,91 @@ export const telegramApi = {
   getLogs: (params?: { limit?: number; direction?: string; message_type?: string }) =>
     api.get<APIResponse<TelegramMessageLog[]>>('/reports/telegram/logs', { params }).then(r => r.data),
 };
+
+// ── Views API ────────────────────────────────────────────────────
+
+import type {
+  CustomView, CustomViewCreate, CustomViewUpdate,
+  WidgetCatalogResponse,
+  ThreatLevelData, ActivityHeatmapData, CorrelationTimelineData,
+  ConfirmedThreatsData, IncidentLifecycleData, SuricataAssetCorrelationData,
+  WorldThreatMapData, ViewReportResult,
+} from '../types';
+
+export const viewsApi = {
+  /** Lista todas las vistas personalizadas */
+  getAll: () =>
+    api.get<APIResponse<CustomView[]>>('/views').then(r => r.data),
+
+  /** Obtiene el detalle de una vista por ID */
+  getById: (id: string) =>
+    api.get<APIResponse<CustomView>>(`/views/${id}`).then(r => r.data),
+
+  /** Crea una nueva vista personalizada */
+  create: (data: CustomViewCreate) =>
+    api.post<APIResponse<CustomView>>('/views', data).then(r => r.data),
+
+  /** Actualiza los campos de una vista existente */
+  update: (id: string, data: CustomViewUpdate) =>
+    api.put<APIResponse<CustomView>>(`/views/${id}`, data).then(r => r.data),
+
+  /** Elimina una vista */
+  delete: (id: string) =>
+    api.delete<APIResponse<{ deleted: string }>>(`/views/${id}`).then(r => r.data),
+
+  /** Marca una vista como la vista por defecto */
+  setDefault: (id: string) =>
+    api.put<APIResponse<CustomView>>(`/views/${id}/default`).then(r => r.data),
+
+  /** Retorna el catálogo categorizado de widgets (4 categorías) */
+  getWidgetCatalog: () =>
+    api.get<APIResponse<WidgetCatalogResponse>>('/views/widgets/catalog').then(r => r.data),
+};
+
+/* ── Widgets Aggregation API ──────────────────────────────────── */
+
+export const widgetsApi = {
+  /** Score 0-100 de nivel de amenaza global (Wazuh + CrowdSec + Suricata) */
+  getThreatLevel: () =>
+    api.get<APIResponse<ThreatLevelData>>('/widgets/threat-level').then(r => r.data),
+
+  /** Matrix 7x24 de actividad de alertas [Wazuh] */
+  getActivityHeatmap: () =>
+    api.get<APIResponse<ActivityHeatmapData>>('/widgets/activity-heatmap').then(r => r.data),
+
+  /** 3 series alineadas en tiempo: Wazuh + Suricata + CrowdSec */
+  getCorrelationTimeline: (minutes = 120) =>
+    api.get<APIResponse<CorrelationTimelineData>>('/widgets/correlation-timeline', {
+      params: { minutes },
+    }).then(r => r.data),
+
+  /** IPs detectadas por ≥2 fuentes simultáneamente */
+  getConfirmedThreats: () =>
+    api.get<APIResponse<ConfirmedThreatsData>>('/widgets/confirmed-threats').then(r => r.data),
+
+  /** Timeline del ciclo de vida de un incidente para una IP */
+  getIncidentLifecycle: (ip: string) =>
+    api.get<APIResponse<IncidentLifecycleData>>('/widgets/incident-lifecycle', {
+      params: { ip },
+    }).then(r => r.data),
+
+  /** Alertas Suricata cruzadas con inventario GLPI */
+  getSuricataAssetCorrelation: (limit = 20) =>
+    api.get<APIResponse<SuricataAssetCorrelationData>>('/widgets/suricata-asset-correlation', {
+      params: { limit },
+    }).then(r => r.data),
+
+  /** Score de amenaza por país para mapa mundial */
+  getWorldThreatMap: () =>
+    api.get<APIResponse<WorldThreatMapData>>('/widgets/world-threat-map').then(r => r.data),
+
+  /** Genera un reporte IA desde los widgets activos de una vista */
+  generateViewReport: (data: {
+    view_id: string;
+    widget_ids: string[];
+    audience?: string;
+    output?: string;
+    report_title?: string;
+  }) =>
+    api.post<APIResponse<ViewReportResult>>('/widgets/generate-view-report', data).then(r => r.data),
+};

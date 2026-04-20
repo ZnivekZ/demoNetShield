@@ -31,6 +31,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 - **🎣 Phishing** — Detección de dominios sospechosos, sinkhole DNS, alertas de víctimas
 - **🔒 Portal Cautivo** — Gestión de hotspot MikroTik: sesiones, usuarios, perfiles de velocidad
 - **💬 Telegram Bot** — Canal de notificaciones bidireccional: alertas outbound automáticas + consultas en lenguaje natural respondidas por Claude AI (inbound)
+- **📊 Vistas Personalizadas** — Sistema de dashboards configurables por el usuario con catálogo de 24+ widgets especializados organizados en 4 categorías
 
 > **Fase actual:** Laboratorio de pruebas. Diseñado para escalar a entornos reales con 1000+ usuarios concurrentes sin reescribir la arquitectura.
 
@@ -56,6 +57,75 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 | **Suricata — Alertas** | `/suricata/alerts` | Alertas IDS/IPS con live feed WebSocket, timeline, top firmas, filtros avanzados |
 | **Suricata — Red NSM** | `/suricata/network` | Flujos de red, consultas DNS, transacciones HTTP, handshakes TLS capturados |
 | **Suricata — Reglas** | `/suricata/rules` | Gestión de firmas: toggle on/off, rulesets, actualización vía suricata-update |
+| **Vistas** | `/views` | Lista de dashboards personalizados guardados |
+| **Vista Detail** | `/views/:id` | Dashboard personalizado con widgets en grid |
+| **View Builder** | `/views/:id/edit` | Editor de vistas con catálogo tabulado de 24+ widgets |
+
+---
+
+## 📊 Sistema de Vistas Personalizadas
+
+NetShield incluye un sistema completo para crear **dashboards configurables por el usuario**, persistidos en SQLite.
+
+### Catálogo de widgets (4 categorías)
+
+#### 🔵 Standard — Widgets esenciales de monitoreo
+| Widget | Fuente | Descripción |
+|--------|--------|-------------|
+| `standard_alert_counter` | Wazuh | Contador de alertas con nivel configurable |
+| `standard_agent_status` | Wazuh | Estado de agentes en tiempo real |
+| `standard_interface_status` | MikroTik | Estado de interfaces de red |
+| `standard_crowdsec_blocks` | CrowdSec | Total de bloqueos activos |
+| `standard_mitre_summary` | Wazuh | Resumen de técnicas MITRE ATT&CK |
+| `standard_top_agents` | Wazuh | Top agentes por alertas |
+
+#### 🟣 Visual — Visualizaciones especializadas
+| Widget | Fuente | Descripción |
+|--------|--------|-------------|
+| `visual_threat_gauge` | Multi | Gauge de nivel de amenaza (0-100) con desglose por fuente |
+| `visual_activity_heatmap` | Wazuh | Calendario heatmap 7×24h de actividad de alertas |
+| `visual_agents_thermometer` | Wazuh | Termómetro visual del ratio alertas/agentes |
+| `visual_blocks_timeline` | CrowdSec | Línea de tiempo de bloques en las últimas 24h |
+| `visual_event_counter` | Multi | Contador giratorio de eventos con velocidad |
+| `visual_network_pulse` | MikroTik | ECG animado del tráfico de red en SVG |
+| `visual_protocol_donut` | Suricata | Donut de distribución de protocolos NSM |
+
+#### 🟠 Technical — Vistas técnicas avanzadas
+| Widget | Fuente | Descripción |
+|--------|--------|-------------|
+| `technical_packet_inspector` | Suricata | Inspector de alertas con detalle expandible por firma/IP |
+| `technical_flow_table` | Suricata NSM | Tabla de flujos activos con filtro por protocolo |
+| `technical_live_logs` | MikroTik | Terminal de logs en tiempo real con auto-scroll |
+| `technical_firewall_tree` | MikroTik | Árbol de reglas firewall agrupado por chain |
+| `technical_crowdsec_raw` | CrowdSec | Tabla raw de decisiones con confirmación de unblock |
+| `technical_correlation_timeline` | Multi | Timeline de correlación cruzada Wazuh+Suricata+CrowdSec |
+| `technical_critical_assets` | GLPI | Activos críticos con estado de salud y agente Wazuh |
+| `technical_action_log` | Sistema | Log de acciones de seguridad recientes |
+
+#### 🟢 Hybrid — Widgets de correlación multi-fuente
+| Widget | Fuente | Descripción |
+|--------|--------|-------------|
+| `hybrid_world_threat_map` | Multi | Mapa mundial de amenazas con intensidad por país |
+| `hybrid_confirmed_threats` | Suricata+CrowdSec | IPs confirmadas como amenaza por múltiples fuentes |
+| `hybrid_country_radar` | GeoIP+Multi | Radar de países atacantes con distribución por fuente |
+| `hybrid_ip_profiler` | Multi | Perfilador de IP con GeoIP + CrowdSec CTI + red interna |
+| `hybrid_incident_lifecycle` | Multi | Ciclo de vida de incidentes: detección → bloqueo → resolución |
+| `hybrid_defense_layers` | Multi | Estado visual de todas las capas defensivas |
+| `hybrid_geoblock_predictor` | GeoIP | Sugerencias predictivas de geo-bloqueo con un clic |
+| `hybrid_suricata_glpi` | Suricata+GLPI | Correlación de alertas con activos del inventario |
+| `hybrid_view_report_generator` | Claude AI | Generador de reportes IA desde una vista |
+
+### Flujo del View Builder
+
+```
+/views → ViewsListPage → [Nueva vista] → ViewBuilderPage
+                                              │  (Catálogo tabulado Standard/Visual/Technical/Hybrid)
+                                              │  (Drag-and-drop de widgets al grid)
+                                              ▼
+                                         ViewDetailPage (dashboard en vivo)
+                                              │
+                                         WidgetRenderer → datos en tiempo real
+```
 
 ---
 
@@ -87,7 +157,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 | **Vite 8** + TypeScript | Bundler y tipado estático |
 | **TailwindCSS v4** | Estilos con tokens custom vía `@theme` |
 | **TanStack Query** | Data fetching, cache y sincronización |
-| **Recharts** | Gráficos de tráfico en tiempo real |
+| **Recharts** | Gráficos de tráfico, timelines y charts interactivos |
 | **TipTap** | Editor de texto enriquecido para reportes |
 | **Lucide React** | Iconografía |
 | **Axios** | Cliente HTTP centralizado |
@@ -247,6 +317,9 @@ NetShield integra las bases de datos **MaxMind GeoLite2** para geolocalizar IPs 
 - **DecisionsTable (CrowdSec)** — Bandera emoji + ciudad + badge ISP/DC/Tor por cada IP bloqueada
 - **IntelligenceView** — Widget "Top Países Atacantes" con filtro por fuente (CrowdSec / Wazuh / MikroTik)
 - **IntelligenceView** — Panel de "Sugerencias de Geo-Bloqueo" generadas automáticamente
+- **CountryRadar widget** — Radar multi-fuente de países atacantes en Vistas Personalizadas
+- **WorldThreatMap widget** — Mapa mundial de intensidad de amenazas por país
+- **IpProfiler widget** — Perfil completo de IP con GeoIP + CTI + estado en red interna
 - **SystemHealth** — Estado de las bases de datos GeoLite2 con fecha de build y tamaño de caché
 
 ### Configurar GeoLite2 real (producción)
@@ -284,19 +357,23 @@ netShield2/
 │   │   └── geoip/               # GeoLite2-City.mmdb + GeoLite2-ASN.mmdb (no en git)
 │   ├── scripts/
 │   │   └── download_geoip.py    # Script de descarga de bases de datos MaxMind
-│   ├── routers/                 # 13 routers REST
+│   ├── routers/                 # 16 routers REST
 │   │   ├── mikrotik.py          # Endpoints MikroTik (interfaces, ARP, firewall)
 │   │   ├── vlans.py             # CRUD de VLANs + tráfico
 │   │   ├── wazuh.py             # Alertas, agentes, MITRE ATT&CK
 │   │   ├── network.py           # Labels y grupos de IPs
-│   │   ├── reports.py           # Generación de reportes IA + PDF
+│   │   ├── reports.py           # Generación de reportes IA + PDF + Telegram (11 endpoints)
 │   │   ├── glpi.py              # Inventario, tickets, cuarentena
 │   │   ├── portal.py            # Portal cautivo MikroTik Hotspot
 │   │   ├── phishing.py          # Sinkhole, alertas, víctimas
 │   │   ├── security.py          # Auto-block, geo-block, cuarentena
 │   │   ├── crowdsec.py          # Decisiones, métricas, bouncers, CTI
 │   │   ├── geoip.py             # Lookup/bulk, top países/ASNs, sugerencias de geo-bloqueo
-│   │   ├── suricata.py          # Motor IDS/IPS/NSM: 24 endpoints (engine, alerts, flows, rules, correlation, autoresponse)
+│   │   ├── suricata.py          # Motor IDS/IPS/NSM (24 endpoints)
+│   │   ├── views.py             # CRUD de vistas personalizadas + widgets (SQLite persistido)
+│   │   ├── widgets.py           # Endpoints de datos agregados para widgets (threat level, heatmap,
+│   │   │                        #   correlation timeline, confirmed threats, incident lifecycle,
+│   │   │                        #   suricata×GLPI, world threat map, view report)
 │   │   └── cli.py               # Terminal web (RouterOS + Wazuh Agent)
 │   ├── services/                # Lógica de negocio (singletons)
 │   │   ├── mikrotik_service.py  # Singleton con asyncio.Lock
@@ -305,27 +382,29 @@ netShield2/
 │   │   ├── portal_service.py    # Hotspot sessions, users, profiles
 │   │   ├── crowdsec_service.py  # LAPI + CTI + enriquecimiento GeoIP en decisions
 │   │   ├── geoip_service.py     # Singleton GeoLite2 + TTLCache(10000, ttl=3600)
-│   │   ├── suricata_service.py  # Singleton: Unix socket async, alertas vía Wazuh, flujos NSM, correlación CrowdSec/Wazuh, auto-response
-│   │   ├── telegram_service.py  # Singleton: send_message (retry×3), send_alert, send_status_summary, process_incoming_message → answer_query (Claude AI), pending queue
-│   │   ├── telegram_scheduler.py # APScheduler AsyncIOScheduler: sync de jobs desde DB cada minuto, cron por config
+│   │   ├── suricata_service.py  # Singleton: Unix socket async, alertas vía Wazuh, flujos NSM,
+│   │   │                        #   correlación CrowdSec/Wazuh, auto-response
+│   │   ├── telegram_service.py  # Singleton: send_message, send_alert, send_status_summary,
+│   │   │                        #   process_incoming_message → answer_query (Claude AI)
+│   │   ├── telegram_scheduler.py # APScheduler AsyncIOScheduler: sync de jobs desde DB cada minuto
 │   │   ├── ai_service.py        # Claude function calling + TELEGRAM_SYSTEM_PROMPT + answer_telegram_query()
 │   │   ├── pdf_service.py       # WeasyPrint + Jinja2
-│   │   ├── auth_provider.py     # Proveedor de autenticación
-│   │   ├── mock_data.py         # Datos simulados reproducibles (seed=42) + MockData.suricata + MockData.telegram
-│   │   └── mock_service.py      # CRUD en memoria + estado de mock por servicio (incluye telegram)
-│   ├── models/                  # Modelos SQLAlchemy
-│   ├── schemas/                 # Schemas Pydantic v2 (incluye suricata.py, geoip.py)
+│   │   ├── mock_data.py         # Datos simulados reproducibles (seed=42)
+│   │   └── mock_service.py      # CRUD en memoria + estado de mock por servicio
+│   ├── models/                  # Modelos SQLAlchemy (incluye CustomView)
+│   ├── schemas/                 # Schemas Pydantic v2
 │   └── templates/               # Plantilla HTML para PDF
 │
 ├── frontend/
 │   └── src/
-│       ├── App.tsx              # Rutas SPA (16 vistas)
-│       ├── types.ts             # Tipos TypeScript compartidos (incluye Suricata, GeoIP, Telegram)
+│       ├── App.tsx              # Rutas SPA (19 vistas)
+│       ├── types.ts             # Tipos TypeScript compartidos (~1600 líneas)
 │       ├── index.css            # Design system y tokens @theme
 │       ├── services/
-│       │   └── api.ts           # Cliente API centralizado (suricataApi + geoipApi + telegramApi + ...)
-│       ├── hooks/               # 32 custom hooks (TanStack Query + WebSocket)
+│       │   └── api.ts           # Cliente API centralizado (~2000 líneas, 15+ namespaces)
+│       ├── hooks/               # 35+ custom hooks (TanStack Query + WebSocket)
 │       │   ├── useWebSocket.ts              # Hook base WebSocket con reconexión
+│       │   ├── useTheme.ts                  # Hook de theming (light/dark/system)
 │       │   ├── useSuricataEngine.ts         # Estado motor + series + reloadRules
 │       │   ├── useSuricataAlerts.ts         # Alertas REST + suscripción /ws/suricata/alerts
 │       │   ├── useSuricataFlows.ts          # Flujos, DNS, HTTP, TLS
@@ -338,54 +417,45 @@ netShield2/
 │       │   ├── useTelegramStatus.ts         # Estado del bot Telegram (polling 30s)
 │       │   ├── useTelegramConfigs.ts        # CRUD configs + sendTest + sendSummary
 │       │   ├── useTelegramLogs.ts           # Historial de mensajes con filtros
-│       │   ├── useVlans.ts                  # CRUD de VLANs
-│       │   ├── useVlanTraffic.ts            # WebSocket tráfico por VLAN
-│       │   ├── useSecurityAlerts.ts         # Alertas de seguridad
-│       │   ├── useSecurityActions.ts        # Acciones de bloqueo
-│       │   ├── useWazuhSummary.ts           # Resumen Wazuh
-│       │   ├── useMikrotikHealth.ts         # Health MikroTik
-│       │   ├── useGlpiAssets.ts             # Activos GLPI
-│       │   ├── useGlpiTickets.ts            # Tickets GLPI
-│       │   ├── useGlpiUsers.ts              # Usuarios GLPI
-│       │   ├── useGlpiHealth.ts             # Health GLPI
-│       │   ├── usePortalSessions.ts         # Sesiones portal cautivo
-│       │   ├── usePortalUsers.ts            # Usuarios portal
-│       │   ├── usePortalConfig.ts           # Configuración portal
-│       │   ├── usePortalStats.ts            # Estadísticas portal
-│       │   ├── usePhishing.ts               # Datos de phishing
-│       │   ├── useNetworkSearch.ts          # Búsqueda global de red
-│       │   ├── useIpContext.ts              # Panel contextual de IPs
-│       │   ├── useCrowdSecDecisions.ts      # Decisiones CrowdSec
-│       │   ├── useCrowdSecAlerts.ts         # Alertas CrowdSec
-│       │   ├── useCrowdSecMetrics.ts        # Métricas CrowdSec
-│       │   ├── useSyncStatus.ts             # Estado de sincronización
-│       │   └── useQrScanner.ts              # Scanner QR (portal)
+│       │   ├── useCustomViews.ts            # CRUD de vistas personalizadas
+│       │   ├── useWidgetCatalog.ts          # Catálogo de widgets tabulado por categoría
+│       │   ├── widgets/                     # Hooks por categoría de widget
+│       │   │   ├── visual/index.ts          # useActivityHeatmap, useThreatGauge, useNetworkPulse...
+│       │   │   ├── technical/index.ts       # usePacketInspector, useFlowTable, useLiveLogs...
+│       │   │   └── hybrid/index.ts          # useIpProfiler, useConfirmedThreats, useWorldThreatMap...
+│       │   └── ...                          # + 20 hooks de dominio (portal, GLPI, CrowdSec, etc.)
 │       └── components/          # Componentes por dominio
-│           ├── Layout.tsx               # Sidebar glassmorphic + topbar (status dot Suricata incluido)
+│           ├── Layout.tsx               # Sidebar glassmorphic + topbar (status dots + theming)
 │           ├── common/                  # Componentes compartidos
-│           ├── dashboard/               # Dashboard widgets
+│           ├── dashboard/               # Dashboard principal
 │           ├── security/                # QuickView + ConfigView
 │           ├── firewall/                # Reglas y bloqueos
 │           ├── network/                 # ARP, VLANs, labels, groups
 │           ├── portal/                  # Portal cautivo
 │           ├── phishing/                # Panel de phishing
 │           ├── reports/                 # Generador IA (TipTap) + Telegram Bot (9 componentes)
-│           │   ├── TelegramTab.tsx          # Orquestador con sub-nav Estado/Configs/Historial
-│           │   ├── TelegramStatusCard.tsx   # Estado del bot + guía de configuración
-│           │   ├── TelegramConfigList.tsx   # Cards de configs con toggle/trigger/edit/delete
-│           │   ├── TelegramConfigModal.tsx  # Modal crear/editar con CronBuilder + MessagePreview
-│           │   ├── CronBuilder.tsx          # Selector visual diario/semanal/mensual
-│           │   ├── MessagePreview.tsx       # Vista previa del mensaje en estilo Telegram
-│           │   ├── TelegramQuickActions.tsx # Enviar prueba + resumen manual
-│           │   ├── TelegramHistory.tsx      # Tabla de mensajes con filtros y rows expandibles
-│           │   └── BotConversation.tsx      # Historial de consultas bot estilo chat
 │           ├── inventory/               # GLPI kanban + tickets
 │           ├── crowdsec/                # 13 componentes CrowdSec
 │           ├── suricata/                # 4 páginas: MotorPage · AlertsPage · NSMPage · RulesPage
 │           ├── geoip/                   # CountryFlag · NetworkTypeBadge · TopCountriesWidget · GeoBlockSuggestions
 │           ├── system/                  # SystemHealth + CLI + GeoIPStatus
-│           ├── vlans/                   # Componentes legacy VLANs
-│           └── utils/                   # Utilidades UI
+│           ├── views/                   # Sistema de vistas personalizadas
+│           │   ├── ViewsListPage.tsx        # Lista de dashboards guardados
+│           │   ├── ViewDetailPage.tsx       # Dashboard en vivo con widgets
+│           │   ├── ViewBuilderPage.tsx      # Editor con catálogo tabulado
+│           │   └── WidgetRenderer.tsx       # Renderer dinámico de 24+ widgets
+│           └── widgets/                 # Biblioteca de widgets por categoría
+│               ├── common/              # WidgetSkeleton, WidgetErrorState, WidgetHeader
+│               ├── visual/              # ThreatGauge, ActivityHeatmap, NetworkPulse,
+│               │                        # AgentsThermometer, BlocksTimeline, EventCounter,
+│               │                        # ProtocolDonut
+│               ├── technical/           # PacketInspector, FlowTableWidget, LiveLogs,
+│               │                        # FirewallTree, CrowdSecRaw, CorrelationTimeline,
+│               │                        # CriticalAssets, ActionLogWidget
+│               └── hybrid/              # WorldThreatMap, ConfirmedThreats, CountryRadar,
+│                                        # IpProfiler, IncidentLifecycle, DefenseLayers,
+│                                        # GeoblockPredictor, SuricataGlpiCorrelation,
+│                                        # ViewReportGenerator
 │
 ├── docs/                        # Documentación técnica
 │   ├── architecture-*.md        # Diagramas de arquitectura
@@ -419,6 +489,8 @@ netShield2/
 - **GeoIP enriquecimiento silencioso** — `geoip_service` usa `try/except` alrededor de cada lookup en las capas de servicio. Si falla, los endpoints devuelven el dato original sin el campo `geo`, nunca un error 500.
 - **TTLCache para GeoIP** — Las 10 000 entradas más recientes se mantienen en RAM con TTL de 1 hora, evitando consultas repetidas a las .mmdb.
 - **Auto-response circuit** — El circuito Suricata → CrowdSec + MikroTik requiere confirmación humana en el frontend (`ConfirmModal`). El auto-trigger sin interacción está deshabilitado por defecto.
+- **Catálogo de widgets server-driven** — El backend define el catálogo completo de widgets con schema de configuración por tipo (`/api/views/widgets/catalog`). El frontend lo consume dinámicamente para renderizar el catálogo tabulado sin hardcodear tipos.
+- **WidgetRenderer desacoplado** — Un único componente mapea cada `widget.type` a su componente React y les pasa `config`. Agregar un widget nuevo solo requiere: (1) registrar en el catálogo del backend, (2) crear el componente React, (3) añadir el `case` en `WidgetRenderer`.
 
 ---
 
@@ -464,15 +536,12 @@ GET  /api/suricata/alerts               — Alertas IDS/IPS con filtros
 GET  /api/suricata/alerts/timeline      — Timeline de alertas por minuto (IDS vs IPS)
 GET  /api/suricata/alerts/top-signatures — Top firmas por hits
 GET  /api/suricata/alerts/categories    — Distribución por categoría (donut chart)
-GET  /api/suricata/alerts/:id           — Detalle de alerta
 GET  /api/suricata/flows                — Flujos de red NSM
 GET  /api/suricata/flows/stats          — Estadísticas de flujos
 GET  /api/suricata/flows/dns            — Consultas DNS capturadas
 GET  /api/suricata/flows/http           — Transacciones HTTP capturadas
 GET  /api/suricata/flows/tls            — Handshakes TLS (JA3/SNI)
 GET  /api/suricata/rules                — Reglas/firmas
-GET  /api/suricata/rules/rulesets       — Rulesets disponibles
-GET  /api/suricata/rules/:sid           — Detalle de regla
 PUT  /api/suricata/rules/:sid/toggle    — Habilitar/deshabilitar regla
 POST /api/suricata/rules/update         — Actualizar reglas (suricata-update)
 GET  /api/suricata/correlation/crowdsec — IPs con alertas Suricata + decisión CrowdSec
@@ -489,6 +558,24 @@ GET  /api/geoip/stats/top-asns          — Top ASNs atacantes
 GET  /api/geoip/suggestions/geo-block   — Sugerencias de geo-bloqueo automáticas
 POST /api/geoip/suggestions/{id}/apply  — Aplicar una sugerencia de geo-bloqueo
 GET  /api/geoip/db/status               — Estado de las bases de datos GeoLite2
+
+# Vistas Personalizadas
+GET  /api/views                         — Listar vistas
+POST /api/views                         — Crear vista
+GET  /api/views/:id                     — Obtener vista
+PUT  /api/views/:id                     — Actualizar vista
+DEL  /api/views/:id                     — Eliminar vista
+GET  /api/views/widgets/catalog         — Catálogo tabulado de widgets por categoría
+
+# Widgets (datos agregados)
+GET  /api/widgets/threat-level          — Nivel de amenaza actual (0-100) con desglose
+GET  /api/widgets/activity-heatmap      — Matriz 7×24h de actividad de alertas
+GET  /api/widgets/correlation-timeline  — Timeline multi-fuente (Wazuh+Suricata+CrowdSec)
+GET  /api/widgets/confirmed-threats     — IPs confirmadas por múltiples fuentes
+GET  /api/widgets/incident-lifecycle/:ip — Ciclo de vida de un incidente por IP
+GET  /api/widgets/suricata-asset-correlation — Correlación Suricata × inventario GLPI
+GET  /api/widgets/world-threat-map      — Intensidad de amenazas por país (para mapa mundial)
+POST /api/widgets/view-report           — Generar reporte IA desde una vista personalizada
 
 # GLPI
 GET  /api/glpi/*                        — Activos, tickets, usuarios, ubicaciones
@@ -571,6 +658,6 @@ postman/NetShield.postman_collection.json
 
 **Hecho con ❤️ para monitoreo de redes**
 
-*NetShield Dashboard — v2.3*
+*NetShield Dashboard — v2.4*
 
 </div>

@@ -14,8 +14,8 @@
  */
 import { useState } from 'react';
 import {
-  Radar, Cpu, Activity, ShieldCheck, BookOpen,
-  RefreshCw, RotateCcw, Download, Clock, Zap,
+  Radar, Cpu, Activity, ShieldCheck,
+  RotateCcw, Download, Clock, Zap,
   CheckCircle2, XCircle, AlertTriangle,
 } from 'lucide-react';
 import {
@@ -95,7 +95,6 @@ function AutoResponsePanel() {
   const {
     config, recentHistory, isLoading,
     updateConfig, isUpdating,
-    trigger, isTriggering, triggerResult,
     isCircuitEnabled,
   } = useSuricataAutoResponse();
 
@@ -224,7 +223,7 @@ function AutoResponsePanel() {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export function SuricataMotorPage() {
-  const { engineStatus, stats, series, isLoadingStatus, isLoadingStats, reloadRules, isReloading } = useSuricataEngine(30);
+  const { engineStatus, series, isLoadingStats, reloadRules, isReloading } = useSuricataEngine(30);
   const { categories } = useSuricataAlerts();
   const [confirmReload, setConfirmReload] = useState(false);
   const [reloadDone, setReloadDone] = useState<boolean | null>(null);

@@ -10,8 +10,8 @@
  */
 import { useState } from 'react';
 import {
-  AlertTriangle, Filter, X, Wifi, WifiOff,
-  ChevronRight, Clock, Shield, ArrowUpRight,
+  AlertTriangle, Filter, X,
+  Clock, Shield,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -123,7 +123,7 @@ function AlertRow({ alert, onAutoResponse }: {
 
 export function SuricataAlertsPage() {
   const {
-    alerts, total, timeline, signatures, categories,
+    alerts, total, timeline, signatures,
     liveAlerts, isLoading, isTimelineLoading,
     filters, updateFilters, clearFilters,
   } = useSuricataAlerts();

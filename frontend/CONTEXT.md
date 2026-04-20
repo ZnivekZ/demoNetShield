@@ -5,51 +5,232 @@
 ```
 frontend/src/
 ├── main.tsx                           # Entry point, monta App en #root
-├── App.tsx                            # QueryClientProvider + BrowserRouter + Routes
+├── App.tsx                            # QueryClientProvider + BrowserRouter + Routes (19 rutas)
 ├── index.css                          # Design system completo (TailwindCSS v4 + clases custom)
-├── types.ts                           # Tipos TypeScript (espejo de schemas Pydantic del backend)
+├── types.ts                           # Tipos TypeScript (~1600 líneas, espejo de schemas Pydantic)
 │
 ├── services/
-│   └── api.ts                         # Cliente Axios centralizado con todos los endpoints
-│   │                                  # Módulos: mikrotikApi, wazuhApi, networkApi, reportsApi,
-│   │                                  # actionsApi, healthApi, vlansApi, securityApi, phishingApi,
-│   │                                  # cliApi, portalApi, glpiApi, systemApi (mock-status)
+│   └── api.ts                         # Cliente Axios centralizado (~2000 líneas, 15+ namespaces)
+│                                      # Namespaces: mikrotikApi, wazuhApi, networkApi, reportsApi,
+│                                      # securityApi, vlanApi, phishingApi, portalApi, glpiApi,
+│                                      # crowdsecApi, geoipApi, suricataApi, telegramApi,
+│                                      # viewsApi, widgetsApi
+│
+├── config/
+│   └── themes.ts                      # Lista de temas disponibles (colores, metadata light/dark)
+│
+├── lib/
+│   └── countryCodeMap.ts              # Mapa {CountryName → ISO2} para banderas emoji
 │
 ├── hooks/
-│   └── useWebSocket.ts                # useWebSocket() y useTrafficStream() con reconexión
+│   ├── useWebSocket.ts                # Hook base: reconexión con backoff exponencial
+│   ├── useTheme.ts                    # Gestión de temas: localStorage + CSS vars
+│   │
+│   │   # — Data hooks (38 hooks, uno por fuente de datos) —
+│   ├── useWazuhSummary.ts             # Alertas + agents + MITRE summary
+│   ├── useMikrotikHealth.ts           # Health del router
+│   ├── useCrowdSecDecisions.ts        # Decisions CRUD + mutations
+│   ├── useCrowdSecMetrics.ts          # Métricas del motor CrowdSec
+│   ├── useCrowdSecAlerts.ts           # Alertas del LAPI
+│   ├── useGeoIP.ts                    # Lookup individual con staleTime 1h
+│   ├── useTopCountries.ts             # Top países atacantes
+│   ├── useGeoBlockSuggestions.ts      # Sugerencias geo-block + apply mutation
+│   ├── useSuricataEngine.ts           # Status + stats + reload mutation
+│   ├── useSuricataAlerts.ts           # Alertas + timeline + top firmas + WebSocket
+│   ├── useSuricataFlows.ts            # Flows + DNS + HTTP + TLS
+│   ├── useSuricataRules.ts            # Rules + toggle + update mutations
+│   ├── useSuricataAutoResponse.ts     # Config + history + trigger mutation
+│   ├── useSuricataCorrelation.ts      # CrowdSec × Wazuh correlation
+│   ├── useGlpiAssets.ts               # Assets CRUD + stats + health + quarantine
+│   ├── useGlpiTickets.ts              # Tickets CRUD
+│   ├── useGlpiUsers.ts               # Users lista
+│   ├── useGlpiHealth.ts              # Health correlacionada
+│   ├── usePortalSessions.ts           # Sessions + WebSocket
+│   ├── usePortalUsers.ts              # Users CRUD + bulk import
+│   ├── usePortalConfig.ts             # Config + schedule + setup
+│   ├── usePortalStats.ts              # Stats históricas
+│   ├── usePhishing.ts                 # Alertas + víctimas + sinkhole CRUD
+│   ├── useSecurityActions.ts          # Block, quarantine, geo-block mutations
+│   ├── useSecurityAlerts.ts           # WebSocket /ws/security/alerts + notificaciones
+│   ├── useVlans.ts                    # VLANs CRUD
+│   ├── useVlanTraffic.ts              # WebSocket /ws/vlans/traffic
+│   ├── useIpContext.ts                # CTI CrowdSec + GeoIP lookup combinado
+│   ├── useNetworkSearch.ts            # Búsqueda global con debounce
+│   ├── useSyncStatus.ts              # Estado sync CrowdSec → MikroTik
+│   ├── useCustomViews.ts             # Views CRUD
+│   ├── useWidgetCatalog.ts            # Catálogo de widgets por categoría
+│   ├── useTelegramStatus.ts           # Estado del bot (refetch 30s)
+│   ├── useTelegramConfigs.ts          # Configs CRUD + trigger + test
+│   ├── useTelegramLogs.ts             # Historial de mensajes con filtros
+│   └── useQrScanner.ts               # Cámara + QR decode (estado local, sin API)
+│   │
+│   └── widgets/                       # Hooks de datos para widgets del catálogo
+│       ├── visual/index.ts            # 7 hooks: ThreatGauge, ActivityHeatmap, NetworkPulse, etc.
+│       ├── technical/index.ts         # 8 hooks: PacketInspector, FlowTable, LiveLogs, etc.
+│       └── hybrid/index.ts            # 9 hooks: WorldThreatMap, ConfirmedThreats, CountryRadar, etc.
 │
 └── components/
-    ├── Layout.tsx                      # Sidebar + top bar + Outlet (layout principal)
+    ├── Layout.tsx                      # Sidebar glassmorphic 7 grupos + topbar + GlobalSearch + Notifications
     │
     ├── common/
-    │   ├── MockModeBadge.tsx           # ← Badge amarillo en topbar cuando hay servicios en mock
+    │   ├── MockModeBadge.tsx           # Badge amarillo en topbar cuando hay servicios en mock
     │   ├── GlobalSearch.tsx            # Búsqueda global de IPs y hosts
-    │   └── ConfirmModal.tsx            # Modal de confirmación genérico
+    │   ├── ConfirmModal.tsx            # Modal de confirmación genérico
+    │   ├── SettingsDrawer.tsx          # Panel lateral config: tema + fuente
+    │   ├── ThemeCard.tsx               # Card preview de tema
+    │   └── FontSizeSlider.tsx          # Slider tamaño de fuente
+    │
+    ├── security/
+    │   ├── QuickView.tsx              # Vista principal ("/") — stats, tráfico, alertas, conexiones
+    │   ├── ConfigView.tsx             # Config seguridad: blacklist, umbrales, geo-block, sinkhole
+    │   ├── NotificationPanel.tsx      # Panel deslizable alertas en tiempo real multi-fuente
+    │   └── LastIncidentCard.tsx       # Card del último incidente detectado
     │
     ├── dashboard/
-    │   ├── DashboardPage.tsx           # Página principal: stat cards + chart + tabla + feed
-    │   ├── TrafficChart.tsx            # Recharts AreaChart con datos de WebSocket en vivo
-    │   ├── ConnectionsTable.tsx        # Tabla filtrable de conexiones activas
-    │   └── AlertsFeed.tsx             # Feed scrollable de alertas con badges de severidad
+    │   ├── DashboardPage.tsx          # Página principal legacy (reemplazada por QuickView)
+    │   ├── TrafficChart.tsx           # Recharts AreaChart con datos WebSocket en vivo
+    │   ├── ConnectionsTable.tsx       # Tabla filtrable de conexiones activas
+    │   └── AlertsFeed.tsx             # Feed scrollable de alertas con badges severidad
     │
     ├── firewall/
-    │   └── FirewallPage.tsx           # Bloqueo de IPs + tabla de reglas + historial de acciones
+    │   └── FirewallPage.tsx           # Bloqueo de IPs + tabla reglas + historial acciones
     │
     ├── network/
-    │   └── NetworkPage.tsx            # Tabs: Tabla ARP / Etiquetas / Grupos (con CRUD)
+    │   └── NetworkPage.tsx            # Tabs: ARP / VLANs / Labels / Groups (con CRUD)
     │
-    └── reports/
-        └── ReportsPage.tsx            # IA: prompt + config + editor TipTap + exportar PDF
+    ├── vlans/
+    │   ├── VlanPanel.tsx              # Panel principal con lista y estado de alerta
+    │   ├── VlanTable.tsx              # Tabla CRUD de VLANs
+    │   ├── VlanTrafficCard.tsx         # Card tráfico en tiempo real por VLAN (WebSocket)
+    │   └── VlanFormModal.tsx           # Modal creación/edición de VLAN
+    │
+    ├── portal/                        # Portal Cautivo MikroTik Hotspot
+    │   ├── PortalPage.tsx             # Contenedor tabbed (Monitor/Users/Profiles/Stats/Config)
+    │   ├── MonitorView.tsx            # Monitoreo en tiempo real
+    │   ├── SessionsTable.tsx          # Tabla sesiones activas
+    │   ├── SessionsChart.tsx          # Gráfico de sesiones (Recharts LineChart)
+    │   ├── StatsView.tsx              # Stats históricas
+    │   ├── UsersView.tsx              # Gestión de usuarios
+    │   ├── UserTable.tsx              # Tabla de usuarios con acciones inline
+    │   ├── UserFormModal.tsx           # Modal creación/edición usuario
+    │   ├── BulkImportModal.tsx         # Modal importación masiva (CSV/JSON)
+    │   ├── SpeedProfiles.tsx           # Gestión perfiles velocidad
+    │   ├── ConfigView.tsx             # Config general del hotspot
+    │   ├── ScheduleConfig.tsx          # Horarios de acceso por día/hora
+    │   └── UsageHeatmap.tsx            # Heatmap de uso por hora
+    │
+    ├── phishing/
+    │   └── PhishingPanel.tsx          # Alertas, víctimas, sinkhole DNS, estadísticas
+    │
+    ├── system/
+    │   ├── SystemHealth.tsx           # MikroTik + Wazuh + CrowdSec sync + GeoIP DB
+    │   ├── RemoteCLI.tsx              # Terminal web RouterOS y Wazuh agent
+    │   └── GeoIPStatus.tsx            # Estado de las bases de datos GeoLite2
+    │
+    ├── reports/                       # Reportes IA + Telegram
+    │   ├── ReportsPage.tsx            # Tabs: Generador IA + Telegram
+    │   ├── TelegramTab.tsx            # Contenedor de pestañas Telegram
+    │   ├── TelegramStatusCard.tsx     # Estado del bot (online/offline)
+    │   ├── TelegramConfigList.tsx      # Lista de reportes automáticos
+    │   ├── TelegramConfigModal.tsx     # Modal creación/edición config
+    │   ├── CronBuilder.tsx            # Selector visual de expresiones cron
+    │   ├── MessagePreview.tsx          # Preview del mensaje antes de guardar
+    │   ├── TelegramQuickActions.tsx    # Botones rápidos: prueba, resumen, alerta
+    │   ├── TelegramHistory.tsx         # Historial de mensajes con filtros
+    │   └── BotConversation.tsx         # Chat UI conversaciones inbound
+    │
+    ├── inventory/                     # GLPI ITSM
+    │   ├── InventoryPage.tsx          # Contenedor tabbed (Assets/Tickets/Users/Health)
+    │   ├── AssetsView.tsx             # Vista principal con kanban/grid/list
+    │   ├── AssetDetail.tsx            # Detalle de activo + contexto red + alertas
+    │   ├── AssetFormModal.tsx          # Modal creación/edición activo
+    │   ├── AssetSearch.tsx            # Búsqueda de activos
+    │   ├── AssetHealthTable.tsx        # Tabla salud correlacionada con Wazuh
+    │   ├── HealthView.tsx             # Vista dedicada de salud
+    │   ├── TicketsView.tsx            # Lista y gestión de tickets
+    │   ├── TicketKanban.tsx           # Vista kanban por estado
+    │   ├── TicketCard.tsx             # Card individual en kanban
+    │   ├── TicketFormModal.tsx         # Modal creación/edición ticket
+    │   ├── UsersView.tsx              # Lista usuarios GLPI
+    │   ├── LocationMap.tsx            # Mapa de ubicaciones de activos
+    │   └── QrScanner.tsx              # Scanner QR para identificar activos
+    │
+    ├── crowdsec/                      # Centro de Comando CrowdSec
+    │   ├── CommandCenter.tsx          # Página principal: decisions, timeline, sync, top attackers
+    │   ├── DecisionsTable.tsx         # Tabla decisions enriquecidas con GeoIP
+    │   ├── DecisionsTimeline.tsx       # Timeline de últimas decisiones (WebSocket)
+    │   ├── IntelligenceView.tsx        # Top countries, geo-block, heatmap, scenarios
+    │   ├── TopAttackers.tsx           # Top IPs atacantes
+    │   ├── CountryHeatmap.tsx          # Heatmap de intensidad por país
+    │   ├── ScenariosTable.tsx          # Tabla de escenarios
+    │   ├── IpContextPanel.tsx          # Perfil IP: GeoIP + CTI + alertas
+    │   ├── CommunityScoreBadge.tsx     # Badge score reputación CrowdSec
+    │   ├── BouncerStatus.tsx          # Estado de bouncers
+    │   ├── SyncStatusBanner.tsx        # Banner sync CrowdSec ↔ MikroTik
+    │   ├── ConfigView.tsx             # Whitelist, bouncers config
+    │   └── WhitelistManager.tsx        # CRUD whitelist de IPs
+    │
+    ├── suricata/                      # Motor IDS/IPS/NSM
+    │   ├── MotorPage.tsx              # Motor: status, métricas, categorías, auto-response
+    │   ├── AlertsPage.tsx             # Alertas IDS/IPS: tabla + timeline + top firmas
+    │   ├── NSMPage.tsx                # NSM: Flows / DNS / HTTP / TLS (tabs)
+    │   └── RulesPage.tsx              # Gestión de reglas: toggle, filtros, update
+    │
+    ├── geoip/                         # Geolocalización
+    │   ├── CountryFlag.tsx            # Emoji bandera dado código ISO2
+    │   ├── NetworkTypeBadge.tsx        # Badge tipo de red (ISP/Hosting/Tor/etc.)
+    │   ├── TopCountriesWidget.tsx      # Top países atacantes con barras
+    │   ├── GeoBlockSuggestions.tsx     # Panel sugerencias geo-block
+    │   └── SuggestionCard.tsx          # Card individual de sugerencia
+    │
+    ├── views/                         # Sistema de Vistas Personalizadas
+    │   ├── ViewsListPage.tsx          # Lista de dashboards guardados
+    │   ├── ViewBuilderPage.tsx         # Editor: grid + catálogo tabulado
+    │   ├── ViewDetailPage.tsx          # Dashboard en vivo con widgets
+    │   └── WidgetRenderer.tsx          # Dispatcher dinámico: widget.type → componente
+    │
+    ├── widgets/                       # Biblioteca de 24+ Widgets
+    │   ├── common/index.tsx           # WidgetSkeleton, WidgetErrorState, WidgetHeader
+    │   ├── visual/                    # 7 widgets visuales
+    │   │   ├── ThreatGauge.tsx        # Gauge semicircular 0–100
+    │   │   ├── ActivityHeatmap.tsx     # Calendario 7×24h alertas
+    │   │   ├── NetworkPulse.tsx       # ECG animado tráfico SVG
+    │   │   ├── AgentsThermometer.tsx   # Termómetro alertas/agentes
+    │   │   ├── BlocksTimeline.tsx      # Timeline bloqueos CrowdSec 24h
+    │   │   ├── EventCounter.tsx       # Contador giratorio eventos
+    │   │   └── ProtocolDonut.tsx      # Donut protocolos NSM
+    │   ├── technical/                 # 8 widgets técnicos
+    │   │   ├── PacketInspector.tsx     # Alertas Suricata expandibles
+    │   │   ├── FlowTableWidget.tsx     # Tabla flujos NSM
+    │   │   ├── LiveLogs.tsx           # Terminal logs RouterOS
+    │   │   ├── FirewallTree.tsx       # Árbol reglas por chain
+    │   │   ├── CrowdSecRaw.tsx        # Tabla raw decisions
+    │   │   ├── CorrelationTimeline.tsx # Timeline multi-fuente
+    │   │   ├── CriticalAssets.tsx      # Activos GLPI críticos
+    │   │   └── ActionLogWidget.tsx     # Log acciones recientes
+    │   └── hybrid/                    # 9 widgets de correlación
+    │       ├── WorldThreatMap.tsx      # Mapa mundial por país
+    │       ├── ConfirmedThreats.tsx    # IPs multi-fuente
+    │       ├── CountryRadar.tsx       # Radar países por fuente
+    │       ├── IpProfiler.tsx         # Perfil IP completo
+    │       ├── IncidentLifecycle.tsx   # Ciclo detección→resolución
+    │       ├── DefenseLayers.tsx      # Capas defensivas visuales
+    │       ├── GeoblockPredictor.tsx   # Sugerencias predictivas
+    │       ├── SuricataGlpiCorrelation.tsx # Alertas × activos
+    │       └── ViewReportGenerator.tsx # Reportes IA desde vista
+    │
+    └── utils/
+        └── time.ts                    # Helpers de formateo de fechas/tiempo
 ```
 
 ---
 
-## Descripción de cada componente
+## Descripción de cada componente principal
 
 ### `Layout.tsx`
 Layout raíz de la aplicación. Contiene:
-- **Sidebar izquierdo** (`sidebar` class): Logo NetShield, navegación con `NavLink` de React Router, indicadores de estado del sistema
-- **Top bar**: Botón hamburguesa móvil, búsqueda global, indicadores de conexión MikroTik/Wazuh, **`<MockModeBadge />`** (badge amarillo cuando hay mocks activos), campána de notificaciones
+- **Sidebar izquierdo** (`sidebar` class): Logo NetShield, 7 grupos de navegación con iconos y submenús colapsables, indicadores de estado
+- **Top bar**: Botón hamburguesa móvil, búsqueda global (`<GlobalSearch />`), indicadores de conexión MikroTik/Wazuh/CrowdSec, **`<MockModeBadge />`**, campana de notificaciones (`<NotificationPanel />`), engranaje de settings (`<SettingsDrawer />`)
 - **`<Outlet />`**: Renderiza la página activa según la ruta
 
 ### `components/common/MockModeBadge.tsx`
@@ -60,34 +241,43 @@ Badge visual que aparece en el topbar cuando uno o más servicios están en modo
 - Si solo algunos servicios están en mock, muestra **`MOCK: MIKROTIK · WAZUH`** etc.
 - Tooltip con descripción del modo activo
 
-### `DashboardPage.tsx`
-4 stat cards animadas (`StatCard` componente interno) que muestran: agentes Wazuh activos, reglas de firewall, alertas 24h (con conteo de críticas), conexiones activas. Usa `useQuery` con `refetchInterval` para polling (agentes: 10s, alertas: 5s, reglas: 15s, conexiones: 5s).
+### `security/QuickView.tsx`
+**Vista principal** (ruta `/`). Vista unificada de seguridad:
+- 4 stat cards animadas: alertas 24h, agentes activos, bloqueos activos, conexiones
+- `TrafficChart` con datos del WebSocket `/ws/traffic`
+- `AlertsFeed` con datos del WebSocket `/ws/alerts`
+- `ConnectionsTable` con polling
+- Últimas acciones del ActionLog
 
-### `TrafficChart.tsx`
-Gráfico de áreas apiladas con Recharts. Consume datos de `useTrafficStream()` (hook de WebSocket). Muestra RX (línea sólida con gradiente) y TX (línea punteada) por interfaz. Incluye tooltip custom con formato de bytes (`B/s`, `KB/s`, `MB/s`). Historial configurable (default: 60 puntos).
+Usa hooks: `useWazuhSummary`, `useCrowdSecDecisions`, `useWebSocket`, `useSecurityAlerts`
 
-### `ConnectionsTable.tsx`
-Tabla con la clase CSS `data-table`. Dos filtros: input de texto (filtra por IP src/dst) y select de protocolo (generado dinámicamente desde los datos). Muestra máximo 50 filas. Columnas: origen:puerto, destino:puerto, protocolo (badge), estado, bytes totales.
+### `dashboard/TrafficChart.tsx`
+Gráfico de áreas apiladas con Recharts. Consume datos de `useWebSocket('/ws/traffic')`. Muestra RX (línea sólida con gradiente) y TX (línea punteada) por interfaz. Incluye tooltip custom con formato de bytes (`B/s`, `KB/s`, `MB/s`). Historial configurable (default: 60 puntos).
 
-### `AlertsFeed.tsx`
-Lista vertical scrollable de alertas. Cada alerta muestra: badge de severidad (4 niveles: crítico ≥12, alto ≥8, medio ≥4, bajo <4), descripción de la regla, nombre del agente, IP origen, tiempo relativo ("Hace 5m"). Máximo 20 alertas visibles.
+### `dashboard/ConnectionsTable.tsx`
+Tabla con la clase CSS `data-table`. Dos filtros: input de texto (filtra por IP src/dst) y select de protocolo. Máximo 50 filas. Columnas: origen:puerto, destino:puerto, protocolo (badge), estado, bytes totales.
 
-### `FirewallPage.tsx`
-Tres secciones:
-1. **Formulario de bloqueo** (izquierda): IP + motivo + duración opcional → POST a `/api/mikrotik/firewall/block`
-2. **Tabla de reglas** (derecha): Lista todas las reglas de firewall activas con buscador. Cada regla drop en chain=forward con src-address tiene botón de desbloqueo
-3. **Historial** (abajo): Tabla de ActionLog filtrando acciones de tipo block/unblock
+### `dashboard/AlertsFeed.tsx`
+Lista vertical scrollable de alertas. Badge de severidad (4 niveles: crítico ≥12, alto ≥8, medio ≥4, bajo <4), regla, agente, IP, tiempo relativo. Máximo 20 alertas.
 
-### `NetworkPage.tsx`
-3 tabs:
-- **Tabla ARP**: Muestra dispositivos descubiertos en la red con IP, MAC, interfaz, tipo (dinámico/estático), y etiqueta asignada
-- **Etiquetas**: Formulario para crear etiqueta (IP + nombre + descripción + color) + lista de etiquetas existentes con botón borrar
-- **Grupos**: Formulario para crear grupo (nombre + descripción + criterios JSON + color) + lista de grupos con sus miembros
+### `firewall/FirewallPage.tsx`
+Tres secciones: formulario de bloqueo (IP + motivo + duración) → POST, tabla de reglas activas con buscador, historial de acciones block/unblock.
 
-### `ReportsPage.tsx`
-Layout en dos columnas:
-- **Columna izquierda** (configuración): textarea para prompt, selector de audiencia (3 radio buttons), checkboxes de fuentes de datos, selector de rango de fechas, botón de subir documentos, botón "Generar Borrador"
-- **Columna derecha** (editor): Input de título, editor TipTap con toolbar completa (negrita, cursiva, subrayado, resaltado, H1, H2, listas, alineación, undo/redo), botón "Exportar PDF"
+### `network/NetworkPage.tsx`
+4 tabs:
+- **Tabla ARP**: dispositivos con IP, MAC, interfaz, tipo, etiqueta
+- **VLANs**: integra `VlanPanel` con tráfico en tiempo real
+- **Etiquetas**: CRUD de etiquetas (IP + nombre + color)
+- **Grupos**: CRUD de grupos con miembros
+
+### `crowdsec/CommandCenter.tsx`
+Página principal CrowdSec. Integra `DecisionsTable` (con GeoIP enrichment), `DecisionsTimeline` (WebSocket), `SyncStatusBanner`, `TopAttackers`, botones de acción rápida (sync, remediation).
+
+### `suricata/MotorPage.tsx`
+Página del motor Suricata. Muestra: modo IDS/IPS/NSM, versión, métricas de tráfico en tiempo real, distribución de categorías de alertas (donut), circuito auto-response con configuración y historial.
+
+### `views/WidgetRenderer.tsx`
+**Dispatcher dinámico de widgets** (~19KB). Switch sobre `widget.type` → renderiza el componente correspondiente con su config. Importa todos los widgets. Para agregar un widget nuevo: (1) componente, (2) hook, (3) case aquí, (4) registrar en catálogo backend.
 
 ---
 
@@ -99,7 +289,6 @@ Layout en dos columnas:
 sequenceDiagram
     participant B as Backend<br/>(main.py /ws/traffic)
     participant WS as WebSocket Hook<br/>(useWebSocket)
-    participant TS as Hook de Estado<br/>(useTrafficStream)
     participant C as Componente<br/>(TrafficChart.tsx)
 
     WS->>B: new WebSocket(wsUrl)
@@ -108,9 +297,7 @@ sequenceDiagram
     loop Cada 2 segundos
         B->>B: get_traffic()<br/>get_connections()
         B->>WS: send_json({type: "traffic", data: {...}})
-        WS->>TS: onmessage → setLastMessage()
-        TS->>TS: trafficHistory.push(data)<br/>trafficHistory.slice(-60)
-        TS->>C: actualiza chartData
+        WS->>C: onMessage → setState<br/>trafficHistory.push().slice(-60)
         C->>C: <AreaChart data={chartData} />
     end
 ```
@@ -120,11 +307,16 @@ sequenceDiagram
 - Maneja reconexión automática con backoff exponencial: `delay = min(1000 * 2^intentos, 30000ms)`
 - Expone: `{ isConnected: boolean, lastMessage: WSMessage | null }`
 
-### Hook `useTrafficStream(maxHistory)`
-- Usa `useWebSocket("/ws/traffic")` internamente
-- Mantiene un array circular de los últimos `maxHistory` puntos de datos (default: 30)
-- Cada punto contiene: `{ timestamp, traffic: TrafficData[] }`
-- Expone: `{ isConnected, trafficHistory, activeConnections }`
+### WebSockets disponibles
+| Endpoint | Intervalo | Fuente |
+|----------|-----------|--------|
+| `/ws/traffic` | 2s | MikroTik tráfico por interfaz |
+| `/ws/alerts` | 5s | Wazuh alertas |
+| `/ws/vlans/traffic` | 2s | MikroTik + Wazuh por subred |
+| `/ws/security/alerts` | 5s | Wazuh alto nivel + MikroTik interfaz down |
+| `/ws/portal/sessions` | 5s | Portal Cautivo sesiones activas |
+| `/ws/crowdsec/decisions` | 10s | CrowdSec nuevas/expiradas |
+| `/ws/suricata/alerts` | 5s | Suricata alertas vía Wazuh |
 
 ### Proxy de Vite
 En `vite.config.ts`, las rutas `/ws/*` se redirigen a `ws://localhost:8000` automáticamente. El frontend no necesita conocer la URL del backend.
@@ -200,22 +392,42 @@ export const miApi = {
 };
 ```
 
-### 3. Consumir en el componente con React Query
-```tsx
-// Para lectura (GET):
-const { data, isLoading } = useQuery({
-  queryKey: ['mi-dato'],
-  queryFn: miApi.getDatos,
-});
-const datos = data?.data ?? [];
+### 3. Crear el custom hook en `hooks/`
+```typescript
+// hooks/useMiDato.ts
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { miApi } from '../services/api';
 
-// Para escritura (POST/PUT/DELETE):
-const mutation = useMutation({
-  mutationFn: () => miApi.crearDato('test', 42),
-  onSuccess: () => {
-    queryClient.invalidateQueries({ queryKey: ['mi-dato'] });
-  },
-});
+export function useMiDato() {
+  const queryClient = useQueryClient();
+  
+  const { data, isLoading } = useQuery({
+    queryKey: ['mi-dato'],
+    queryFn: miApi.getDatos,
+  });
+
+  const crear = useMutation({
+    mutationFn: (params: { nombre: string; valor: number }) => 
+      miApi.crearDato(params.nombre, params.valor),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mi-dato'] }),
+  });
+
+  return {
+    datos: data?.data ?? [],
+    isLoading,
+    crear,
+  };
+}
+```
+
+### 4. Consumir el hook en el componente
+```tsx
+import { useMiDato } from '../../hooks/useMiDato';
+
+function MiComponente() {
+  const { datos, isLoading, crear } = useMiDato();
+  // ...
+}
 ```
 
 ---
@@ -226,24 +438,28 @@ const mutation = useMutation({
 | Tipo | Convención | Ejemplo |
 |------|-----------|---------|
 | Componentes React | PascalCase + `.tsx` | `DashboardPage.tsx`, `AlertsFeed.tsx` |
-| Hooks | camelCase con prefijo `use` + `.ts` | `useWebSocket.ts` |
+| Hooks | camelCase con prefijo `use` + `.ts` | `useWebSocket.ts`, `useSuricataAlerts.ts` |
+| Widget hooks | En subcarpetas `hooks/widgets/{visual,technical,hybrid}/index.ts` | `hooks/widgets/visual/index.ts` |
 | Servicios | camelCase + `.ts` | `api.ts` |
 | Tipos | camelCase + `.ts` | `types.ts` |
+| Config | camelCase + `.ts` | `themes.ts` |
 | CSS | kebab-case + `.css` | `index.css` |
 
 ### Componentes
-- Un componente por archivo, export default
+- Un componente por archivo, export default (o named export)
 - Componentes internos (no exportados) pueden estar en el mismo archivo (ej: `StatCard` dentro de `DashboardPage`)
-- Carpeta por dominio: `dashboard/`, `firewall/`, `network/`, `reports/`
+- Carpeta por dominio: `dashboard/`, `firewall/`, `security/`, `crowdsec/`, `suricata/`, `geoip/`, `inventory/`, `portal/`, `reports/`, `views/`, `widgets/`, etc.
 
 ### Hooks
 - Prefijo `use` obligatorio
+- Un hook por fuente de datos (`useWazuhSummary`, `useSuricataAlerts`, etc.)
 - Retornan objetos con propiedades descriptivas: `{ isConnected, trafficHistory, activeConnections }`
 - Se ubican en `src/hooks/`
+- Widget hooks en `src/hooks/widgets/{visual,technical,hybrid}/index.ts`
 
 ### React Query keys
 - Array descriptivo: `['wazuh-agents']`, `['firewall-rules']`, `['wazuh-alerts']`
-- Con parámetros: `['alerts-agent', agentId]`
+- Con parámetros: `['alerts-agent', agentId]`, `['geoip-lookup', ip]`
 
 ### Clases CSS reutilizables
 Definidas en `index.css`, no como componentes TailwindCSS:

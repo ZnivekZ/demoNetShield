@@ -7,6 +7,7 @@ from models.sinkhole_entry import SinkholeEntry
 from models.portal_user import PortalUserRegistry
 from models.quarantine_log import QuarantineLog
 from models.telegram import TelegramReportConfig, TelegramMessageLog, TelegramPendingMessage
+from models.custom_view import CustomView
 
 __all__ = [
     "IPLabel",
@@ -19,5 +20,6 @@ __all__ = [
     "TelegramReportConfig",
     "TelegramMessageLog",
     "TelegramPendingMessage",
+    "CustomView",
 ]
 

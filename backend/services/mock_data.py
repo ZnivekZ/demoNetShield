@@ -2751,3 +2751,399 @@ class _TelegramMockData:
 
 # Attach as class-level attribute so usage is MockData.telegram.xxx()
 MockData.telegram = _TelegramMockData
+
+
+# ── Widgets Mock Data ─────────────────────────────────────────────────────────
+
+class _WidgetsMockData:
+    """Mock data para los endpoints de widgets de agregación multi-fuente."""
+
+    @staticmethod
+    def threat_level() -> dict:
+        """
+        Score 0-100 de nivel de amenaza global.
+        72 = amenaza alta pero no crítica — pico realista de lab.
+        """
+        return {
+            "score": 72,
+            "breakdown": {
+                "wazuh": {
+                    "count": 14,
+                    "score": 56,
+                    "weight": 0.4,
+                    "label": "Alertas críticas (>10) últimas 1h",
+                },
+                "crowdsec": {
+                    "count": 8,
+                    "score": 40,
+                    "weight": 0.3,
+                    "label": "Decisiones activas",
+                },
+                "suricata": {
+                    "count": 12,
+                    "score": 36,
+                    "weight": 0.3,
+                    "label": "Alertas severity=1 últimas 1h",
+                },
+            },
+            "generated_at": _ts(0),
+        }
+
+    @staticmethod
+    def activity_heatmap() -> dict:
+        """
+        Matrix 7x24 de actividad de alertas Wazuh.
+        Días: 0=Lun … 6=Dom  |  Horas: 0-23
+        Picos realistas: ~10am y ~8pm — baja actividad 2-5am.
+        """
+        _r = _random_module.Random(42)
+        matrix = []
+        for day in range(7):
+            row = []
+            for hour in range(24):
+                # Base baja de noche, alta de mañana y tarde
+                if 2 <= hour <= 5:
+                    base = _r.randint(0, 1)
+                elif 9 <= hour <= 11 or 19 <= hour <= 21:
+                    base = _r.randint(8, 18)
+                elif 8 <= hour <= 17:
+                    base = _r.randint(3, 9)
+                else:
+                    base = _r.randint(1, 4)
+                # Fines de semana con menos actividad
+                if day >= 5:
+                    base = max(0, base - 3)
+                row.append(base)
+            matrix.append(row)
+
+        return {
+            "matrix": matrix,
+            "labels_day": ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"],
+            "max_value": 18,
+            "generated_at": _ts(0),
+        }
+
+    @staticmethod
+    def correlation_timeline(minutes: int = 120) -> dict:
+        """
+        3 series alineadas en eje temporal: Wazuh, Suricata, CrowdSec.
+        Pico sincronizado hace 20 minutos (mismo evento que los mocks de alertas).
+        """
+        _r = _random_module.Random(42)
+        series = []
+        for i in range(minutes):
+            t = _NOW - timedelta(minutes=minutes - i)
+            ts = t.strftime("%Y-%m-%dT%H:%M:00")
+
+            # Pico sincronizado en minuto 100 (hace 20m de 120m totales)
+            is_spike = (i == 100)
+            wazuh_val = _r.randint(8, 15) if is_spike else _r.randint(0, 3)
+            sur_val = _r.randint(6, 12) if is_spike else _r.randint(0, 4)
+            cs_val = 3 if is_spike else _r.randint(0, 1)
+
+            series.append({
+                "timestamp": ts,
+                "wazuh_alerts": wazuh_val,
+                "suricata_alerts": sur_val,
+                "crowdsec_decisions": cs_val,
+            })
+
+        return {
+            "series": series,
+            "minutes": minutes,
+            "generated_at": _ts(0),
+        }
+
+    @staticmethod
+    def confirmed_threats() -> dict:
+        """
+        IPs detectadas por ≥2 fuentes.
+        203.0.113.45 → 3 fuentes (Suricata + CrowdSec + Wazuh)
+        198.51.100.22 → 3 fuentes (Suricata + CrowdSec + Wazuh)
+        203.0.113.99 → 2 fuentes (Suricata + Wazuh)
+        """
+        threats = [
+            {
+                "ip": "203.0.113.45",
+                "sources": ["suricata", "crowdsec", "wazuh"],
+                "confirmation_level": 3,
+                "score": 99,
+                "geo": {"country_code": "CN", "country_name": "China",
+                        "city": "Shanghai", "as_name": "AS4134 CHINANET"},
+                "suricata_signatures": ["ET SCAN SSH BruteForce", "ET POLICY SSH session"],
+                "crowdsec_scenario": "crowdsecurity/ssh-bf",
+                "wazuh_level": 14,
+                "last_seen": _ts(5),
+            },
+            {
+                "ip": "198.51.100.22",
+                "sources": ["suricata", "crowdsec", "wazuh"],
+                "confirmation_level": 3,
+                "score": 87,
+                "geo": {"country_code": "RU", "country_name": "Russia",
+                        "city": "Moscow", "as_name": "AS8359 MTS PJSC"},
+                "suricata_signatures": ["ET SCAN Port Scan Detected"],
+                "crowdsec_scenario": "crowdsecurity/portscan",
+                "wazuh_level": 7,
+                "last_seen": _ts(12),
+            },
+            {
+                "ip": "203.0.113.99",
+                "sources": ["suricata", "wazuh"],
+                "confirmation_level": 2,
+                "score": 66,
+                "geo": {"country_code": "NL", "country_name": "Netherlands",
+                        "city": "Amsterdam", "as_name": "AS60781 LeaseWeb"},
+                "suricata_signatures": ["ET MALWARE Phishing C2 Beacon"],
+                "crowdsec_scenario": None,
+                "wazuh_level": 8,
+                "last_seen": _ts(45),
+            },
+        ]
+        return {
+            "threats": threats,
+            "total": len(threats),
+            "generated_at": _ts(0),
+        }
+
+    @staticmethod
+    def incident_lifecycle(ip: str = "203.0.113.45") -> dict:
+        """
+        Ciclo de vida completo para 203.0.113.45 con todos los hitos presentes.
+        Usa timestamps coherentes con los otros mocks (>45 min atrás).
+        """
+        steps = [
+            {
+                "step": "detection",
+                "label": "Detección",
+                "icon": "Search",
+                "status": "done",
+                "timestamp": _ts(45),
+                "source": "wazuh",
+                "detail": "Authentication failure (rule 5710, level 5)",
+            },
+            {
+                "step": "alert",
+                "label": "Alerta crítica",
+                "icon": "AlertTriangle",
+                "status": "done",
+                "timestamp": _ts(42),
+                "source": "wazuh",
+                "detail": "Multiple authentication failures (rule 5720, level 14)",
+            },
+            {
+                "step": "block",
+                "label": "Bloqueo aplicado",
+                "icon": "Shield",
+                "status": "done",
+                "timestamp": _ts(40),
+                "source": "crowdsec",
+                "detail": "crowdsecurity/ssh-bf — ban 24h",
+            },
+            {
+                "step": "ticket",
+                "label": "Ticket GLPI",
+                "icon": "FileText",
+                "status": "done",
+                "timestamp": _ts(38),
+                "source": "glpi",
+                "detail": "[NetShield] Alerta crítica — brute-force desde 203.0.113.45 (ticket #1)",
+            },
+            {
+                "step": "resolution",
+                "label": "Resolución",
+                "icon": "CheckCircle",
+                "status": "pending" if ip != "203.0.113.45" else "done",
+                "timestamp": _ts(20) if ip == "203.0.113.45" else None,
+                "source": "glpi" if ip == "203.0.113.45" else None,
+                "detail": "Ticket #1 marcado como resuelto" if ip == "203.0.113.45" else None,
+            },
+        ]
+        return {
+            "ip": ip,
+            "steps": steps,
+            "complete": all(s["status"] == "done" for s in steps),
+            "generated_at": _ts(0),
+        }
+
+    @staticmethod
+    def suricata_asset_correlation() -> dict:
+        """
+        PC-Aula3-01 (192.168.88.20) atacado — correlación Suricata → GLPI.
+        dst_ip 192.168.88.20 aparece en alertas Suricata.
+        """
+        correlations = [
+            {
+                "asset_name": "PC-Aula3-01",
+                "asset_id": 3,
+                "asset_owner": "",
+                "asset_location": "Aula 101",
+                "dst_ip": "192.168.88.20",
+                "suricata_severity": 1,
+                "suricata_signature": "ET MALWARE Phishing C2 Beacon",
+                "suricata_category": "Malware Command and Control Activity Detected",
+                "wazuh_agent": False,
+                "timestamp": _ts(15),
+            },
+            {
+                "asset_name": "PC-Lab-01",
+                "asset_id": 1,
+                "asset_owner": "juan.perez",
+                "asset_location": "Lab Redes",
+                "dst_ip": "192.168.88.10",
+                "suricata_severity": 2,
+                "suricata_signature": "ET SCAN SSH BruteForce Login Attempt",
+                "suricata_category": "Attempted Administrator Privilege Gain",
+                "wazuh_agent": True,
+                "timestamp": _ts(42),
+            },
+        ]
+        return {
+            "correlations": correlations,
+            "total": len(correlations),
+            "generated_at": _ts(0),
+        }
+
+    @staticmethod
+    def world_threat_map() -> dict:
+        """
+        Score de amenaza por país para el mapa mundial SVG.
+        6 países con actividad, resto implícitamente score=0.
+        CN y RU son los más importantes (coherente con mocks de CrowdSec y Wazuh).
+        """
+        countries = [
+            {
+                "country_code": "CN",
+                "country_name": "China",
+                "score": 87,
+                "crowdsec_count": 20,
+                "wazuh_count": 18,
+                "suricata_count": 45,
+                "top_asn": "AS4134 CHINANET",
+                "wazuh_max_level": 14,
+                "suricata_top_signature": "ET SCAN SSH BruteForce",
+            },
+            {
+                "country_code": "RU",
+                "country_name": "Russia",
+                "score": 74,
+                "crowdsec_count": 15,
+                "wazuh_count": 12,
+                "suricata_count": 28,
+                "top_asn": "AS8359 MTS PJSC",
+                "wazuh_max_level": 12,
+                "suricata_top_signature": "ET SCAN Port Scan Detected",
+            },
+            {
+                "country_code": "DE",
+                "country_name": "Germany",
+                "score": 42,
+                "crowdsec_count": 8,
+                "wazuh_count": 5,
+                "suricata_count": 12,
+                "top_asn": "AS3320 Deutsche Telekom AG",
+                "wazuh_max_level": 9,
+                "suricata_top_signature": "ET SCAN Potential VNC Scan",
+            },
+            {
+                "country_code": "NL",
+                "country_name": "Netherlands",
+                "score": 38,
+                "crowdsec_count": 6,
+                "wazuh_count": 4,
+                "suricata_count": 8,
+                "top_asn": "AS60781 LeaseWeb Netherlands BV",
+                "wazuh_max_level": 8,
+                "suricata_top_signature": "ET MALWARE Phishing C2 Beacon",
+            },
+            {
+                "country_code": "US",
+                "country_name": "United States",
+                "score": 15,
+                "crowdsec_count": 2,
+                "wazuh_count": 3,
+                "suricata_count": 4,
+                "top_asn": "AS14618 Amazon.com Inc.",
+                "wazuh_max_level": 6,
+                "suricata_top_signature": "ET INFO HTTP Request to .onion proxy",
+            },
+            {
+                "country_code": "BR",
+                "country_name": "Brazil",
+                "score": 8,
+                "crowdsec_count": 1,
+                "wazuh_count": 2,
+                "suricata_count": 1,
+                "top_asn": "AS28573 Claro NXT Telecomunicacoes Ltda",
+                "wazuh_max_level": 5,
+                "suricata_top_signature": "ET SCAN Suspicious inbound to MSSQL",
+            },
+        ]
+        return {
+            "countries": countries,
+            "total_countries_with_activity": len(countries),
+            "generated_at": _ts(0),
+        }
+
+    @staticmethod
+    def view_report_mock(
+        view_id: str = "mock-view",
+        widget_ids: list | None = None,
+        audience: str = "technical",
+        title: str = "Reporte de vista personalizada",
+        output: str = "pdf",
+    ) -> dict:
+        """
+        Reporte IA generado desde una vista con widgets activos.
+        Mismo patrón que MockData.ai.mock_report pero etiquetado con la vista.
+        """
+        widget_ids = widget_ids or []
+        widget_labels = {
+            "wazuh_alerts": "Wazuh", "traffic_chart": "MikroTik",
+            "crowdsec_decisions": "CrowdSec", "suricata_alerts": "Suricata",
+            "hybrid_world_threat_map": "Mapa de Amenazas",
+            "visual_threat_gauge": "Medidor de Amenaza",
+        }
+        sources_used = [widget_labels.get(w, w) for w in widget_ids[:5]]
+        sources_str = ", ".join(sources_used) if sources_used else "Múltiples fuentes"
+
+        html = f"""<h1>{title}</h1>
+<p><em>Vista: {view_id} | Audiencia: {audience.capitalize()} | Fuentes: {sources_str}</em></p>
+
+<h2>Resumen Ejecutivo</h2>
+<p>El análisis de la vista personalizada revela un <strong>nivel de amenaza moderado-alto (72/100)</strong>.
+Se detectaron <strong>14 alertas críticas</strong> de Wazuh, <strong>8 decisiones activas</strong> de CrowdSec,
+y <strong>3 IPs confirmadas por múltiples fuentes</strong>.</p>
+
+<h2>Hallazgos Principales</h2>
+<ul>
+  <li><strong>203.0.113.45</strong> (China, AS4134): detectada por Suricata, CrowdSec y Wazuh simultáneamente.
+      Técnica dominante: SSH Brute-Force (T1110). Bloqueada correctamente.</li>
+  <li><strong>PC-Aula3-01</strong>: activo GLPI atacado via phishing C2 (dst 192.168.88.20).
+      Sin agente Wazuh activo — superficie de ataque no monitoreada.</li>
+  <li>Pico de actividad hace 20 minutos: las 3 fuentes registraron un aumento sincronizado.</li>
+</ul>
+
+<h2>Acciones Recomendadas</h2>
+<ol>
+  <li>Instalar agente Wazuh en PC-Aula3-01 (actualmente sin monitoreo).</li>
+  <li>Revisar reglas MikroTik — geo-bloquear rangos CN y RU.</li>
+  <li>Mantener CrowdSec actualizado: escenario ssh-bf activo en 20 IPs.</li>
+</ol>
+"""
+        result = {
+            "success": True,
+            "pdf_url": "/api/reports/download/mock-report-001" if output in ("pdf", "both") else None,
+            "telegram_sent": output in ("telegram", "both"),
+            "report_summary": "Nivel de amenaza moderado-alto (72/100). 14 alertas críticas Wazuh, 3 IPs multi-fuente confirmadas.",
+            "html_content": html.strip(),
+            "view_id": view_id,
+            "widget_ids": widget_ids,
+            "audience": audience,
+            "mock": True,
+        }
+        return result
+
+
+# Attach widgets mock data
+MockData.widgets = _WidgetsMockData

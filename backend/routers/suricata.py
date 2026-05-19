@@ -18,6 +18,8 @@ Reglas:
 
 from __future__ import annotations
 
+import json
+
 import structlog
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -103,12 +105,13 @@ async def reload_rules(
     """
     try:
         result = await sur.reload_rules()
-        await ActionLog.create(
-            db=db,
-            action="suricata_reload_rules",
-            target="suricata_engine",
-            details=result,
+        log_entry = ActionLog(
+            action_type="suricata_reload_rules",
+            target_ip="suricata_engine",
+            details=json.dumps(result) if isinstance(result, dict) else str(result),
         )
+        db.add(log_entry)
+        await db.flush()
         return APIResponse.ok(result)
     except Exception as exc:
         logger.error("suricata_reload_rules_error", error=str(exc))
@@ -360,12 +363,13 @@ async def toggle_rule(
     """
     try:
         result = await sur.toggle_rule(sid=sid, enabled=body.enabled)
-        await ActionLog.create(
-            db=db,
-            action="suricata_rule_toggle",
-            target=f"sid:{sid}",
-            details={"sid": sid, "enabled": body.enabled},
+        log_entry = ActionLog(
+            action_type="suricata_rule_toggle",
+            target_ip=f"sid:{sid}",
+            details=json.dumps({"sid": sid, "enabled": body.enabled}),
         )
+        db.add(log_entry)
+        await db.flush()
         return APIResponse.ok(result)
     except Exception as exc:
         logger.error("suricata_rule_toggle_error", sid=sid, error=str(exc))
@@ -384,12 +388,13 @@ async def update_rules(
     """
     try:
         result = await sur.update_rules()
-        await ActionLog.create(
-            db=db,
-            action="suricata_update_rules",
-            target="suricata_rulesets",
-            details=result,
+        log_entry = ActionLog(
+            action_type="suricata_update_rules",
+            target_ip="suricata_rulesets",
+            details=json.dumps(result) if isinstance(result, dict) else str(result),
         )
+        db.add(log_entry)
+        await db.flush()
         return APIResponse.ok(result)
     except Exception as exc:
         logger.error("suricata_update_rules_error", error=str(exc))
@@ -456,16 +461,17 @@ async def trigger_autoresponse(
             duration=body.duration,
             reason=body.reason,
         )
-        await ActionLog.create(
-            db=db,
-            action="suricata_autoresponse_trigger",
-            target=body.ip,
-            details={
+        log_entry = ActionLog(
+            action_type="suricata_autoresponse_trigger",
+            target_ip=body.ip,
+            details=json.dumps({
                 "trigger_alert_id": body.trigger_alert_id,
                 "duration": body.duration,
                 "actions_taken": result.get("actions_taken", []),
-            },
+            }),
         )
+        db.add(log_entry)
+        await db.flush()
         return APIResponse.ok(result)
     except ValueError as exc:
         return APIResponse.fail(str(exc))
@@ -497,13 +503,35 @@ async def update_autoresponse_config(
     """Actualizar configuración del circuito de respuesta automática."""
     try:
         updated = await sur.update_autoresponse_config(body.model_dump())
-        await ActionLog.create(
-            db=db,
-            action="suricata_autoresponse_config_update",
-            target="suricata_autoresponse",
-            details=body.model_dump(exclude_none=True),
+        log_entry = ActionLog(
+            action_type="suricata_autoresponse_config_update",
+            target_ip="suricata_autoresponse",
+            details=json.dumps(body.model_dump(exclude_none=True)),
         )
+        db.add(log_entry)
+        await db.flush()
         return APIResponse.ok(updated)
     except Exception as exc:
         logger.error("suricata_autoresponse_config_update_error", error=str(exc))
+        return APIResponse.fail(str(exc))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# IP CONTEXT
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/context/ip/{ip}")
+async def get_ip_context(
+    ip: str,
+    sur: SuricataService = Depends(get_sur),
+):
+    """
+    Contexto Suricata para una IP: alertas recientes, flujos, y top signatures.
+    Usado por IpContextPanel en el frontend.
+    """
+    try:
+        data = await sur.get_ip_context(ip)
+        return APIResponse.ok(data)
+    except Exception as exc:
+        logger.error("suricata_ip_context_error", ip=ip, error=str(exc))
         return APIResponse.fail(str(exc))

@@ -1,6 +1,8 @@
 """
 Portal Service — MikroTik Hotspot management singleton.
 
+TODO (tech debt - B-07): At ~49KB, this is the largest service file. Consider
+splitting into sub-modules: portal_sessions.py, portal_users.py, portal_config.py.
 Design decisions:
 - Singleton pattern: reuses MikroTikService singleton for all RouterOS calls.
   Does NOT create a second connection — calls _api_call() via composition.

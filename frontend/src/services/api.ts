@@ -788,7 +788,7 @@ export const suricataApi = {
   /** Alerts + flows for a specific IP — used by IpContextPanel */
   getIpContext: (ip: string) =>
     api.get<APIResponse<SuricataIpContext>>(
-      `/suricata/alerts`, { params: { src_ip: ip, limit: 10 } }
+      `/suricata/context/ip/${encodeURIComponent(ip)}`
     ).then(r => r.data),
 };
 

@@ -224,3 +224,21 @@ async def search_arp(
         logger.error("api_search_arp_failed", error=str(e))
         return APIResponse.fail(f"Failed to search ARP table: {str(e)}")
 
+
+@router.get("/address-list")
+async def get_address_list(
+    list_name: str | None = None,
+    service: MikroTikService = Depends(get_service),
+) -> APIResponse:
+    """
+    [MikroTik API] Get firewall address list entries.
+    Optional filter by list name (e.g. 'Blacklist_Automatica').
+    Resource: /ip/firewall/address-list
+    """
+    try:
+        data = await service.get_address_list(list_name=list_name)
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_get_address_list_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch address list: {str(e)}")
+

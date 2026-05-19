@@ -69,7 +69,7 @@ export function ConfigView() {
       {!isInitialized && !setupResult && (
         <div className="glass-card portal-setup-card">
           <div className="portal-setup-icon">
-            <Wifi size={32} style={{ color: 'var(--color-primary)' }} />
+            <Wifi size={32} style={{ color: 'var(--accent-primary)' }} />
           </div>
           <div className="portal-setup-body">
             <h3 className="portal-setup-title">Hotspot no inicializado</h3>

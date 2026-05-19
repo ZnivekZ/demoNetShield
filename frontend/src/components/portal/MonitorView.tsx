@@ -43,7 +43,7 @@ export function MonitorView() {
       {/* Stat Cards */}
       <div className="portal-stat-grid">
         <div className="glass-card portal-stat-card">
-          <div className="portal-stat-icon" style={{ color: 'var(--color-primary)' }}>
+          <div className="portal-stat-icon" style={{ color: 'var(--accent-primary)' }}>
             <Wifi size={20} />
           </div>
           <div className="portal-stat-body">
@@ -73,7 +73,7 @@ export function MonitorView() {
         </div>
 
         <div className="glass-card portal-stat-card">
-          <div className="portal-stat-icon" style={{ color: 'var(--color-accent)' }}>
+          <div className="portal-stat-icon" style={{ color: 'var(--color-brand-400)' }}>
             <Clock size={20} />
           </div>
           <div className="portal-stat-body">
@@ -86,7 +86,7 @@ export function MonitorView() {
       {/* Bandwidth row */}
       <div className="portal-bw-row">
         <div className="glass-card portal-bw-card">
-          <TrendingDown size={14} style={{ color: 'var(--color-primary)' }} />
+          <TrendingDown size={14} style={{ color: 'var(--accent-primary)' }} />
           <span className="portal-bw-label">Ingreso total</span>
           <span className="portal-bw-value">{formatBytes(bwIn)}</span>
         </div>

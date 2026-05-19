@@ -1,6 +1,10 @@
 """
 Mock Data — Repositorio central de datos de prueba.
 
+TODO (tech debt - B-08): At ~138KB/3150 lines, this is the largest file in the
+project. Consider splitting per-service mock data into individual files under
+a services/mocks/ directory (e.g., mocks/mikrotik.py, mocks/wazuh.py, etc.).
+
 Todos los datos usan random.Random(seed=42) para reproducibilidad.
 Las entidades son coherentes entre servicios:
   192.168.88.10 → lubuntu_desk_1 en MikroTik, agente 004 en Wazuh, PC-Lab-01 en GLPI

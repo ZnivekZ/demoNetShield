@@ -16,6 +16,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 import structlog
 from fastapi import APIRouter, Query
@@ -95,7 +96,7 @@ async def get_threat_level() -> APIResponse:
                 "crowdsec": {"count": cs_count, "score": cs_score, "weight": 0.3},
                 "suricata": {"count": sur_count, "score": sur_score, "weight": 0.3},
             },
-            "generated_at": __import__("datetime").datetime.utcnow().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
         })
 
     except Exception as e:
@@ -172,9 +173,52 @@ async def get_correlation_timeline(
             from services.mock_data import MockData
             return APIResponse.ok(MockData.widgets.correlation_timeline(minutes=minutes))
 
-        # Real mode (TODO en producción: implementar agregación real)
-        from services.mock_data import MockData
-        return APIResponse.ok(MockData.widgets.correlation_timeline(minutes=minutes))
+        # Real mode: agregar datos de los 3 servicios
+        from services.wazuh_service import get_wazuh_service
+        from services.suricata_service import get_suricata_service
+        from services.crowdsec_service import get_crowdsec_service
+        from datetime import datetime, timedelta, timezone
+
+        wazuh_svc = get_wazuh_service()
+        sur_svc = get_suricata_service()
+        cs_svc = get_crowdsec_service()
+
+        wazuh_alerts, sur_alerts, cs_decisions = await asyncio.gather(
+            wazuh_svc.get_alerts(limit=500),
+            sur_svc.get_alerts(limit=500),
+            cs_svc.get_decisions(),
+            return_exceptions=True,
+        )
+
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(minutes=minutes)
+        series: dict[str, dict] = {}
+        for i in range(minutes):
+            t = cutoff + timedelta(minutes=i)
+            key = t.strftime("%Y-%m-%dT%H:%M:00")
+            series[key] = {"minute": key, "wazuh": 0, "suricata": 0, "crowdsec": 0}
+
+        if isinstance(wazuh_alerts, list):
+            for a in wazuh_alerts:
+                ts = a.get("timestamp", "")[:16] + ":00"
+                if ts in series:
+                    series[ts]["wazuh"] += 1
+
+        if isinstance(sur_alerts, list):
+            for a in sur_alerts:
+                ts = a.get("timestamp", "")[:16] + ":00"
+                if ts in series:
+                    series[ts]["suricata"] += 1
+
+        # CrowdSec decisions don't have per-minute granularity, aggregate as total
+        cs_total = len(cs_decisions) if isinstance(cs_decisions, list) else 0
+
+        return APIResponse.ok({
+            "series": list(series.values()),
+            "minutes": minutes,
+            "crowdsec_total": cs_total,
+            "generated_at": now.isoformat(),
+        })
 
     except Exception as e:
         logger.error("widgets.correlation_timeline_error", error=str(e))
@@ -213,7 +257,7 @@ async def get_confirmed_threats() -> APIResponse:
         wazuh_svc = get_wazuh_service()
 
         sur_correlations, cs_decisions, wazuh_alerts = await asyncio.gather(
-            sur_svc.get_crowdsec_correlation(),
+            sur_svc.get_correlation_crowdsec(),
             cs_svc.get_decisions(),
             wazuh_svc.get_alerts(limit=200, level_min=7),
             return_exceptions=True,
@@ -259,7 +303,7 @@ async def get_confirmed_threats() -> APIResponse:
         return APIResponse.ok({
             "threats": threats[:20],
             "total": len(threats),
-            "generated_at": __import__("datetime").datetime.utcnow().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
         })
 
     except Exception as e:
@@ -356,7 +400,7 @@ async def get_incident_lifecycle(
                       "status": "pending", "timestamp": None, "source": None, "detail": None})
 
         return APIResponse.ok({"ip": ip, "steps": steps,
-                               "generated_at": __import__("datetime").datetime.utcnow().isoformat()})
+                               "generated_at": datetime.now(timezone.utc).isoformat()})
 
     except Exception as e:
         logger.error("widgets.incident_lifecycle_error", ip=ip, error=str(e))
@@ -386,10 +430,10 @@ async def get_suricata_asset_correlation(
             return APIResponse.ok(MockData.widgets.suricata_asset_correlation())
 
         from services.suricata_service import get_suricata_service
-        from services.glpi_service import GLPIService
+        from services.glpi_service import get_glpi_service
 
         sur_svc = get_suricata_service()
-        glpi_svc = GLPIService()
+        glpi_svc = get_glpi_service()
 
         sur_alerts = await sur_svc.get_alerts(limit=200)
         glpi_assets = await glpi_svc.get_computers(limit=100)
@@ -429,7 +473,7 @@ async def get_suricata_asset_correlation(
         return APIResponse.ok({
             "correlations": results,
             "total": len(results),
-            "generated_at": __import__("datetime").datetime.utcnow().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
         })
 
     except Exception as e:
@@ -465,8 +509,8 @@ async def get_world_threat_map(
             return APIResponse.ok(MockData.widgets.world_threat_map())
 
         # Real mode: reusar el endpoint de top-countries con source=all
-        from services.geoip_service import GeoIPService
-        geoip_svc = GeoIPService()
+        from services.geoip_service import get_geoip_service
+        geoip_svc = get_geoip_service()
         data = geoip_svc.get_top_countries(limit=50 if not all_countries else 250, source="all")
         return APIResponse.ok(data)
 
@@ -508,15 +552,23 @@ async def generate_view_report(request: GenerateViewReportRequest) -> APIRespons
             )
             return APIResponse.ok(result)
 
-        # Real mode: collect_view_context → Claude → PDF/Telegram
-        from services.ai_service import collect_view_context, get_ai_service
+        # Real mode: use existing AIService.generate_report() with contextual prompt
+        from services.ai_service import get_ai_service
 
-        context = await collect_view_context(request.widget_ids)
+        # Build contextual prompt from widget IDs
+        context_prompt = (
+            f"Genera un reporte de seguridad titulado '{request.report_title}' "
+            f"basado en los siguientes widgets activos de la vista '{request.view_id}': "
+            f"{', '.join(request.widget_ids)}. "
+            f"Consulta los datos disponibles de cada fuente de seguridad "
+            f"(Wazuh, CrowdSec, Suricata, MikroTik) para construir el análisis."
+        )
+
         ai_svc = get_ai_service()
-        report = await ai_svc.generate_report_from_context(
-            context=context,
+        report = await ai_svc.generate_report(
+            prompt=context_prompt,
             audience=request.audience,
-            title=request.report_title,
+            data_sources=["wazuh_alerts", "mikrotik_connections", "firewall_rules"],
         )
 
         result: dict = {
@@ -534,8 +586,7 @@ async def generate_view_report(request: GenerateViewReportRequest) -> APIRespons
                 title=request.report_title,
                 metadata={"audience": request.audience},
             )
-            # Guardar temporalmente y devolver URL de descarga
-            import uuid, os
+            import uuid
             report_id = str(uuid.uuid4())
             # TODO: persist to DB or temp storage
             result["pdf_url"] = f"/api/reports/download/{report_id}"
@@ -543,11 +594,16 @@ async def generate_view_report(request: GenerateViewReportRequest) -> APIRespons
         if request.output in ("telegram", "both"):
             from services.telegram_service import get_telegram_service
             tg_svc = get_telegram_service()
-            await tg_svc.send_view_report(
-                title=request.report_title,
-                summary=report.get("summary", ""),
-                audience=request.audience,
-                widget_ids=request.widget_ids,
+            summary_text = (
+                f"📊 <b>{request.report_title}</b>\n\n"
+                f"<b>Audiencia:</b> {request.audience}\n"
+                f"<b>Widgets:</b> {len(request.widget_ids)}\n\n"
+                f"{report.get('summary', 'Reporte generado exitosamente.')}\n\n"
+                f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+            )
+            await tg_svc.send_message(
+                text=summary_text,
+                message_type="view_report",
             )
             result["telegram_sent"] = True
 

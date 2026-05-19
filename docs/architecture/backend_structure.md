@@ -284,12 +284,13 @@ CRUD de vistas personalizadas del dashboard (persistido en SQLite).
 - `GET /{id}` — obtiene vista con sus widgets
 - `PUT /{id}` — actualiza nombre/descripción/layout
 - `DELETE /{id}` — elimina vista
-- `GET /widgets/catalog` — catálogo tabulado de widgets disponibles por categoría (Standard/Visual/Technical/Hybrid)
+- `PUT /{id}/default` — marca una vista como vista por defecto (desmarca la anterior)
+- `GET /widgets/catalog` — catálogo categorizado de 53 widgets: 17 Standard + 10 Visual + 12 Technical + 14 Hybrid
 
 Importa: `CustomView` (modelo), `CustomViewCreate`/`CustomViewUpdate` (schemas), `get_db`
 
 ### `widgets.py` · prefijo `/api/widgets`
-Datos agregados para los widgets del catálogo. Cada endpoint orquesta múltiples servicios y devuelve datos listos para consumir por el `WidgetRenderer`.
+Datos agregados para los widgets del catálogo. Cada endpoint orquesta múltiples servicios y devuelve datos listos para consumir por el `WidgetRenderer`. Los widgets Visual/Technical/Hybrid obtienen datos desde estos endpoints o directamente desde las APIs de cada servicio.
 - `GET /threat-level` — nivel de amenaza 0–100 con desglose por fuente
 - `GET /activity-heatmap` — matriz 7×24h horas de alertas Wazuh
 - `GET /correlation-timeline` — timeline multi-fuente (Wazuh + Suricata + CrowdSec)
@@ -524,6 +525,26 @@ Clase `AuthProvider`:
 - `verify_credentials(username, password)` — verifica usuario/contraseña contra el hotspot de MikroTik via API
 - `get_user_session(username)` — obtiene sesión activa del usuario
 - `create_guest_session(ip)` — crea sesión guest temporal
+
+### `glpi_collector.py`
+**Sincronización background de activos GLPI.** Script de recolección periódica que cachea datos GLPI en un JSON local para reducir latencia y dependencia de la API GLPI.
+
+Funciones principales:
+- Sincronización programada de activos, usuarios y ubicaciones desde la API REST de GLPI
+- Persistencia en cache JSON local (`services/Integraciones/glpi_full_assets.json`)
+- Usado por `GLPIService` como fuente alternativa cuando la API GLPI no está disponible
+
+---
+
+## `services/Integraciones/` — Datos de integración externos
+
+Subdirectorio con scripts y datos cacheados de integraciones externas.
+
+### `glpi.py`
+Script auxiliar de integración GLPI. Lógica complementaria de recolección de datos.
+
+### `glpi_full_assets.json`
+Cache local de activos GLPI (~1.3 MB). Generado por `glpi_collector.py`. Permite servir datos de inventario sin depender de la disponibilidad de la API GLPI en tiempo real.
 
 ---
 

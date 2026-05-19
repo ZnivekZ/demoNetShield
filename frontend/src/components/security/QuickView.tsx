@@ -98,7 +98,7 @@ export function QuickView() {
       )}
 
       {/* ── Charts Row ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
         {/* Alert Timeline */}
         <div className="glass-card" style={{ padding: '1.25rem' }}>
           <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--color-surface-200)' }}>
@@ -129,33 +129,43 @@ export function QuickView() {
 
         {/* MITRE Donut */}
         <div className="glass-card" style={{ padding: '1.25rem' }}>
-          <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '1rem', color: 'var(--color-surface-200)' }}>
+          <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--color-surface-200)' }}>
             Técnicas MITRE
           </h3>
           {mitreTop.length > 0 ? (
-            <ResponsiveContainer width="100%" height={180}>
-              <PieChart>
-                <Pie
-                  data={mitreTop}
-                  dataKey="count"
-                  nameKey="technique_name"
-                  innerRadius={45}
-                  outerRadius={75}
-                  paddingAngle={2}
-                >
-                  {mitreTop.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ background: 'var(--color-surface-800)', border: '1px solid rgba(148,163,184,0.1)', borderRadius: 8 }}
-                />
-                <Legend
-                  formatter={v => <span style={{ fontSize: '0.65rem', color: 'var(--color-surface-400)' }}>{String(v).slice(0, 20)}</span>}
-                  iconSize={8}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie
+                    data={mitreTop}
+                    dataKey="count"
+                    nameKey="technique_name"
+                    innerRadius={40}
+                    outerRadius={65}
+                    paddingAngle={2}
+                  >
+                    {mitreTop.map((_, i) => (
+                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: 'var(--color-surface-800)', border: '1px solid rgba(148,163,184,0.1)', borderRadius: 8, color: 'var(--text-primary)' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              {/* Custom legend below the chart */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.75rem', justifyContent: 'center', marginTop: '0.25rem' }}>
+                {mitreTop.map((item, i) => (
+                  <div key={item.technique_id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+                    <span style={{ fontSize: '0.62rem', color: 'var(--color-surface-400)', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.technique_name}>
+                      {item.technique_name}
+                    </span>
+                    <span style={{ fontSize: '0.58rem', color: 'var(--color-surface-500)' }}>({item.count})</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           ) : (
             <div className="empty-state">Sin datos MITRE</div>
           )}

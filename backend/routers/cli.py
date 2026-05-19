@@ -12,7 +12,7 @@ import structlog
 from fastapi import APIRouter, Depends
 
 from schemas.common import APIResponse
-from schemas.security import CLIMikrotikRequest, CLIWazuhAgentRequest
+from schemas.cli import CLIMikrotikRequest, CLIWazuhAgentRequest
 from services.mikrotik_service import MikroTikService, get_mikrotik_service
 from services.wazuh_service import WazuhService, get_wazuh_service
 

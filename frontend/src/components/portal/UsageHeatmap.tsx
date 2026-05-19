@@ -61,7 +61,7 @@ export function UsageHeatmap({ data }: UsageHeatmapProps) {
               y={LABEL_H - 4}
               textAnchor="middle"
               fontSize={9}
-              fill="var(--color-text-muted)"
+              fill="var(--text-tertiary)"
             >
               {h.toString().padStart(2, '0')}
             </text>
@@ -76,7 +76,7 @@ export function UsageHeatmap({ data }: UsageHeatmapProps) {
               y={LABEL_H + di * CELL_H + CELL_H / 2 + 3}
               textAnchor="end"
               fontSize={10}
-              fill="var(--color-text-muted)"
+              fill="var(--text-tertiary)"
             >
               {DAYS_DISPLAY[di]}
             </text>

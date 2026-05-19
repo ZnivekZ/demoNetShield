@@ -196,12 +196,13 @@ async def apply_geo_block_suggestion(
             suggestion_id=suggestion_id,
             duration=body.duration,
         )
-        await ActionLog.log(
-            db,
-            action="geo_block_suggestion_applied",
-            target=suggestion_id,
-            detail=f"Mock: duracion={body.duration}",
+        log_entry = ActionLog(
+            action_type="geo_block_suggestion_applied",
+            target_ip=suggestion_id,
+            details=f"Mock: duracion={body.duration}",
         )
+        db.add(log_entry)
+        await db.flush()
         return APIResponse.ok({
             "suggestion_id": suggestion_id,
             "duration": body.duration,

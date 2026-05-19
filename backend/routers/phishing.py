@@ -6,6 +6,10 @@ Data sources:
 - Alerts: [Wazuh API] — filtered by phishing-related rule groups
 - Sinkhole: [MikroTik API] — DNS static entries
 - Tracking: [DB] — SinkholeEntry model for audit trail
+
+NOTE (tech debt - B-06): All phishing endpoints fetch 500 alerts from Wazuh
+and filter client-side by rule groups. If alert volume grows beyond 500,
+consider passing rule_groups filter directly to Wazuh API to avoid missing data.
 """
 
 from __future__ import annotations

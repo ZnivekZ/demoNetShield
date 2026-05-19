@@ -1,12 +1,15 @@
 /**
- * RemoteCLI — Read-only remote CLI for MikroTik and Wazuh agent actions.
+ * RemoteCLI — Read-only remote CLI for MikroTik, Wazuh, Suricata, and CrowdSec.
  * MikroTik: sends path to whitelisted read-only commands.
  * Wazuh: restart or status on selected agent.
+ * Suricata: engine status, mode, reload rules (with ConfirmModal).
+ * CrowdSec: decisions, bouncers, scenarios queries.
  */
 import { useState } from 'react';
-import { Terminal, RefreshCw, ChevronRight } from 'lucide-react';
+import { Terminal, RefreshCw, ChevronRight, AlertTriangle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { cliApi, wazuhApi } from '../../services/api';
+import { cliApi, wazuhApi, suricataApi, crowdsecApi } from '../../services/api';
+import { ConfirmModal } from '../common/ConfirmModal';
 import type { CLIResponse } from '../../types';
 
 const MIKROTIK_SUGGESTIONS = [
@@ -15,8 +18,10 @@ const MIKROTIK_SUGGESTIONS = [
   '/ip/dns/static', '/log', '/queue/simple',
 ];
 
+type CliTab = 'mikrotik' | 'wazuh' | 'suricata' | 'crowdsec';
+
 export function RemoteCLI() {
-  const [cliTab, setCliTab] = useState<'mikrotik' | 'wazuh'>('mikrotik');
+  const [cliTab, setCliTab] = useState<CliTab>('mikrotik');
 
   // MikroTik CLI state
   const [mtCommand, setMtCommand] = useState('/ip/address');
@@ -30,6 +35,21 @@ export function RemoteCLI() {
   const [wazuhResult, setWazuhResult] = useState<CLIResponse | null>(null);
   const [wazuhLoading, setWazuhLoading] = useState(false);
   const [wazuhError, setWazuhError] = useState<string | null>(null);
+
+  // Suricata CLI state
+  const [surResult, setSurResult] = useState<Record<string, unknown> | null>(null);
+  const [surLoading, setSurLoading] = useState(false);
+  const [surError, setSurError] = useState<string | null>(null);
+  const [surLastAction, setSurLastAction] = useState('');
+  const [showReloadConfirm, setShowReloadConfirm] = useState(false);
+  const [reloading, setReloading] = useState(false);
+
+  // CrowdSec CLI state
+  const [csResult, setCsResult] = useState<unknown>(null);
+  const [csLoading, setCsLoading] = useState(false);
+  const [csError, setCsError] = useState<string | null>(null);
+  const [csLastAction, setCsLastAction] = useState('');
+  const [csIpFilter, setCsIpFilter] = useState('');
 
   const { data: agentsData } = useQuery({
     queryKey: ['wazuh', 'agents'],
@@ -64,25 +84,90 @@ export function RemoteCLI() {
     }
   };
 
+  // ── Suricata actions ──
+  const executeSuricata = async (action: 'status' | 'mode' | 'reload') => {
+    if (action === 'reload') {
+      setShowReloadConfirm(true);
+      return;
+    }
+    setSurLoading(true); setSurError(null); setSurResult(null);
+    setSurLastAction(action === 'status' ? 'Engine Status' : 'Engine Mode');
+    try {
+      const resp = action === 'status'
+        ? await suricataApi.getEngineStatus()
+        : await suricataApi.getEngineMode();
+      if (resp.success) setSurResult(resp.data as Record<string, unknown>);
+      else setSurError(resp.error ?? 'Error');
+    } catch (e) {
+      setSurError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setSurLoading(false);
+    }
+  };
+
+  const confirmReloadRules = async () => {
+    setReloading(true); setSurError(null); setSurResult(null);
+    setSurLastAction('Reload Rules');
+    try {
+      const resp = await suricataApi.reloadRules();
+      if (resp.success) setSurResult(resp.data as Record<string, unknown>);
+      else setSurError(resp.error ?? 'Error');
+    } catch (e) {
+      setSurError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setReloading(false);
+      setShowReloadConfirm(false);
+    }
+  };
+
+  // ── CrowdSec actions ──
+  const executeCrowdSec = async (action: 'decisions' | 'bouncers' | 'scenarios' | 'metrics') => {
+    setCsLoading(true); setCsError(null); setCsResult(null);
+    const labels: Record<string, string> = {
+      decisions: 'Decisiones activas', bouncers: 'Bouncers', scenarios: 'Escenarios', metrics: 'Métricas',
+    };
+    setCsLastAction(labels[action]);
+    try {
+      let resp;
+      switch (action) {
+        case 'decisions': resp = await crowdsecApi.getDecisions(csIpFilter ? { ip: csIpFilter } : undefined); break;
+        case 'bouncers': resp = await crowdsecApi.getBouncers(); break;
+        case 'scenarios': resp = await crowdsecApi.getScenarios(); break;
+        case 'metrics': resp = await crowdsecApi.getMetrics(); break;
+      }
+      if (resp.success) setCsResult(resp.data);
+      else setCsError(resp.error ?? 'Error');
+    } catch (e) {
+      setCsError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setCsLoading(false);
+    }
+  };
+
+  const tabLabels: Record<CliTab, string> = {
+    mikrotik: 'MikroTik', wazuh: 'Wazuh Agent', suricata: 'Suricata', crowdsec: 'CrowdSec',
+  };
+
   return (
     <div className="glass-card" style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
         <Terminal size={16} style={{ color: 'var(--color-brand-400)' }} />
         <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-surface-200)' }}>CLI Remota</h3>
         <div style={{ display: 'flex', gap: '0.4rem', marginLeft: 'auto' }}>
-          {(['mikrotik', 'wazuh'] as const).map(t => (
+          {(Object.keys(tabLabels) as CliTab[]).map(t => (
             <button
               key={t}
               className={`btn ${cliTab === t ? 'btn-primary' : 'btn-ghost'}`}
               style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
               onClick={() => setCliTab(t)}
             >
-              {t === 'mikrotik' ? 'MikroTik' : 'Wazuh Agent'}
+              {tabLabels[t]}
             </button>
           ))}
         </div>
       </div>
 
+      {/* ── MikroTik Tab ── */}
       {cliTab === 'mikrotik' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-500)', padding: '0.5rem 0.75rem', background: 'rgba(99,102,241,0.08)', borderRadius: 8, borderLeft: '3px solid var(--color-brand-600)' }}>
@@ -132,26 +217,12 @@ export function RemoteCLI() {
             ))}
           </div>
 
-          {mtError && (
-            <div style={{ padding: '0.75rem', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: '0.8rem', color: '#fca5a5' }}>
-              {mtError}
-            </div>
-          )}
-
-          {mtResult && (
-            <div className="cli-output">
-              <div className="cli-output__header">
-                <span>{mtCommand}</span>
-                <span>{Array.isArray(mtResult.output) ? `${(mtResult.output as unknown[]).length} entradas` : ''}</span>
-              </div>
-              <pre className="cli-output__content">
-                {JSON.stringify(mtResult.output, null, 2)}
-              </pre>
-            </div>
-          )}
+          <CLIError error={mtError} />
+          <CLIOutput label={mtCommand} result={mtResult} />
         </div>
       )}
 
+      {/* ── Wazuh Tab ── */}
       {cliTab === 'wazuh' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -193,12 +264,7 @@ export function RemoteCLI() {
             </div>
           )}
 
-          {wazuhError && (
-            <div style={{ padding: '0.75rem', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: '0.8rem', color: '#fca5a5' }}>
-              {wazuhError}
-            </div>
-          )}
-
+          <CLIError error={wazuhError} />
           {wazuhResult && (
             <div className="cli-output">
               <div className="cli-output__header">
@@ -211,6 +277,138 @@ export function RemoteCLI() {
           )}
         </div>
       )}
+
+      {/* ── Suricata Tab ── */}
+      {cliTab === 'suricata' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-500)', padding: '0.5rem 0.75rem', background: 'rgba(99,102,241,0.08)', borderRadius: 8, borderLeft: '3px solid var(--color-brand-600)' }}>
+            Consultas al motor Suricata. Reload Rules requiere confirmación.
+          </p>
+
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {[
+              { key: 'status', label: 'Engine Status', variant: 'btn-primary' },
+              { key: 'mode', label: 'Engine Mode', variant: 'btn-primary' },
+              { key: 'reload', label: '⟳ Reload Rules', variant: 'btn-danger' },
+            ].map(a => (
+              <button
+                key={a.key}
+                className={`btn ${a.variant}`}
+                style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                onClick={() => executeSuricata(a.key as 'status' | 'mode' | 'reload')}
+                disabled={surLoading || reloading}
+              >
+                {(surLoading || reloading) && surLastAction === a.label ? <span className="loading-spinner" /> : null}
+                {a.label}
+              </button>
+            ))}
+          </div>
+
+          <CLIError error={surError} />
+          {surResult && (
+            <div className="cli-output">
+              <div className="cli-output__header">
+                <span>Suricata — {surLastAction}</span>
+              </div>
+              <pre className="cli-output__content">
+                {JSON.stringify(surResult, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── CrowdSec Tab ── */}
+      {cliTab === 'crowdsec' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-500)', padding: '0.5rem 0.75rem', background: 'rgba(99,102,241,0.08)', borderRadius: 8, borderLeft: '3px solid var(--color-brand-600)' }}>
+            Consultas de solo lectura a la API local de CrowdSec (LAPI).
+          </p>
+
+          {/* IP filter for decisions */}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <input
+              className="input"
+              style={{ flex: '1 1 200px', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}
+              value={csIpFilter}
+              onChange={e => setCsIpFilter(e.target.value)}
+              placeholder="IP para filtrar decisiones (opcional)"
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {[
+              { key: 'decisions', label: 'Decisiones' },
+              { key: 'bouncers', label: 'Bouncers' },
+              { key: 'scenarios', label: 'Escenarios' },
+              { key: 'metrics', label: 'Métricas' },
+            ].map(a => (
+              <button
+                key={a.key}
+                className="btn btn-primary"
+                style={{ fontSize: '0.78rem' }}
+                onClick={() => executeCrowdSec(a.key as 'decisions' | 'bouncers' | 'scenarios' | 'metrics')}
+                disabled={csLoading}
+              >
+                {csLoading && csLastAction === a.label ? <span className="loading-spinner" /> : null}
+                {a.label}
+              </button>
+            ))}
+          </div>
+
+          <CLIError error={csError} />
+          {csResult && (
+            <div className="cli-output">
+              <div className="cli-output__header">
+                <span>CrowdSec — {csLastAction}</span>
+                <span>{Array.isArray(csResult) ? `${csResult.length} entradas` : ''}</span>
+              </div>
+              <pre className="cli-output__content">
+                {JSON.stringify(csResult, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Reload Rules Confirm Modal ── */}
+      {showReloadConfirm && (
+        <ConfirmModal
+          title="Recargar Reglas Suricata"
+          description="Se recargarán todas las reglas en el motor Suricata sin reiniciarlo. Esto puede afectar brevemente el rendimiento de detección."
+          data={{ Acción: 'suricata-update + reload', Motor: 'No se reinicia', Impacto: 'Brevemente reducido' }}
+          confirmLabel="Recargar"
+          onConfirm={confirmReloadRules}
+          onCancel={() => setShowReloadConfirm(false)}
+          isLoading={reloading}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Internal helpers ──
+
+function CLIError({ error }: { error: string | null }) {
+  if (!error) return null;
+  return (
+    <div style={{ padding: '0.75rem', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: '0.8rem', color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <AlertTriangle size={14} /> {error}
+    </div>
+  );
+}
+
+function CLIOutput({ label, result }: { label: string; result: CLIResponse | null }) {
+  if (!result) return null;
+  return (
+    <div className="cli-output">
+      <div className="cli-output__header">
+        <span>{label}</span>
+        <span>{Array.isArray(result.output) ? `${(result.output as unknown[]).length} entradas` : ''}</span>
+      </div>
+      <pre className="cli-output__content">
+        {JSON.stringify(result.output, null, 2)}
+      </pre>
     </div>
   );
 }

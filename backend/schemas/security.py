@@ -45,21 +45,8 @@ class GeoBlockRequest(BaseModel):
     duration_hours: int = 24
 
 
-class CLIMikrotikRequest(BaseModel):
-    """Request to execute a read-only MikroTik command."""
-
-    command: str = Field(
-        ..., description="RouterOS path to query (e.g., '/ip/address')"
-    )
-
-
-class CLIWazuhAgentRequest(BaseModel):
-    """Request to execute an action on a Wazuh agent."""
-
-    agent_id: str
-    action: str = Field(
-        ..., description="Action to perform: 'restart' or 'status'"
-    )
+# CLI schemas — moved to schemas/cli.py, re-exported for backward compatibility
+from schemas.cli import CLIMikrotikRequest, CLIWazuhAgentRequest, CLIResponse  # noqa: F401
 
 
 # ── Response Schemas ─────────────────────────────────────────────
@@ -154,12 +141,3 @@ class NetworkSearchResult(BaseModel):
     agent_match: dict | None = None  # Full agent dict
     # Recent alerts for this IP
     recent_alerts: list[dict] = []
-
-
-class CLIResponse(BaseModel):
-    """Response from a CLI command execution."""
-
-    success: bool = True
-    output: list[dict] | str = []
-    command: str = ""
-    error: str | None = None

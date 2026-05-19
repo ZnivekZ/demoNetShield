@@ -34,13 +34,13 @@ export function SessionsChart({ data }: SessionsChartProps) {
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
         <XAxis
           dataKey="timestamp"
-          stroke="var(--color-text-muted)"
+          stroke="var(--text-tertiary)"
           tick={{ fontSize: 11 }}
           tickLine={false}
           interval="preserveStartEnd"
         />
         <YAxis
-          stroke="var(--color-text-muted)"
+          stroke="var(--text-tertiary)"
           tick={{ fontSize: 11 }}
           tickLine={false}
           allowDecimals={false}
@@ -48,22 +48,22 @@ export function SessionsChart({ data }: SessionsChartProps) {
         />
         <Tooltip
           contentStyle={{
-            background: 'var(--color-surface)',
+            background: 'var(--bg-secondary)',
             border: '1px solid rgba(255,255,255,0.1)',
             borderRadius: '8px',
-            color: 'var(--color-text)',
+            color: 'var(--text-primary)',
             fontSize: '12px',
           }}
-          labelStyle={{ color: 'var(--color-text-muted)' }}
+          labelStyle={{ color: 'var(--text-tertiary)' }}
         />
         <Legend
-          wrapperStyle={{ fontSize: '12px', color: 'var(--color-text-muted)' }}
+          wrapperStyle={{ fontSize: '12px', color: 'var(--text-tertiary)' }}
         />
         <Line
           type="monotone"
           dataKey="registered"
           name="Registrados"
-          stroke="var(--color-primary)"
+          stroke="var(--accent-primary)"
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 4 }}

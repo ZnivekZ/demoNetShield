@@ -46,7 +46,7 @@ export function StatsView() {
   if (!stats) {
     return (
       <div className="portal-loading" style={{ paddingTop: '48px' }}>
-        <span style={{ color: 'var(--color-text-muted)' }}>Sin datos disponibles</span>
+        <span style={{ color: 'var(--text-tertiary)' }}>Sin datos disponibles</span>
       </div>
     );
   }
@@ -56,7 +56,7 @@ export function StatsView() {
       {/* Summary cards */}
       <div className="portal-stat-grid">
         <div className="glass-card portal-stat-card">
-          <div className="portal-stat-icon" style={{ color: 'var(--color-primary)' }}>
+          <div className="portal-stat-icon" style={{ color: 'var(--accent-primary)' }}>
             <Users size={20} />
           </div>
           <div className="portal-stat-body">
@@ -74,7 +74,7 @@ export function StatsView() {
           </div>
         </div>
         <div className="glass-card portal-stat-card">
-          <div className="portal-stat-icon" style={{ color: 'var(--color-accent)' }}>
+          <div className="portal-stat-icon" style={{ color: 'var(--color-brand-400)' }}>
             <Users size={20} />
           </div>
           <div className="portal-stat-body">
@@ -102,23 +102,23 @@ export function StatsView() {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis
                 dataKey="date"
-                stroke="var(--color-text-muted)"
+                stroke="var(--text-tertiary)"
                 tick={{ fontSize: 10 }}
                 tickLine={false}
                 tickFormatter={d => d.slice(5)}
                 interval="preserveStartEnd"
               />
-              <YAxis stroke="var(--color-text-muted)" tick={{ fontSize: 10 }} tickLine={false} allowDecimals={false} width={24} />
+              <YAxis stroke="var(--text-tertiary)" tick={{ fontSize: 10 }} tickLine={false} allowDecimals={false} width={24} />
               <Tooltip
                 contentStyle={{
-                  background: 'var(--color-surface)',
+                  background: 'var(--bg-secondary)',
                   border: '1px solid rgba(255,255,255,0.1)',
                   borderRadius: '8px',
-                  color: 'var(--color-text)',
+                  color: 'var(--text-primary)',
                   fontSize: '12px',
                 }}
               />
-              <Bar dataKey="count" name="Registros" fill="var(--color-primary)" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="count" name="Registros" fill="var(--accent-primary)" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

@@ -97,7 +97,7 @@ export function ScheduleConfig() {
       <div className={`portal-schedule-form ${!enabled ? 'portal-schedule-form--disabled' : ''}`}>
         {/* Hours */}
         <div className="portal-schedule-row">
-          <Clock size={14} style={{ color: 'var(--color-primary)' }} />
+          <Clock size={14} style={{ color: 'var(--accent-primary)' }} />
           <span className="portal-form-label">Horario permitido</span>
           <select
             className="portal-form-select"
@@ -120,7 +120,7 @@ export function ScheduleConfig() {
 
         {/* Days */}
         <div className="portal-schedule-row">
-          <Calendar size={14} style={{ color: 'var(--color-primary)' }} />
+          <Calendar size={14} style={{ color: 'var(--accent-primary)' }} />
           <span className="portal-form-label">Días bloqueados</span>
           <div className="portal-days-grid">
             {DAYS.map(day => (

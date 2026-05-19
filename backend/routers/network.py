@@ -318,11 +318,14 @@ async def network_search(
                 result["glpi_match"] = glpi_results[0]
         elif is_lab:
             # Mock: try to match against mock computers
-            mock_computers = glpi_service._generate_mock_computers(limit=20)
+            from services.mock_data import MockData
+            mock_computers = MockData.glpi.computers(limit=20) if hasattr(MockData.glpi, 'computers') else MockData.glpi.get_assets()[:20]
             ql = query.lower()
             for c in mock_computers:
-                if ql in c["name"].lower() or ql in (c.get("ip") or "").lower():
-                    result["glpi_match"] = {**c, "mock": True}
+                name = c.get("name", "") if isinstance(c, dict) else ""
+                ip_val = c.get("ip", "") if isinstance(c, dict) else ""
+                if ql in name.lower() or ql in ip_val.lower():
+                    result["glpi_match"] = {**(c if isinstance(c, dict) else {}), "mock": True}
                     break
     except Exception as e:
         logger.warning("network_search_glpi_failed", error=str(e))

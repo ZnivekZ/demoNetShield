@@ -10,6 +10,7 @@ import {
   crowdsecApi,
   actionsApi,
   glpiApi,
+  dhcpApi,
 } from '../../../services/api';
 
 /* ── Action Log ────────────────────────────────────────────────── */
@@ -209,5 +210,20 @@ export function useHttpInspector(limit = 25) {
     },
     staleTime: 15_000,
     refetchInterval: 30_000,
+  });
+}
+
+/* ── DHCP Leases ───────────────────────────────────────────── */
+
+export function useDhcpLeasesWidget(limit = 10) {
+  return useQuery({
+    queryKey: ['widget', 'dhcp-leases', limit],
+    queryFn: async () => {
+      const res = await dhcpApi.getLeases();
+      if (!res.success) throw new Error(res.error ?? 'Error cargando leases DHCP');
+      return (res.data ?? []).slice(0, limit);
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
   });
 }

@@ -12,6 +12,7 @@ import {
   mikrotikApi,
   portalApi,
   phishingApi,
+  dhcpApi,
 } from '../../../services/api';
 
 /* ── Threat Gauge ──────────────────────────────────────────────── */
@@ -217,6 +218,21 @@ export function useAgentAlertHeatmap(hours = 12) {
         hours,
         agents: Array.from(agents.entries()).map(([name, slots]) => ({ name, slots })),
       };
+    },
+    staleTime: 60_000,
+    refetchInterval: 2 * 60_000,
+  });
+}
+
+/* ── DHCP Subnet Usage ─────────────────────────────────────────── */
+
+export function useSubnetUsageWidget() {
+  return useQuery({
+    queryKey: ['widget', 'dhcp-subnet-usage'],
+    queryFn: async () => {
+      const res = await dhcpApi.getSubnetUsage();
+      if (!res.success) throw new Error(res.error ?? 'Error cargando uso de subredes');
+      return res.data ?? [];
     },
     staleTime: 60_000,
     refetchInterval: 2 * 60_000,

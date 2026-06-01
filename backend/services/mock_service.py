@@ -344,6 +344,58 @@ class MockService:
         logger.info("mock_mikrotik_unblock_ip", ip=ip)
         return {"ip": ip, "unblocked": True, "mock": True}
 
+    # ── DHCP CRUD (in-memory) ────────────────────────────────────────────────
+
+    _dhcp_leases: list[dict] | None = None
+    _next_dhcp_lease_id: int = 50
+
+    @classmethod
+    def _ensure_dhcp_leases(cls) -> list[dict]:
+        if cls._dhcp_leases is None:
+            cls._dhcp_leases = [dict(l) for l in MockData.dhcp.leases()]
+        return cls._dhcp_leases
+
+    @classmethod
+    def dhcp_create_lease(cls, address: str, mac_address: str, server: str, comment: str = "") -> dict:
+        leases = cls._ensure_dhcp_leases()
+        if any(l["address"] == address for l in leases):
+            return {"error": f"Address {address} already has a lease", "mock": True}
+        cls._next_dhcp_lease_id += 1
+        new_id = f"*mock-{cls._next_dhcp_lease_id}"
+        lease: dict[str, Any] = {
+            "id": new_id, "address": address, "mac_address": mac_address,
+            "client_id": "", "host_name": "", "server": server,
+            "status": "waiting", "expires_after": "",
+            "active_address": "", "active_mac_address": "",
+            "rate_limit": "", "comment": comment,
+            "dynamic": False, "blocked": False, "disabled": False,
+        }
+        leases.append(lease)
+        logger.info("mock_dhcp_lease_created", address=address, mac=mac_address)
+        return {"id": new_id, "address": address, "mac_address": mac_address, "server": server, "mock": True}
+
+    @classmethod
+    def dhcp_delete_lease(cls, lease_id: str) -> dict:
+        leases = cls._ensure_dhcp_leases()
+        before = len(leases)
+        cls._dhcp_leases = [l for l in leases if l["id"] != lease_id]
+        found = len(cls._dhcp_leases) < before
+        if not found:
+            raise ValueError(f"Lease '{lease_id}' not found")
+        logger.info("mock_dhcp_lease_deleted", id=lease_id)
+        return {"id": lease_id, "action": "deleted", "mock": True}
+
+    @classmethod
+    def dhcp_make_static(cls, lease_id: str) -> dict:
+        leases = cls._ensure_dhcp_leases()
+        for lease in leases:
+            if lease["id"] == lease_id:
+                lease["dynamic"] = False
+                logger.info("mock_dhcp_lease_made_static", id=lease_id)
+                return {"id": lease_id, "action": "made_static", "dynamic": False, "mock": True}
+        raise ValueError(f"Lease '{lease_id}' not found")
+
+
     # ── CrowdSec CRUD ────────────────────────────────────────────────────
 
     @classmethod

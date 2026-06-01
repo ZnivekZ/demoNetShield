@@ -918,3 +918,117 @@ export const widgetsApi = {
   }) =>
     api.post<APIResponse<ViewReportResult>>('/widgets/generate-view-report', data).then(r => r.data),
 };
+
+// ── DHCP API ──────────────────────────────────────────────────────────────────
+
+import type {
+  DhcpServer,
+  DhcpLease,
+  DhcpNetwork,
+  DhcpPool,
+  DhcpSubnetUsage,
+  DhcpRogueAlert,
+  DhcpOption,
+  DhcpServerCreate,
+  DhcpLeaseCreate,
+  DhcpLeaseUpdate,
+  DhcpNetworkCreate,
+  DhcpNetworkUpdate,
+  DhcpPoolCreate,
+  DhcpRogueAlertCreate,
+  DhcpOptionCreate,
+} from '../types';
+
+export const dhcpApi = {
+  // Servers
+  getServers: () =>
+    api.get<APIResponse<DhcpServer[]>>('/dhcp/servers').then(r => r.data),
+
+  createServer: (data: DhcpServerCreate) =>
+    api.post<APIResponse<{ id: string; name: string }>>('/dhcp/servers', data).then(r => r.data),
+
+  toggleServer: (id: string, disabled: boolean) =>
+    api.put<APIResponse<{ id: string; disabled: boolean }>>(`/dhcp/servers/${id}/toggle`, { disabled }).then(r => r.data),
+
+  // Leases
+  getLeases: (params?: { server?: string; status?: string; search?: string }) =>
+    api.get<APIResponse<DhcpLease[]>>('/dhcp/leases', { params }).then(r => r.data),
+
+  createLease: (data: DhcpLeaseCreate) =>
+    api.post<APIResponse<{ id: string; address: string }>>('/dhcp/leases', data).then(r => r.data),
+
+  updateLease: (id: string, data: DhcpLeaseUpdate) =>
+    api.put<APIResponse<{ id: string; action: string }>>(`/dhcp/leases/${id}`, data).then(r => r.data),
+
+  deleteLease: (id: string) =>
+    api.delete<APIResponse<{ id: string; action: string }>>(`/dhcp/leases/${id}`).then(r => r.data),
+
+  makeLeaseStatic: (id: string) =>
+    api.post<APIResponse<{ id: string; action: string }>>(`/dhcp/leases/${id}/make-static`).then(r => r.data),
+
+  setLeaseBlock: (id: string, block: boolean) =>
+    api.put<APIResponse<{ id: string; blocked: boolean }>>(`/dhcp/leases/${id}/block`, { block }).then(r => r.data),
+
+  // Networks
+  getNetworks: () =>
+    api.get<APIResponse<DhcpNetwork[]>>('/dhcp/networks').then(r => r.data),
+
+  createNetwork: (data: DhcpNetworkCreate) =>
+    api.post<APIResponse<{ id: string; address: string }>>('/dhcp/networks', data).then(r => r.data),
+
+  updateNetwork: (id: string, data: DhcpNetworkUpdate) =>
+    api.put<APIResponse<{ id: string; action: string }>>(`/dhcp/networks/${id}`, data).then(r => r.data),
+
+  // Pools
+  getPools: () =>
+    api.get<APIResponse<DhcpPool[]>>('/dhcp/pools').then(r => r.data),
+
+  getSubnetUsage: () =>
+    api.get<APIResponse<DhcpSubnetUsage[]>>('/dhcp/pools/usage').then(r => r.data),
+
+  createPool: (data: DhcpPoolCreate) =>
+    api.post<APIResponse<{ id: string; name: string }>>('/dhcp/pools', data).then(r => r.data),
+
+  updatePool: (id: string, data: Partial<DhcpPoolCreate>) =>
+    api.put<APIResponse<{ id: string; action: string }>>(`/dhcp/pools/${id}`, data).then(r => r.data),
+
+  // Rogue Alerts
+  getRogueAlerts: () =>
+    api.get<APIResponse<DhcpRogueAlert[]>>('/dhcp/alerts').then(r => r.data),
+
+  createRogueAlert: (data: DhcpRogueAlertCreate) =>
+    api.post<APIResponse<{ id: string; interface: string }>>('/dhcp/alerts', data).then(r => r.data),
+
+  // Options
+  getOptions: () =>
+    api.get<APIResponse<DhcpOption[]>>('/dhcp/options').then(r => r.data),
+
+  createOption: (data: DhcpOptionCreate) =>
+    api.post<APIResponse<{ id: string; name: string }>>('/dhcp/options', data).then(r => r.data),
+
+  // ── Fase 2: Cross-service ─────────────────────────────────────────────────
+
+  /** S1: DHCP leases enriched with GLPI inventory match */
+  getGlpiCorrelation: () =>
+    api.get<APIResponse<DhcpLeaseGlpiCorrelation[]>>('/dhcp/correlation/glpi').then(r => r.data),
+
+  /** S2: Device discovery — registered vs unregistered vs stale */
+  getDiscovery: () =>
+    api.get<APIResponse<DhcpDiscoveryResult>>('/dhcp/discovery').then(r => r.data),
+
+  /** S3: Wazuh alerts enriched with DHCP context */
+  getWazuhEnriched: (params?: { limit?: number; level_min?: number }) =>
+    api.get<APIResponse<DhcpEnrichedAlert[]>>('/dhcp/wazuh/enriched', { params }).then(r => r.data),
+
+  /** S4: Block rogue DHCP via firewall */
+  blockRogueDhcp: (alertId: string) =>
+    api.post<APIResponse<{ blocked: boolean; interface: string; rule_comment: string }>>(
+      `/dhcp/alerts/${alertId}/block-rogue`
+    ).then(r => r.data),
+
+  /** S5: Create GLPI ticket for unregistered device */
+  createDiscoveryTicket: (ip: string) =>
+    api.post<APIResponse<{ id: number; title: string }>>(
+      '/dhcp/discovery/create-ticket', null, { params: { ip } }
+    ).then(r => r.data),
+};

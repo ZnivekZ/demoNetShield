@@ -347,6 +347,18 @@ _WIDGETS_VISUAL = [
         "preview_color": "#f59e0b",
         "config_schema": {"hours": {"type": "number", "default": 12, "label": "Ventana (horas)"}},
     },
+    {
+        "type": "visual_subnet_usage",
+        "title": "Utilización de Subredes",
+        "description": "Barras de progreso por pool DHCP — IPs usadas vs disponibles en cada subred",
+        "icon": "Network",
+        "source": "dhcp",
+        "category": "visual",
+        "default_size": "medium",
+        "available_sizes": ["small", "medium", "large"],
+        "preview_color": "#06b6d4",
+        "config_schema": {},
+    },
 ]
 
 _WIDGETS_TECHNICAL = [
@@ -496,6 +508,18 @@ _WIDGETS_TECHNICAL = [
         "available_sizes": ["medium", "large", "full"],
         "preview_color": "#8b5cf6",
         "config_schema": {"limit": {"type": "number", "default": 25, "label": "Transacciones"}},
+    },
+    {
+        "type": "technical_dhcp_leases",
+        "title": "Leases DHCP",
+        "description": "Tabla compacta de leases DHCP activos — IP, MAC, hostname, estado y tipo (estática/dinámica)",
+        "icon": "Layers",
+        "source": "dhcp",
+        "category": "technical",
+        "default_size": "medium",
+        "available_sizes": ["small", "medium", "large"],
+        "preview_color": "#06b6d4",
+        "config_schema": {"limit": {"type": "number", "default": 10, "label": "Cantidad"}},
     },
 ]
 
@@ -670,6 +694,18 @@ _WIDGETS_HYBRID = [
         "available_sizes": ["medium", "large"],
         "preview_color": "#f97316",
         "config_schema": {},
+    },
+    {
+        "type": "hybrid_dhcp_discovery",
+        "title": "Descubrimiento DHCP",
+        "description": "Dispositivos detectados por DHCP cruzados con inventario GLPI — resalta equipos no registrados",
+        "icon": "Search",
+        "source": "mixed",
+        "category": "hybrid",
+        "default_size": "medium",
+        "available_sizes": ["small", "medium", "large"],
+        "preview_color": "#a855f7",
+        "config_schema": {"limit": {"type": "number", "default": 8, "label": "Resultados"}},
     },
 ]
 

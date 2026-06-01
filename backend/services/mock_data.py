@@ -530,9 +530,342 @@ class MockData:
                 {"id": 5, "name": "Sala Servidores","completename": "Edificio C > Sala Servidores","comment": "Rack principal",       "building": "C", "room": "001"},
             ]
 
+    # ── DHCP ──────────────────────────────────────────────────────────────────
+
+    class dhcp:
+        """
+        Mock data for DHCP module.
+        IPs and MACs are coherent with _LAB_HOSTS, Wazuh agents, and GLPI computers.
+        Pools cover 192.168.88.0/24 (ether2 LAN) and 192.168.100.0/24 (ether1 servers).
+        """
+
+        @staticmethod
+        def servers() -> list[dict]:
+            return [
+                {
+                    "id": "*1",
+                    "name": "dhcp-lab",
+                    "interface": "ether2",
+                    "address_pool": "pool-lab",
+                    "lease_time": "1d",
+                    "disabled": False,
+                    "authoritative": "yes",
+                    "comment": "DHCP principal — Lab Redes",
+                },
+                {
+                    "id": "*2",
+                    "name": "dhcp-aula3",
+                    "interface": "ether3",
+                    "address_pool": "pool-aula3",
+                    "lease_time": "8h",
+                    "disabled": False,
+                    "authoritative": "yes",
+                    "comment": "DHCP Aula 3",
+                },
+            ]
+
+        @staticmethod
+        def leases() -> list[dict]:
+            """
+            Leases coherentes con _LAB_HOSTS, Wazuh agents (004/005/006) y GLPI computers (1-7).
+            - lubuntu_desk_1 (88.10) y lubuntu_desk_2 (88.11) → estáticos (reservas)
+            - PC-Aula3-01 (88.20), PC-Aula3-02 (88.21) → dinámicos, bound
+            - wazuh-server (88.50) → estático con comment
+            - unknown-guest (88.100) → dinámico, sin registrar (candidato a descubrimiento)
+            - PC-Lab-Sis-01 (88.40) → dinámico, bound
+            - extra (88.55) → lease reciente, MAC desconocida → rogue candidate
+            """
+            return [
+                {
+                    "id": "*A1",
+                    "address": "192.168.88.10",
+                    "mac_address": "52:54:00:AA:BB:01",
+                    "client_id": "",
+                    "host_name": "lubuntu-desk-1",
+                    "server": "dhcp-lab",
+                    "status": "bound",
+                    "expires_after": "22h 14m 30s",
+                    "active_address": "192.168.88.10",
+                    "active_mac_address": "52:54:00:AA:BB:01",
+                    "rate_limit": "",
+                    "comment": "Estación PC-Lab-01 (Juan Pérez)",
+                    "dynamic": False,
+                    "blocked": False,
+                    "disabled": False,
+                },
+                {
+                    "id": "*A2",
+                    "address": "192.168.88.11",
+                    "mac_address": "52:54:00:AA:BB:02",
+                    "client_id": "",
+                    "host_name": "lubuntu-desk-2",
+                    "server": "dhcp-lab",
+                    "status": "bound",
+                    "expires_after": "21h 52m 10s",
+                    "active_address": "192.168.88.11",
+                    "active_mac_address": "52:54:00:AA:BB:02",
+                    "rate_limit": "",
+                    "comment": "Estación PC-Lab-02 (María García)",
+                    "dynamic": False,
+                    "blocked": False,
+                    "disabled": False,
+                },
+                {
+                    "id": "*A3",
+                    "address": "192.168.88.20",
+                    "mac_address": "52:54:00:CC:DD:01",
+                    "client_id": "",
+                    "host_name": "PC-Aula3-01",
+                    "server": "dhcp-aula3",
+                    "status": "bound",
+                    "expires_after": "5h 23m 00s",
+                    "active_address": "192.168.88.20",
+                    "active_mac_address": "52:54:00:CC:DD:01",
+                    "rate_limit": "10M/10M",
+                    "comment": "",
+                    "dynamic": True,
+                    "blocked": False,
+                    "disabled": False,
+                },
+                {
+                    "id": "*A4",
+                    "address": "192.168.88.21",
+                    "mac_address": "52:54:00:CC:DD:02",
+                    "client_id": "",
+                    "host_name": "PC-Aula3-02",
+                    "server": "dhcp-aula3",
+                    "status": "bound",
+                    "expires_after": "5h 01m 45s",
+                    "active_address": "192.168.88.21",
+                    "active_mac_address": "52:54:00:CC:DD:02",
+                    "rate_limit": "10M/10M",
+                    "comment": "",
+                    "dynamic": True,
+                    "blocked": False,
+                    "disabled": False,
+                },
+                {
+                    "id": "*A5",
+                    "address": "192.168.88.50",
+                    "mac_address": "52:54:00:FF:00:01",
+                    "client_id": "",
+                    "host_name": "wazuh-server",
+                    "server": "dhcp-lab",
+                    "status": "bound",
+                    "expires_after": "23h 59m 59s",
+                    "active_address": "192.168.88.50",
+                    "active_mac_address": "52:54:00:FF:00:01",
+                    "rate_limit": "",
+                    "comment": "[NetShield] Wazuh SIEM — IP fija",
+                    "dynamic": False,
+                    "blocked": False,
+                    "disabled": False,
+                },
+                {
+                    "id": "*A6",
+                    "address": "192.168.88.40",
+                    "mac_address": "52:54:00:EE:01:01",
+                    "client_id": "",
+                    "host_name": "PC-Lab-Sis-01",
+                    "server": "dhcp-lab",
+                    "status": "bound",
+                    "expires_after": "18h 30m 00s",
+                    "active_address": "192.168.88.40",
+                    "active_mac_address": "52:54:00:EE:01:01",
+                    "rate_limit": "",
+                    "comment": "Lab Sistemas",
+                    "dynamic": True,
+                    "blocked": False,
+                    "disabled": False,
+                },
+                {
+                    "id": "*A7",
+                    "address": "192.168.88.100",
+                    "mac_address": "52:54:00:EE:EE:EE",
+                    "client_id": "",
+                    "host_name": "unknown-guest",
+                    "server": "dhcp-lab",
+                    "status": "bound",
+                    "expires_after": "0h 45m 12s",
+                    "active_address": "192.168.88.100",
+                    "active_mac_address": "52:54:00:EE:EE:EE",
+                    "rate_limit": "1M/1M",
+                    "comment": "",
+                    "dynamic": True,
+                    "blocked": False,
+                    "disabled": False,
+                },
+                {
+                    "id": "*A8",
+                    "address": "192.168.88.55",
+                    "mac_address": "DE:AD:BE:EF:00:01",
+                    "client_id": "",
+                    "host_name": "",
+                    "server": "dhcp-lab",
+                    "status": "bound",
+                    "expires_after": "11h 02m 30s",
+                    "active_address": "192.168.88.55",
+                    "active_mac_address": "DE:AD:BE:EF:00:01",
+                    "rate_limit": "",
+                    "comment": "",
+                    "dynamic": True,
+                    "blocked": False,
+                    "disabled": False,
+                },
+            ]
+
+        @staticmethod
+        def networks() -> list[dict]:
+            return [
+                {
+                    "id": "*N1",
+                    "address": "192.168.88.0/24",
+                    "gateway": "192.168.88.1",
+                    "dns_server": "8.8.8.8,8.8.4.4",
+                    "domain": "lab.facultad.local",
+                    "wins_server": "",
+                    "ntp_server": "200.16.152.2",
+                    "comment": "Red principal de laboratorio",
+                },
+                {
+                    "id": "*N2",
+                    "address": "192.168.100.0/24",
+                    "gateway": "192.168.100.1",
+                    "dns_server": "192.168.88.50,8.8.8.8",
+                    "domain": "servidores.facultad.local",
+                    "wins_server": "",
+                    "ntp_server": "",
+                    "comment": "Red de servidores",
+                },
+            ]
+
+        @staticmethod
+        def pools() -> list[dict]:
+            return [
+                {
+                    "id": "*P1",
+                    "name": "pool-lab",
+                    "ranges": "192.168.88.10-192.168.88.199",
+                    "next_pool": "",
+                },
+                {
+                    "id": "*P2",
+                    "name": "pool-aula3",
+                    "ranges": "192.168.88.200-192.168.88.254",
+                    "next_pool": "",
+                },
+                {
+                    "id": "*P3",
+                    "name": "pool-servidores",
+                    "ranges": "192.168.100.10-192.168.100.50",
+                    "next_pool": "",
+                },
+                {
+                    "id": "*P4",
+                    "name": "hs-pool-1",
+                    "ranges": "192.168.88.100-192.168.88.150",
+                    "next_pool": "",
+                },
+            ]
+
+        @staticmethod
+        def subnet_usage() -> list[dict]:
+            """
+            Pre-calculated usage stats. pool-lab has 6/190 bound (3.2%),
+            pool-aula3 has 2/55 (3.6%), pool-servidores is mostly free.
+            """
+            return [
+                {
+                    "pool_name": "pool-lab",
+                    "ranges": "192.168.88.10-192.168.88.199",
+                    "total_ips": 190,
+                    "used_ips": 6,
+                    "free_ips": 184,
+                    "usage_percent": 3.2,
+                    "server_name": "dhcp-lab",
+                },
+                {
+                    "pool_name": "pool-aula3",
+                    "ranges": "192.168.88.200-192.168.88.254",
+                    "total_ips": 55,
+                    "used_ips": 2,
+                    "free_ips": 53,
+                    "usage_percent": 3.6,
+                    "server_name": "dhcp-aula3",
+                },
+                {
+                    "pool_name": "pool-servidores",
+                    "ranges": "192.168.100.10-192.168.100.50",
+                    "total_ips": 41,
+                    "used_ips": 1,
+                    "free_ips": 40,
+                    "usage_percent": 2.4,
+                    "server_name": "",
+                },
+                {
+                    "pool_name": "hs-pool-1",
+                    "ranges": "192.168.88.100-192.168.88.150",
+                    "total_ips": 51,
+                    "used_ips": 2,
+                    "free_ips": 49,
+                    "usage_percent": 3.9,
+                    "server_name": "",
+                },
+            ]
+
+        @staticmethod
+        def rogue_alerts() -> list[dict]:
+            return [
+                {
+                    "id": "*R1",
+                    "interface": "ether2",
+                    "valid_server": "4C:5E:0C:11:22:33",
+                    "alert_timeout": "1h",
+                    "on_alert": "",
+                    "disabled": False,
+                    "unknown_server_detected": False,
+                },
+                {
+                    "id": "*R2",
+                    "interface": "ether3",
+                    "valid_server": "4C:5E:0C:11:22:33",
+                    "alert_timeout": "30m",
+                    "on_alert": "",
+                    "disabled": False,
+                    "unknown_server_detected": True,
+                },
+            ]
+
+        @staticmethod
+        def options() -> list[dict]:
+            return [
+                {
+                    "id": "*O1",
+                    "name": "pxe-server",
+                    "code": 66,
+                    "value": "'192.168.88.50'",
+                    "raw": False,
+                },
+                {
+                    "id": "*O2",
+                    "name": "pxe-filename",
+                    "code": 67,
+                    "value": "'pxelinux.0'",
+                    "raw": False,
+                },
+                {
+                    "id": "*O3",
+                    "name": "wpad-url",
+                    "code": 252,
+                    "value": "'http://wpad.facultad.local/wpad.dat'",
+                    "raw": False,
+                },
+            ]
+
     # ── Anthropic ─────────────────────────────────────────────────────────────
 
     class anthropic:
+
 
         @staticmethod
         def report_html() -> dict:

@@ -841,6 +841,433 @@ class MikroTikService:
             logger.error("mikrotik_get_dns_static_failed", error=str(e))
             raise
 
+    # ── DHCP Methods ──────────────────────────────────────────────────────────
+
+    async def get_dhcp_servers(self) -> list[dict]:
+        """[DHCP] Get all DHCP server instances. Resource: /ip/dhcp-server"""
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.dhcp.servers()
+        try:
+            entries = await self._api_call("/ip/dhcp-server")
+            result = []
+            for e in entries:
+                result.append({
+                    "id": e.get(".id", ""),
+                    "name": e.get("name", ""),
+                    "interface": e.get("interface", ""),
+                    "address_pool": e.get("address-pool", ""),
+                    "lease_time": e.get("lease-time", "1d"),
+                    "disabled": e.get("disabled", "false") == "true",
+                    "authoritative": e.get("authoritative", "after-2sec"),
+                    "comment": e.get("comment", ""),
+                })
+            logger.debug("mikrotik_dhcp_servers_fetched", count=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_dhcp_servers_failed", error=str(e))
+            raise
+
+    async def create_dhcp_server(
+        self, name: str, interface: str, address_pool: str,
+        lease_time: str = "1d", authoritative: str = "after-2sec", comment: str = ""
+    ) -> dict:
+        """[DHCP] Create a DHCP server instance. Resource: /ip/dhcp-server add"""
+        if self._settings.should_mock_mikrotik:
+            return {"id": "mock-dhcp-srv", "name": name, "interface": interface, "mock": True, "action": "created"}
+        try:
+            kwargs = {"name": name, "interface": interface, "address_pool": address_pool,
+                      "lease_time": lease_time, "authoritative": authoritative}
+            if comment:
+                kwargs["comment"] = comment
+            rid = await self._api_call("/ip/dhcp-server", command="add", **kwargs)
+            logger.info("mikrotik_dhcp_server_created", name=name, interface=interface)
+            return {"id": rid, "name": name, "interface": interface}
+        except Exception as e:
+            logger.error("mikrotik_create_dhcp_server_failed", name=name, error=str(e))
+            raise
+
+    async def toggle_dhcp_server(self, server_id: str, disabled: bool) -> dict:
+        """[DHCP] Enable or disable a DHCP server. Resource: /ip/dhcp-server set"""
+        if self._settings.should_mock_mikrotik:
+            return {"id": server_id, "disabled": disabled, "mock": True, "action": "toggled"}
+        try:
+            await self._api_call("/ip/dhcp-server", command="set", id=server_id,
+                                 disabled="yes" if disabled else "no")
+            logger.info("mikrotik_dhcp_server_toggled", id=server_id, disabled=disabled)
+            return {"id": server_id, "disabled": disabled, "action": "toggled"}
+        except Exception as e:
+            logger.error("mikrotik_toggle_dhcp_server_failed", id=server_id, error=str(e))
+            raise
+
+    async def get_dhcp_leases(self, server: str | None = None) -> list[dict]:
+        """[DHCP] Get all DHCP leases (dynamic + static). Resource: /ip/dhcp-server/lease"""
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            leases = MockData.dhcp.leases()
+            if server:
+                leases = [l for l in leases if l.get("server") == server]
+            return leases
+        try:
+            entries = await self._api_call("/ip/dhcp-server/lease")
+            result = []
+            for e in entries:
+                if server and e.get("server") != server:
+                    continue
+                result.append({
+                    "id": e.get(".id", ""),
+                    "address": e.get("address", ""),
+                    "mac_address": e.get("mac-address", ""),
+                    "client_id": e.get("client-id", ""),
+                    "host_name": e.get("host-name", ""),
+                    "server": e.get("server", ""),
+                    "status": e.get("status", ""),
+                    "expires_after": e.get("expires-after", ""),
+                    "active_address": e.get("active-address", ""),
+                    "active_mac_address": e.get("active-mac-address", ""),
+                    "rate_limit": e.get("rate-limit", ""),
+                    "comment": e.get("comment", ""),
+                    "dynamic": e.get("dynamic", "false") == "true",
+                    "blocked": e.get("block-access", "false") == "true",
+                    "disabled": e.get("disabled", "false") == "true",
+                })
+            logger.debug("mikrotik_dhcp_leases_fetched", count=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_dhcp_leases_failed", error=str(e))
+            raise
+
+    async def create_dhcp_lease(
+        self, address: str, mac_address: str, server: str,
+        comment: str = "", rate_limit: str = ""
+    ) -> dict:
+        """[DHCP] Create a static DHCP lease (reservation). Resource: /ip/dhcp-server/lease add"""
+        if self._settings.should_mock_mikrotik:
+            from services.mock_service import MockService
+            return MockService.dhcp_create_lease(address, mac_address, server, comment)
+        try:
+            kwargs = {"address": address, "mac_address": mac_address, "server": server}
+            if comment:
+                kwargs["comment"] = comment
+            if rate_limit:
+                kwargs["rate_limit"] = rate_limit
+            rid = await self._api_call("/ip/dhcp-server/lease", command="add", **kwargs)
+            logger.info("mikrotik_dhcp_lease_created", address=address, mac=mac_address)
+            return {"id": rid, "address": address, "mac_address": mac_address, "server": server}
+        except Exception as e:
+            logger.error("mikrotik_create_dhcp_lease_failed", address=address, error=str(e))
+            raise
+
+    async def update_dhcp_lease(
+        self, lease_id: str, comment: str | None = None,
+        rate_limit: str | None = None, disabled: bool | None = None
+    ) -> dict:
+        """[DHCP] Update lease comment, rate-limit, or disabled state."""
+        if self._settings.should_mock_mikrotik:
+            return {"id": lease_id, "action": "updated", "mock": True}
+        try:
+            kwargs: dict = {"id": lease_id}
+            if comment is not None:
+                kwargs["comment"] = comment
+            if rate_limit is not None:
+                kwargs["rate_limit"] = rate_limit
+            if disabled is not None:
+                kwargs["disabled"] = "yes" if disabled else "no"
+            await self._api_call("/ip/dhcp-server/lease", command="set", **kwargs)
+            logger.info("mikrotik_dhcp_lease_updated", id=lease_id)
+            return {"id": lease_id, "action": "updated"}
+        except Exception as e:
+            logger.error("mikrotik_update_dhcp_lease_failed", id=lease_id, error=str(e))
+            raise
+
+    async def delete_dhcp_lease(self, lease_id: str) -> dict:
+        """[DHCP] Delete a DHCP lease. Resource: /ip/dhcp-server/lease remove"""
+        if self._settings.should_mock_mikrotik:
+            from services.mock_service import MockService
+            return MockService.dhcp_delete_lease(lease_id)
+        try:
+            await self._api_call("/ip/dhcp-server/lease", command="remove", id=lease_id)
+            logger.info("mikrotik_dhcp_lease_deleted", id=lease_id)
+            return {"id": lease_id, "action": "deleted"}
+        except Exception as e:
+            logger.error("mikrotik_delete_dhcp_lease_failed", id=lease_id, error=str(e))
+            raise
+
+    async def make_lease_static(self, lease_id: str) -> dict:
+        """[DHCP] Convert a dynamic lease to static (permanent reservation)."""
+        if self._settings.should_mock_mikrotik:
+            from services.mock_service import MockService
+            return MockService.dhcp_make_static(lease_id)
+        try:
+            # RouterOS: set dynamic=no makes it static
+            await self._api_call("/ip/dhcp-server/lease", command="set",
+                                 id=lease_id, dynamic="no")
+            logger.info("mikrotik_dhcp_lease_made_static", id=lease_id)
+            return {"id": lease_id, "action": "made_static", "dynamic": False}
+        except Exception as e:
+            logger.error("mikrotik_make_lease_static_failed", id=lease_id, error=str(e))
+            raise
+
+    async def set_dhcp_lease_block(self, lease_id: str, block: bool) -> dict:
+        """[DHCP] Block or unblock DHCP access for a client (block-access flag)."""
+        if self._settings.should_mock_mikrotik:
+            return {"id": lease_id, "blocked": block, "mock": True}
+        try:
+            await self._api_call("/ip/dhcp-server/lease", command="set",
+                                 id=lease_id, **{"block_access": "yes" if block else "no"})
+            logger.info("mikrotik_dhcp_lease_block_set", id=lease_id, block=block)
+            return {"id": lease_id, "blocked": block, "action": "block_updated"}
+        except Exception as e:
+            logger.error("mikrotik_set_dhcp_lease_block_failed", id=lease_id, error=str(e))
+            raise
+
+    async def get_dhcp_networks(self) -> list[dict]:
+        """[DHCP] Get DHCP network configurations. Resource: /ip/dhcp-server/network"""
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.dhcp.networks()
+        try:
+            entries = await self._api_call("/ip/dhcp-server/network")
+            result = []
+            for e in entries:
+                result.append({
+                    "id": e.get(".id", ""),
+                    "address": e.get("address", ""),
+                    "gateway": e.get("gateway", ""),
+                    "dns_server": e.get("dns-server", ""),
+                    "domain": e.get("domain", ""),
+                    "wins_server": e.get("wins-server", ""),
+                    "ntp_server": e.get("ntp-server", ""),
+                    "comment": e.get("comment", ""),
+                })
+            logger.debug("mikrotik_dhcp_networks_fetched", count=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_dhcp_networks_failed", error=str(e))
+            raise
+
+    async def create_dhcp_network(
+        self, address: str, gateway: str = "", dns_server: str = "",
+        domain: str = "", ntp_server: str = "", comment: str = ""
+    ) -> dict:
+        """[DHCP] Create DHCP network config. Resource: /ip/dhcp-server/network add"""
+        if self._settings.should_mock_mikrotik:
+            return {"id": "mock-net", "address": address, "mock": True, "action": "created"}
+        try:
+            kwargs = {"address": address}
+            if gateway: kwargs["gateway"] = gateway
+            if dns_server: kwargs["dns_server"] = dns_server
+            if domain: kwargs["domain"] = domain
+            if ntp_server: kwargs["ntp_server"] = ntp_server
+            if comment: kwargs["comment"] = comment
+            rid = await self._api_call("/ip/dhcp-server/network", command="add", **kwargs)
+            logger.info("mikrotik_dhcp_network_created", address=address)
+            return {"id": rid, "address": address}
+        except Exception as e:
+            logger.error("mikrotik_create_dhcp_network_failed", address=address, error=str(e))
+            raise
+
+    async def update_dhcp_network(self, network_id: str, **fields) -> dict:
+        """[DHCP] Update DHCP network config fields."""
+        if self._settings.should_mock_mikrotik:
+            return {"id": network_id, "action": "updated", "mock": True}
+        try:
+            await self._api_call("/ip/dhcp-server/network", command="set", id=network_id, **fields)
+            logger.info("mikrotik_dhcp_network_updated", id=network_id)
+            return {"id": network_id, "action": "updated"}
+        except Exception as e:
+            logger.error("mikrotik_update_dhcp_network_failed", id=network_id, error=str(e))
+            raise
+
+    async def get_ip_pools(self) -> list[dict]:
+        """[DHCP] Get all IP pools. Resource: /ip/pool"""
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.dhcp.pools()
+        try:
+            entries = await self._api_call("/ip/pool")
+            result = []
+            for e in entries:
+                result.append({
+                    "id": e.get(".id", ""),
+                    "name": e.get("name", ""),
+                    "ranges": e.get("ranges", ""),
+                    "next_pool": e.get("next-pool", ""),
+                })
+            logger.debug("mikrotik_ip_pools_fetched", count=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_ip_pools_failed", error=str(e))
+            raise
+
+    async def create_ip_pool(self, name: str, ranges: str, next_pool: str = "") -> dict:
+        """[DHCP] Create an IP pool. Resource: /ip/pool add"""
+        if self._settings.should_mock_mikrotik:
+            return {"id": "mock-pool", "name": name, "ranges": ranges, "mock": True, "action": "created"}
+        try:
+            kwargs = {"name": name, "ranges": ranges}
+            if next_pool:
+                kwargs["next_pool"] = next_pool
+            rid = await self._api_call("/ip/pool", command="add", **kwargs)
+            logger.info("mikrotik_ip_pool_created", name=name, ranges=ranges)
+            return {"id": rid, "name": name, "ranges": ranges}
+        except Exception as e:
+            logger.error("mikrotik_create_ip_pool_failed", name=name, error=str(e))
+            raise
+
+    async def update_ip_pool(self, pool_id: str, ranges: str | None = None, next_pool: str | None = None) -> dict:
+        """[DHCP] Update an IP pool's ranges or next-pool."""
+        if self._settings.should_mock_mikrotik:
+            return {"id": pool_id, "action": "updated", "mock": True}
+        try:
+            kwargs: dict = {"id": pool_id}
+            if ranges is not None:
+                kwargs["ranges"] = ranges
+            if next_pool is not None:
+                kwargs["next_pool"] = next_pool
+            await self._api_call("/ip/pool", command="set", **kwargs)
+            logger.info("mikrotik_ip_pool_updated", id=pool_id)
+            return {"id": pool_id, "action": "updated"}
+        except Exception as e:
+            logger.error("mikrotik_update_ip_pool_failed", id=pool_id, error=str(e))
+            raise
+
+    async def get_dhcp_subnet_usage(self) -> list[dict]:
+        """
+        [DHCP] Calculate subnet utilization per pool.
+        Compares pool IP range size vs number of bound leases.
+        """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.dhcp.subnet_usage()
+        try:
+            pools = await self.get_ip_pools()
+            leases = await self.get_dhcp_leases()
+            bound_by_server: dict[str, int] = {}
+            for lease in leases:
+                if lease.get("status") == "bound":
+                    srv = lease.get("server", "")
+                    bound_by_server[srv] = bound_by_server.get(srv, 0) + 1
+
+            # Fetch server→pool mapping
+            servers = await self.get_dhcp_servers()
+            pool_server_map: dict[str, str] = {s["address_pool"]: s["name"] for s in servers}
+
+            result = []
+            for pool in pools:
+                total = self._count_pool_ips(pool.get("ranges", ""))
+                srv_name = pool_server_map.get(pool["name"], "")
+                used = bound_by_server.get(srv_name, 0)
+                free = max(0, total - used)
+                pct = round((used / total * 100), 1) if total > 0 else 0.0
+                result.append({
+                    "pool_name": pool["name"],
+                    "ranges": pool.get("ranges", ""),
+                    "total_ips": total,
+                    "used_ips": used,
+                    "free_ips": free,
+                    "usage_percent": pct,
+                    "server_name": srv_name,
+                })
+            logger.debug("mikrotik_dhcp_subnet_usage_calculated", pools=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_dhcp_subnet_usage_failed", error=str(e))
+            raise
+
+    def _count_pool_ips(self, ranges_str: str) -> int:
+        """Count total IPs in a pool ranges string like '192.168.88.10-192.168.88.254'."""
+        total = 0
+        for rng in ranges_str.split(","):
+            rng = rng.strip()
+            if "-" in rng:
+                try:
+                    parts = rng.split("-")
+                    start = sum(int(o) << (8 * (3 - i)) for i, o in enumerate(parts[0].split(".")))
+                    end   = sum(int(o) << (8 * (3 - i)) for i, o in enumerate(parts[1].split(".")))
+                    total += max(0, end - start + 1)
+                except (ValueError, IndexError):
+                    pass
+        return total
+
+    async def get_dhcp_rogue_alerts(self) -> list[dict]:
+        """[DHCP] Get rogue DHCP server alert configurations. Resource: /ip/dhcp-server/alert"""
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.dhcp.rogue_alerts()
+        try:
+            entries = await self._api_call("/ip/dhcp-server/alert")
+            result = []
+            for e in entries:
+                result.append({
+                    "id": e.get(".id", ""),
+                    "interface": e.get("interface", ""),
+                    "valid_server": e.get("valid-server", ""),
+                    "alert_timeout": e.get("alert-timeout", ""),
+                    "on_alert": e.get("on-alert", ""),
+                    "disabled": e.get("disabled", "false") == "true",
+                    "unknown_server_detected": e.get("unknown-server-detected", "false") == "true",
+                })
+            logger.debug("mikrotik_dhcp_rogue_alerts_fetched", count=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_dhcp_rogue_alerts_failed", error=str(e))
+            raise
+
+    async def create_dhcp_rogue_alert(
+        self, interface: str, valid_server: str = "",
+        alert_timeout: str = "1h", on_alert: str = ""
+    ) -> dict:
+        """[DHCP] Create a rogue DHCP alert config. Resource: /ip/dhcp-server/alert add"""
+        if self._settings.should_mock_mikrotik:
+            return {"id": "mock-alert", "interface": interface, "mock": True, "action": "created"}
+        try:
+            kwargs = {"interface": interface, "alert_timeout": alert_timeout}
+            if valid_server: kwargs["valid_server"] = valid_server
+            if on_alert: kwargs["on_alert"] = on_alert
+            rid = await self._api_call("/ip/dhcp-server/alert", command="add", **kwargs)
+            logger.info("mikrotik_dhcp_rogue_alert_created", interface=interface)
+            return {"id": rid, "interface": interface}
+        except Exception as e:
+            logger.error("mikrotik_create_dhcp_rogue_alert_failed", interface=interface, error=str(e))
+            raise
+
+    async def get_dhcp_options(self) -> list[dict]:
+        """[DHCP] Get custom DHCP options. Resource: /ip/dhcp-server/option"""
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.dhcp.options()
+        try:
+            entries = await self._api_call("/ip/dhcp-server/option")
+            result = []
+            for e in entries:
+                result.append({
+                    "id": e.get(".id", ""),
+                    "name": e.get("name", ""),
+                    "code": int(e.get("code", 0)),
+                    "value": e.get("value", ""),
+                    "raw": e.get("raw", "false") == "true",
+                })
+            logger.debug("mikrotik_dhcp_options_fetched", count=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_dhcp_options_failed", error=str(e))
+            raise
+
+    async def create_dhcp_option(self, name: str, code: int, value: str, raw: bool = False) -> dict:
+        """[DHCP] Create a custom DHCP option. Resource: /ip/dhcp-server/option add"""
+        if self._settings.should_mock_mikrotik:
+            return {"id": "mock-opt", "name": name, "code": code, "mock": True, "action": "created"}
+        try:
+            rid = await self._api_call("/ip/dhcp-server/option", command="add",
+                                       name=name, code=str(code), value=value,
+                                       raw="yes" if raw else "no")
+            logger.info("mikrotik_dhcp_option_created", name=name, code=code)
+            return {"id": rid, "name": name, "code": code}
+        except Exception as e:
+            logger.error("mikrotik_create_dhcp_option_failed", name=name, error=str(e))
+            raise
+
     async def execute_readonly_command(self, path: str) -> list[dict]:
         """
         [MikroTik API] Execute a read-only (print) command.
@@ -858,6 +1285,12 @@ class MikroTikService:
             "/ip/firewall/mangle",
             "/ip/firewall/address-list",
             "/ip/firewall/connection",
+            "/ip/dhcp-server",
+            "/ip/dhcp-server/lease",
+            "/ip/dhcp-server/network",
+            "/ip/dhcp-server/alert",
+            "/ip/dhcp-server/option",
+            "/ip/pool",
             "/interface",
             "/interface/vlan",
             "/interface/bridge",

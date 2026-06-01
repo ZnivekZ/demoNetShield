@@ -49,6 +49,7 @@ import {
   BookOpen,
   AlertTriangle,
   LayoutDashboard,
+  Server,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GlobalSearch } from './common/GlobalSearch';
@@ -80,6 +81,7 @@ const navGroups = [
       { to: '/network', icon: Network, label: 'Red', end: false },
       { to: '/firewall', icon: Flame, label: 'Firewall', end: false },
       { to: '/portal', icon: Wifi, label: 'Portal Cautivo', end: false },
+      { to: '/dhcp', icon: Server, label: 'DHCP', end: false },
     ],
   },
   {

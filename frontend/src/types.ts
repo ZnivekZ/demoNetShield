@@ -1715,3 +1715,195 @@ export interface ViewReportResult {
   audience: string;
   mock?: boolean;
 }
+
+/* ── DHCP Types ──────────────────────────────────────────────── */
+
+export type DhcpLeaseStatus = 'bound' | 'offered' | 'waiting';
+
+export interface DhcpServer {
+  id: string;
+  name: string;
+  interface: string;
+  address_pool: string;
+  lease_time: string;
+  disabled: boolean;
+  authoritative: string;
+  comment: string;
+}
+
+export interface DhcpLease {
+  id: string;
+  address: string;
+  mac_address: string;
+  client_id: string;
+  host_name: string;
+  server: string;
+  status: DhcpLeaseStatus | string;
+  expires_after: string;
+  active_address: string;
+  active_mac_address: string;
+  rate_limit: string;
+  comment: string;
+  dynamic: boolean;
+  blocked: boolean;
+  disabled: boolean;
+}
+
+export interface DhcpNetwork {
+  id: string;
+  address: string;
+  gateway: string;
+  dns_server: string;
+  domain: string;
+  wins_server: string;
+  ntp_server: string;
+  comment: string;
+}
+
+export interface DhcpPool {
+  id: string;
+  name: string;
+  ranges: string;
+  next_pool: string;
+}
+
+export interface DhcpSubnetUsage {
+  pool_name: string;
+  ranges: string;
+  total_ips: number;
+  used_ips: number;
+  free_ips: number;
+  usage_percent: number;
+  server_name: string;
+}
+
+export interface DhcpRogueAlert {
+  id: string;
+  interface: string;
+  valid_server: string;
+  alert_timeout: string;
+  on_alert: string;
+  disabled: boolean;
+  unknown_server_detected: boolean;
+}
+
+export interface DhcpOption {
+  id: string;
+  name: string;
+  code: number;
+  value: string;
+  raw: boolean;
+}
+
+export interface DhcpServerCreate {
+  name: string;
+  interface: string;
+  address_pool: string;
+  lease_time?: string;
+  authoritative?: string;
+  comment?: string;
+}
+
+export interface DhcpLeaseCreate {
+  address: string;
+  mac_address: string;
+  server: string;
+  comment?: string;
+  rate_limit?: string;
+}
+
+export interface DhcpLeaseUpdate {
+  comment?: string;
+  rate_limit?: string;
+  disabled?: boolean;
+}
+
+export interface DhcpNetworkCreate {
+  address: string;
+  gateway?: string;
+  dns_server?: string;
+  domain?: string;
+  ntp_server?: string;
+  comment?: string;
+}
+
+export interface DhcpNetworkUpdate {
+  gateway?: string;
+  dns_server?: string;
+  domain?: string;
+  ntp_server?: string;
+  comment?: string;
+}
+
+export interface DhcpPoolCreate {
+  name: string;
+  ranges: string;
+  next_pool?: string;
+}
+
+export interface DhcpRogueAlertCreate {
+  interface: string;
+  valid_server?: string;
+  alert_timeout?: string;
+  on_alert?: string;
+}
+
+export interface DhcpOptionCreate {
+  name: string;
+  code: number;
+  value: string;
+  raw?: boolean;
+}
+
+// ── DHCP Fase 2 — Cross-service types ────────────────────────────────────────
+
+/** S1: DHCP lease enriched with GLPI inventory data */
+export interface DhcpLeaseGlpiCorrelation extends DhcpLease {
+  glpi_match: boolean;
+  glpi_asset_id: number | null;
+  glpi_asset_name: string | null;
+  glpi_location: string | null;
+  glpi_os: string | null;
+  glpi_status: string | null;
+  glpi_assigned_user: string | null;
+}
+
+/** S2: Single device entry in discovery response */
+export interface DhcpDiscoveryDevice extends DhcpLease {
+  in_arp: boolean;
+  in_glpi: boolean;
+  glpi_asset_name: string | null;
+  glpi_location: string | null;
+  /** 'registered' | 'unregistered' | 'stale' */
+  discovery_status: 'registered' | 'unregistered' | 'stale';
+}
+
+/** S2: Full discovery response */
+export interface DhcpDiscoveryResult {
+  leases: DhcpDiscoveryDevice[];
+  stale: DhcpDiscoveryDevice[];
+}
+
+/** S3: Wazuh alert enriched with DHCP lease context */
+export interface DhcpEnrichedAlert {
+  id: string;
+  timestamp: string;
+  agent_id: string;
+  agent_name: string;
+  agent_ip: string;
+  rule_id: string;
+  rule_level: number;
+  rule_description: string;
+  rule_groups: string[];
+  full_log: string;
+  src_ip: string;
+  mitre_technique: string;
+  mitre_id: string;
+  // DHCP-enriched fields
+  dhcp_hostname: string | null;
+  dhcp_mac: string | null;
+  dhcp_server: string | null;
+  dhcp_expires: string | null;
+  dhcp_is_static: boolean | null;
+}
+

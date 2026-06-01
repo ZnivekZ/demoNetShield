@@ -16,6 +16,8 @@ import {
   vlansApi,
   actionsApi,
   phishingApi,
+  dhcpApi,
+  glpiApi,
 } from '../../../services/api';
 
 /* ── IP Profiler ───────────────────────────────────────────────── */
@@ -346,5 +348,52 @@ export function useSinkholeEffectiveness() {
     },
     staleTime: 5 * 60_000,
     refetchInterval: 10 * 60_000,
+  });
+}
+
+/* ── DHCP Discovery ────────────────────────────────────────────── */
+
+export function useDhcpDiscoveryWidget(limit = 8) {
+  return useQuery({
+    queryKey: ['widget', 'dhcp-discovery', limit],
+    queryFn: async () => {
+      const [leasesRes, assetsRes] = await Promise.allSettled([
+        dhcpApi.getLeases(),
+        glpiApi.getAssets({ limit: 200 }),
+      ]);
+      const leases = leasesRes.status === 'fulfilled' && leasesRes.value.success
+        ? (leasesRes.value.data ?? []) : [];
+      const assets = assetsRes.status === 'fulfilled' && assetsRes.value.success
+        ? (() => {
+            const d = assetsRes.value.data;
+            return Array.isArray(d) ? d : ((d as { assets?: unknown[] })?.assets ?? []);
+          })()
+        : [];
+
+      // Build a set of known IPs from GLPI (otherserial = IP management field)
+      const glpiIps = new Set(
+        (assets as Array<{ otherserial?: string; name?: string }>)
+          .map(a => a.otherserial ?? '')
+          .filter(Boolean)
+      );
+
+      return (leases as Array<{
+        id: string;
+        address: string;
+        mac_address: string;
+        host_name?: string;
+        dynamic: boolean;
+        status: string;
+        server: string;
+      }>)
+        .map(l => ({
+          ...l,
+          in_glpi: glpiIps.has(l.address),
+          in_arp: true, // simplificado: todos los leases activos están en ARP
+        }))
+        .slice(0, limit);
+    },
+    staleTime: 2 * 60_000,
+    refetchInterval: 5 * 60_000,
   });
 }

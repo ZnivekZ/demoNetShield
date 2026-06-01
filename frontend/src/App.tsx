@@ -43,6 +43,8 @@ import { SuricataRulesPage } from './components/suricata/RulesPage';
 import ViewsListPage from './components/views/ViewsListPage';
 import ViewBuilderPage from './components/views/ViewBuilderPage';
 import ViewDetailPage from './components/views/ViewDetailPage';
+// DHCP
+import DhcpPage from './components/dhcp/DhcpPage';
 
 
 const queryClient = new QueryClient({
@@ -69,6 +71,7 @@ export default function App() {
             <Route path="/network" element={<NetworkPage />} />
             <Route path="/firewall" element={<FirewallPage />} />
             <Route path="/portal" element={<PortalPage />} />
+            <Route path="/dhcp" element={<DhcpPage />} />
 
             {/* Tools */}
             <Route path="/phishing" element={<PhishingPanel />} />

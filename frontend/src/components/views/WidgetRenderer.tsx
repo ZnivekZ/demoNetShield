@@ -75,12 +75,17 @@ const SinkholeEffectiveness = lazy(() => import('../widgets/hybrid/SinkholeEffec
 const PortalUsage = lazy(() => import('../widgets/visual/PortalUsage').then(m => ({ default: m.PortalUsage })));
 const PhishingStats = lazy(() => import('../widgets/visual/PhishingStats').then(m => ({ default: m.PhishingStats })));
 const AgentAlertHeatmap = lazy(() => import('../widgets/visual/AgentAlertHeatmap').then(m => ({ default: m.AgentAlertHeatmap })));
+const DhcpSubnetUsage = lazy(() => import('../widgets/visual/DhcpSubnetUsage').then(m => ({ default: m.DhcpSubnetUsage })));
 
 // ── Lazy imports nuevos (technical) ──────────────────────────────────
 const DnsMonitor = lazy(() => import('../widgets/technical/DnsMonitor').then(m => ({ default: m.DnsMonitor })));
 const TlsFingerprint = lazy(() => import('../widgets/technical/TlsFingerprint').then(m => ({ default: m.TlsFingerprint })));
 const BandwidthTop = lazy(() => import('../widgets/technical/BandwidthTop').then(m => ({ default: m.BandwidthTop })));
 const HttpInspector = lazy(() => import('../widgets/technical/HttpInspector').then(m => ({ default: m.HttpInspector })));
+const DhcpLeasesWidget = lazy(() => import('../widgets/technical/DhcpLeasesWidget').then(m => ({ default: m.DhcpLeasesWidget })));
+
+// ── Lazy imports nuevos (hybrid DHCP) ────────────────────────────────
+const DhcpDiscovery = lazy(() => import('../widgets/hybrid/DhcpDiscovery').then(m => ({ default: m.DhcpDiscovery })));
 
 /** Props del WidgetRenderer */
 interface WidgetRendererProps {
@@ -228,6 +233,7 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
         case 'visual_portal_usage':
         case 'visual_phishing_stats':
         case 'visual_agent_alert_heatmap':
+        case 'visual_subnet_usage':
         // ── Widgets Técnicos ───────────────────────────────────────────
         case 'technical_action_log':
         case 'technical_packet_inspector':
@@ -241,6 +247,7 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
         case 'technical_tls_fingerprint':
         case 'technical_bandwidth_top':
         case 'technical_http_inspector':
+        case 'technical_dhcp_leases':
         // ── Widgets Híbridos ───────────────────────────────────────────
         case 'hybrid_ip_profiler':
         case 'hybrid_confirmed_threats':
@@ -256,6 +263,7 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
         case 'hybrid_vlan_health':
         case 'hybrid_quarantine_tracker':
         case 'hybrid_sinkhole_effectiveness':
+        case 'hybrid_dhcp_discovery':
           return { kind: 'custom' as const };
 
         default:
@@ -366,6 +374,7 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
       visual_portal_usage:           <PortalUsage config={cfg} />,
       visual_phishing_stats:         <PhishingStats config={cfg} />,
       visual_agent_alert_heatmap:    <AgentAlertHeatmap config={cfg as { hours?: number }} />,
+      visual_subnet_usage:           <DhcpSubnetUsage config={cfg} />,
       technical_action_log:          <ActionLogWidget config={cfg as { limit?: number }} />,
       technical_packet_inspector:    <PacketInspector config={cfg as { limit?: number }} />,
       technical_flow_table:          <FlowTableWidget config={cfg as { limit?: number }} />,
@@ -378,6 +387,7 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
       technical_tls_fingerprint:     <TlsFingerprint config={cfg as { limit?: number }} />,
       technical_bandwidth_top:       <BandwidthTop config={cfg as { limit?: number }} />,
       technical_http_inspector:      <HttpInspector config={cfg as { limit?: number }} />,
+      technical_dhcp_leases:         <DhcpLeasesWidget config={cfg as { limit?: number }} />,
       hybrid_ip_profiler:            <IpProfiler config={cfg as { default_ip?: string }} />,
       hybrid_confirmed_threats:      <ConfirmedThreats config={cfg} />,
       hybrid_country_radar:          <CountryRadar config={cfg as { limit?: number }} />,
@@ -392,6 +402,7 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
       hybrid_vlan_health:            <VlanHealth config={cfg} />,
       hybrid_quarantine_tracker:     <QuarantineTracker config={cfg} />,
       hybrid_sinkhole_effectiveness: <SinkholeEffectiveness config={cfg} />,
+      hybrid_dhcp_discovery:         <DhcpDiscovery config={cfg as { limit?: number }} />,
     };
     const node = customMap[widget.type];
     return (

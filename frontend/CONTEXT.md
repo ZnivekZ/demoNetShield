@@ -5,7 +5,7 @@
 ```
 frontend/src/
 ├── main.tsx                           # Entry point, monta App en #root
-├── App.tsx                            # QueryClientProvider + BrowserRouter + Routes (21 rutas)
+├── App.tsx                            # QueryClientProvider + BrowserRouter + Routes (23 rutas)
 ├── index.css                          # Design system completo (TailwindCSS v4 + clases custom, 121KB)
 ├── types.ts                           # Tipos TypeScript (~39KB, espejo de schemas Pydantic)
 │
@@ -14,7 +14,7 @@ frontend/src/
 │                                      # Namespaces: mikrotikApi, wazuhApi, networkApi, reportsApi,
 │                                      # securityApi, vlansApi, phishingApi, portalApi, glpiApi,
 │                                      # crowdsecApi, geoipApi, suricataApi, telegramApi,
-│                                      # viewsApi, widgetsApi, systemApi, actionsApi
+│                                      # viewsApi, widgetsApi, systemApi, actionsApi, dhcpApi
 │
 ├── config/
 │   └── themes.ts                      # 6 temas disponibles (ThemeConfig[], ThemeId, font scale options)
@@ -26,7 +26,7 @@ frontend/src/
 │   ├── useWebSocket.ts                # Hook base: reconexión con backoff exponencial
 │   ├── useTheme.ts                    # Gestión de temas: localStorage + CSS vars + data-theme
 │   │
-│   │   # — Data hooks (38 hooks) —
+│   │   # — Data hooks (40 hooks) —
 │   ├── useWazuhSummary.ts             # Alertas + agents + MITRE summary + health export
 │   ├── useMikrotikHealth.ts           # Health del router
 │   ├── useCrowdSecDecisions.ts        # Decisions CRUD + mutations
@@ -63,19 +63,22 @@ frontend/src/
 │   ├── useTelegramConfigs.ts          # Configs CRUD + trigger + test
 │   ├── useTelegramLogs.ts             # Historial de mensajes con filtros
 │   └── useQrScanner.ts               # Cámara + QR decode (estado local, sin API)
+│   ├── useDhcp.ts                    # DHCP: 7 read + 10 mutation + 5 Fase 2 hooks
 │   │
 │   └── widgets/                       # Hooks de datos para widgets del catálogo
-│       ├── visual/index.ts            # 10 hooks: ThreatGauge, ActivityHeatmap, NetworkPulse,
+│       ├── visual/index.ts            # 11 hooks: ThreatGauge, ActivityHeatmap, NetworkPulse,
 │       │                              #   EventCounter, ProtocolDonut, AgentsThermometer,
-│       │                              #   BlocksTimeline, PortalUsage, PhishingStats, AgentAlertHeatmap
-│       ├── technical/index.ts         # 12 hooks: PacketInspector, FlowTable, LiveLogs, FirewallTree,
+│       │                              #   BlocksTimeline, PortalUsage, PhishingStats, AgentAlertHeatmap,
+│       │                              #   SubnetUsageWidget
+│       ├── technical/index.ts         # 13 hooks: PacketInspector, FlowTable, LiveLogs, FirewallTree,
 │       │                              #   CrowdSecRaw, CorrelationTimeline, CriticalAssets, ActionLog,
-│       │                              #   DnsMonitor, TlsFingerprint, BandwidthTop, HttpInspector
-│       └── hybrid/index.ts            # 14 hooks: IpProfiler, ConfirmedThreats, CountryRadar,
+│       │                              #   DnsMonitor, TlsFingerprint, BandwidthTop, HttpInspector,
+│       │                              #   DhcpLeasesWidget
+│       └── hybrid/index.ts            # 15 hooks: IpProfiler, ConfirmedThreats, CountryRadar,
 │                                      #   IncidentLifecycle, DefenseLayers, GeoblockPredictor,
 │                                      #   SuricataGlpi, WorldThreatMap, ViewReportGenerator,
 │                                      #   TelegramActivity, MitreMatrix, VlanHealth,
-│                                      #   QuarantineTracker, SinkholeEffectiveness
+│                                      #   QuarantineTracker, SinkholeEffectiveness, DhcpDiscoveryWidget
 │
 └── components/
     ├── Layout.tsx                      # Sidebar glassmorphic 7 grupos + topbar (5 status dots) +
@@ -106,6 +109,10 @@ frontend/src/
     │
     ├── network/
     │   └── NetworkPage.tsx            # Tabs: ARP / VLANs / Labels / Groups (con CRUD)
+    │
+    ├── dhcp/                          # 1 componente — Administración DHCP MikroTik
+    │   └── DhcpPage.tsx               # Página completa con 7 tabs (servidores, leases, pools,
+    │                                  # redes, alertas rogue, opciones, correlación GLPI/discovery)
     │
     ├── vlans/                          # 4 componentes (embebidos en NetworkPage)
     │   ├── VlanPanel.tsx              # Panel principal con lista y estado de alerta
@@ -198,9 +205,9 @@ frontend/src/
     │   ├── ViewDetailPage.tsx          # Dashboard en vivo con widgets
     │   └── WidgetRenderer.tsx          # Dispatcher dinámico: widget.type → componente (22KB)
     │
-    ├── widgets/                        # Biblioteca de 36 Widgets
+    ├── widgets/                        # Biblioteca de 39 Widgets
     │   ├── common/index.tsx           # WidgetSkeleton, WidgetErrorState, WidgetHeader
-    │   ├── visual/                    # 10 widgets
+    │   ├── visual/                    # 11 widgets
     │   │   ├── ThreatGauge.tsx        # Gauge semicircular 0–100
     │   │   ├── ActivityHeatmap.tsx     # Calendario 7×24h alertas
     │   │   ├── NetworkPulse.tsx       # ECG animado tráfico SVG
@@ -211,8 +218,9 @@ frontend/src/
     │   │   ├── PortalUsage.tsx        # Uso del portal cautivo
     │   │   ├── PhishingStats.tsx      # Estadísticas de phishing
     │   │   ├── AgentAlertHeatmap.tsx   # Heatmap agentes × horas
+    │   │   ├── DhcpSubnetUsage.tsx    # Barras de uso de subredes DHCP
     │   │   └── index.ts               # Re-exports
-    │   ├── technical/                 # 12 widgets
+    │   ├── technical/                 # 13 widgets
     │   │   ├── PacketInspector.tsx     # Alertas Suricata expandibles
     │   │   ├── FlowTableWidget.tsx     # Tabla flujos NSM
     │   │   ├── LiveLogs.tsx           # Terminal logs RouterOS
@@ -225,8 +233,9 @@ frontend/src/
     │   │   ├── TlsFingerprint.tsx     # Handshakes TLS JA3/SNI
     │   │   ├── BandwidthTop.tsx       # Top IPs por consumo de ancho de banda
     │   │   ├── HttpInspector.tsx      # Transacciones HTTP capturadas
+    │   │   ├── DhcpLeasesWidget.tsx   # Tabla de leases DHCP activos
     │   │   └── index.ts               # Re-exports
-    │   └── hybrid/                    # 14 widgets
+    │   └── hybrid/                    # 15 widgets
     │       ├── WorldThreatMap.tsx      # Mapa mundial por país (d3-geo + topojson)
     │       ├── ConfirmedThreats.tsx    # IPs multi-fuente
     │       ├── CountryRadar.tsx       # Radar países por fuente
@@ -241,6 +250,7 @@ frontend/src/
     │       ├── VlanHealth.tsx         # Salud de VLANs
     │       ├── QuarantineTracker.tsx   # Tracker de cuarentenas
     │       ├── SinkholeEffectiveness.tsx # Efectividad sinkhole DNS
+    │       ├── DhcpDiscovery.tsx      # Discovery dispositivos DHCP (registered/unregistered/stale)
     │       └── index.ts               # Re-exports
     │
     └── utils/
@@ -251,7 +261,7 @@ frontend/src/
 
 ## Sistema de navegación
 
-### Rutas reales en `App.tsx` (21 rutas)
+### Rutas reales en `App.tsx` (23 rutas)
 
 | Ruta | Componente | Grupo |
 |------|-----------|-------|
@@ -260,6 +270,7 @@ frontend/src/
 | `/network` | `NetworkPage` | Infraestructura |
 | `/firewall` | `FirewallPage` | Infraestructura |
 | `/portal` | `PortalPage` | Infraestructura |
+| `/dhcp` | `DhcpPage` | Infraestructura |
 | `/phishing` | `PhishingPanel` | Herramientas |
 | `/system` | `SystemHealth` | Herramientas |
 | `/reports` | `ReportsPage` | Herramientas |
@@ -284,7 +295,7 @@ frontend/src/
 ```typescript
 const navGroups = [
   { label: 'Seguridad', items: [/* 2 items */] },
-  { label: 'Infraestructura', items: [/* 3 items */] },
+  { label: 'Infraestructura', items: [/* 4 items */] },
   { label: 'Herramientas', items: [/* 3 items */] },
   { label: 'CrowdSec', items: [/* 3 items */] },
   { label: 'Suricata', items: [/* 4 items */] },
@@ -293,7 +304,7 @@ const navGroups = [
 ];
 ```
 
-**Total actual:** 19 ítems de 20 máximos (1 slot disponible).
+**Total actual:** 20 ítems de 20 máximos (0 slots disponibles).
 
 ### Agregar una ruta nueva y un ítem al sidebar
 
@@ -383,7 +394,7 @@ const api = axios.create({
 
 ### Namespaces disponibles
 
-`mikrotikApi`, `wazuhApi`, `networkApi`, `reportsApi`, `securityApi`, `vlansApi`, `phishingApi`, `portalApi`, `glpiApi`, `crowdsecApi`, `geoipApi`, `suricataApi`, `telegramApi`, `viewsApi`, `widgetsApi`, `systemApi`, `actionsApi`.
+`mikrotikApi`, `wazuhApi`, `networkApi`, `reportsApi`, `securityApi`, `vlansApi`, `phishingApi`, `portalApi`, `glpiApi`, `crowdsecApi`, `geoipApi`, `suricataApi`, `telegramApi`, `viewsApi`, `widgetsApi`, `systemApi`, `actionsApi`, `dhcpApi`.
 
 ### Cómo hacer llamadas
 
@@ -471,6 +482,13 @@ const queryClient = new QueryClient({
 | `['telegram-status']` | `useTelegramStatus` | Status bot |
 | `['telegram-configs']` | `useTelegramConfigs` | Configs Telegram |
 | `['widget', '<type>']` | Widget hooks | Datos de widget |
+| `['dhcp', 'servers']` | `useDhcpServers` | Servidores DHCP |
+| `['dhcp', 'leases']` | `useDhcpLeases` | Leases DHCP |
+| `['dhcp', 'networks']` | `useDhcpNetworks` | Redes DHCP |
+| `['dhcp', 'pools']` | `useDhcpPools` | Pools DHCP |
+| `['dhcp', 'usage']` | `useDhcpSubnetUsage` | Uso de subredes |
+| `['dhcp', 'alerts']` | `useDhcpRogueAlerts` | Alertas rogue |
+| `['dhcp', 'options']` | `useDhcpOptions` | Opciones DHCP |
 
 ### Cómo agregar una query nueva
 
@@ -502,7 +520,7 @@ export function useMiDato() {
 
 ### Cómo funciona `WidgetRenderer.tsx`
 
-Componente dispatcher (22KB) que recibe un `widget` object con `type` y `config`, y renderiza el componente correspondiente via un switch:
+Componente dispatcher (24KB) que recibe un `widget` object con `type` y `config`, y renderiza el componente correspondiente via un switch:
 
 ```tsx
 switch (widget.type) {
@@ -510,19 +528,19 @@ switch (widget.type) {
     return <ThreatGauge config={widget.config} />;
   case 'technical_packet_inspector':
     return <PacketInspector config={widget.config} />;
-  // ... 36 cases
+  // ... 39 cases
 }
 ```
 
 ### Catálogo de widgets implementados
 
-**Visual (10):** ThreatGauge, ActivityHeatmap, NetworkPulse, AgentsThermometer, BlocksTimeline, EventCounter, ProtocolDonut, PortalUsage, PhishingStats, AgentAlertHeatmap
+**Visual (11):** ThreatGauge, ActivityHeatmap, NetworkPulse, AgentsThermometer, BlocksTimeline, EventCounter, ProtocolDonut, PortalUsage, PhishingStats, AgentAlertHeatmap, DhcpSubnetUsage
 
-**Technical (12):** PacketInspector, FlowTableWidget, LiveLogs, FirewallTree, CrowdSecRaw, CorrelationTimeline, CriticalAssets, ActionLogWidget, DnsMonitor, TlsFingerprint, BandwidthTop, HttpInspector
+**Technical (13):** PacketInspector, FlowTableWidget, LiveLogs, FirewallTree, CrowdSecRaw, CorrelationTimeline, CriticalAssets, ActionLogWidget, DnsMonitor, TlsFingerprint, BandwidthTop, HttpInspector, DhcpLeasesWidget
 
-**Hybrid (14):** WorldThreatMap, ConfirmedThreats, CountryRadar, IpProfiler, IncidentLifecycle, DefenseLayers, GeoblockPredictor, SuricataGlpiCorrelation, ViewReportGenerator, TelegramActivity, MitreMatrix, VlanHealth, QuarantineTracker, SinkholeEffectiveness
+**Hybrid (15):** WorldThreatMap, ConfirmedThreats, CountryRadar, IpProfiler, IncidentLifecycle, DefenseLayers, GeoblockPredictor, SuricataGlpiCorrelation, ViewReportGenerator, TelegramActivity, MitreMatrix, VlanHealth, QuarantineTracker, SinkholeEffectiveness, DhcpDiscovery
 
-**Total: 36 widgets**
+**Total: 39 widgets (componentes)** + 17 Standard (sin componente propio) = **56 en catálogo**
 
 ### Hook de widget → Componente
 
@@ -610,6 +628,7 @@ Archivo de ~39KB con ~1600 líneas. Espejo de los schemas Pydantic del backend. 
 - Tipos Portal: `PortalSession`, `PortalUser`, `PortalProfile`, `PortalConfig`
 - Tipos Telegram: `TelegramBotStatus`, `TelegramReportConfig`, `TelegramMessageLog`
 - Tipos Vistas: `CustomView`, `WidgetConfig`, `WidgetCatalogItem`
+- Tipos DHCP: `DhcpServer`, `DhcpLease`, `DhcpNetwork`, `DhcpPool`, `DhcpSubnetUsage`, `DhcpRogueAlert`, `DhcpOption`, `DhcpLeaseGlpiCorrelation`, `DhcpDiscoveryDevice`, `DhcpEnrichedAlert`
 - Tipos Phishing: `PhishingAlert`, `PhishingVictim`, `SinkholeEntry`
 - Tipos Security: `SecurityBlockRequest`, `ActionLogEntry`
 - Tipos Network: `IPLabel`, `IPGroup`, `VlanInfo`
@@ -633,6 +652,6 @@ Archivo de ~39KB con ~1600 líneas. Espejo de los schemas Pydantic del backend. 
 5. **Ruta** en `App.tsx`: `<Route path="/mi-ruta" element={<MiPage />} />`
 6. **Sidebar** en `Layout.tsx`: Agregar al array `navGroups`
 
-Última actualización: 2026-04-28
-Basado en análisis de: 55+ archivos frontend
-Versión del proyecto: 2.4
+Última actualización: 2026-06-02
+Basado en análisis de: 65+ archivos frontend
+Versión del proyecto: 2.5

@@ -22,7 +22,7 @@ backend/
 │   ├── telegram.py            # TelegramReportConfig, TelegramMessageLog, TelegramPendingMessage
 │   └── custom_view.py         # CustomView: vistas personalizadas del dashboard (layout JSON)
 │
-├── schemas/                   # Pydantic v2 schemas para request/response (16 archivos)
+├── schemas/                   # Pydantic v2 schemas para request/response (17 archivos)
 │   ├── __init__.py            # Re-exporta todos los schemas
 │   ├── common.py              # APIResponse[T]: envelope genérico {success, data, error}
 │   ├── mikrotik.py            # InterfaceInfo, ConnectionInfo, ARPEntry, TrafficData, etc.
@@ -38,7 +38,9 @@ backend/
 │   ├── geoip.py               # GeoIPResult, GeoIPBulkRequest, TopCountriesResponse, GeoBlockSuggestion
 │   ├── suricata.py            # AutoResponseTriggerRequest, AutoResponseConfigUpdate, RuleToggle*
 │   ├── telegram.py            # TelegramReportConfigCreate/Update/Response, TelegramBotQuery
-│   └── views.py               # CustomViewCreate, CustomViewUpdate
+│   ├── views.py               # CustomViewCreate, CustomViewUpdate
+│   └── dhcp.py                # DhcpServer, DhcpLease, DhcpNetwork, DhcpPool, DhcpSubnetUsage,
+│                              # DhcpRogueAlert, DhcpOption + 11 schemas de request (Create/Update/Block)
 │
 ├── services/                  # Lógica de negocio (16 archivos)
 │   ├── __init__.py
@@ -55,10 +57,10 @@ backend/
 │   ├── telegram_service.py    # Singleton: bot bidireccional outbound + inbound (21KB)
 │   ├── telegram_scheduler.py  # APScheduler para reportes automáticos (9KB)
 │   ├── auth_provider.py       # Autenticación de usuarios hotspot contra MikroTik (7KB)
-│   ├── mock_data.py           # Repositorio central de datos simulados, seed=42 (139KB)
+│   ├── mock_data.py           # Repositorio central de datos simulados, seed=42 (~152KB)
 │   └── mock_service.py        # Facade CRUD en memoria + get_mock_status() (20KB)
 │
-├── routers/                   # Endpoints FastAPI, un archivo por dominio (15 archivos)
+├── routers/                   # Endpoints FastAPI, un archivo por dominio (16 archivos)
 │   ├── __init__.py
 │   ├── mikrotik.py            # /api/mikrotik/* (7KB)
 │   ├── wazuh.py               # /api/wazuh/* (8KB)
@@ -74,7 +76,10 @@ backend/
 │   ├── views.py               # /api/views/* (incluye catálogo de widgets, 33KB)
 │   ├── widgets.py             # /api/widgets/* (datos agregados multi-servicio, 23KB)
 │   ├── vlans.py               # /api/vlans/* (6KB)
-│   └── cli.py                 # /api/cli/* (4KB)
+│   ├── cli.py                 # /api/cli/* (4KB)
+│   └── dhcp.py                # /api/dhcp/* — Fase 1: CRUD DHCP (servers, leases, networks, pools,
+│                              #   alerts, options) + Fase 2: correlación GLPI, discovery,
+│                              #   enriquecimiento Wazuh, bloqueo rogue, tickets GLPI (29KB)
 │
 ├── scripts/                   # Utilidades de mantenimiento
 │   ├── download_geoip.py      # Descarga bases de datos MaxMind GeoLite2 (.mmdb)
@@ -102,6 +107,14 @@ backend/
 
 **Funciones públicas principales:**
 `get_interfaces()`, `get_connections()`, `get_arp_table()`, `get_traffic()`, `get_firewall_rules()`, `get_blacklist()`, `block_ip()`, `unblock_ip()`, `get_logs()`, `get_health()`, `get_vlan_traffic()`, `create_vlan()`, `update_vlan()`, `delete_vlan()`, `run_command()`, `get_vlan_addresses()`.
+
+**Funciones DHCP (20 métodos):**
+`get_dhcp_servers()`, `create_dhcp_server()`, `toggle_dhcp_server()`,
+`get_dhcp_leases()`, `create_dhcp_lease()`, `update_dhcp_lease()`, `delete_dhcp_lease()`, `make_lease_static()`, `set_dhcp_lease_block()`,
+`get_dhcp_networks()`, `create_dhcp_network()`, `update_dhcp_network()`,
+`get_ip_pools()`, `create_ip_pool()`, `update_ip_pool()`, `get_dhcp_subnet_usage()`,
+`get_dhcp_rogue_alerts()`, `create_dhcp_rogue_alert()`,
+`get_dhcp_options()`, `create_dhcp_option()`.
 
 ---
 
@@ -303,7 +316,7 @@ Se llama en el lifespan de FastAPI al startup. Crea todas las tablas si no exist
 
 ---
 
-## Schemas Pydantic (16 archivos en `schemas/`)
+## Schemas Pydantic (17 archivos en `schemas/`)
 
 | Archivo | Propósito |
 |---------|-----------|
@@ -322,6 +335,7 @@ Se llama en el lifespan de FastAPI al startup. Crea todas las tablas si no exist
 | `suricata.py` | AutoResponseTriggerRequest, AutoResponseConfigUpdate, RuleToggleRequest |
 | `telegram.py` | TelegramReportConfigCreate/Update/Response, TelegramBotQuery |
 | `views.py` | CustomViewCreate, CustomViewUpdate |
+| `dhcp.py` | DhcpServer, DhcpLease, DhcpNetwork, DhcpPool, DhcpSubnetUsage, DhcpRogueAlert, DhcpOption + 11 schemas de request |
 
 ---
 
@@ -340,6 +354,7 @@ Repositorio central de datos simulados con `seed=42` para reproducibilidad. Secc
 - `MockData.ai.*` — mock_report (HTML con datos ficticios)
 - `MockData.portal.*` — sessions, users, profiles, config, schedule, stats
 - `MockData.telegram.*` — bot_status, configs, message_logs
+- `MockData.dhcp.*` — servers, leases, networks, pools, subnet_usage, rogue_alerts, options, glpi_correlation, discovery, wazuh_enriched
 - `MockData.websocket.*` — traffic_tick(), alerts_tick(), vlan_traffic_tick(), security_alert(), portal_session(), crowdsec_decision_tick(), suricata_alert_tick()
 
 ### `mock_service.py` (20KB)
@@ -477,6 +492,6 @@ sudo apt install python3-venv python3.12-venv
 # O usar uv: ~/.local/bin/uv venv
 ```
 
-Última actualización: 2026-04-28
-Basado en análisis de: 65+ archivos backend
-Versión del proyecto: 2.4
+Última actualización: 2026-06-02
+Basado en análisis de: 75+ archivos backend
+Versión del proyecto: 2.5

@@ -10,7 +10,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://typescriptlang.org)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 
-*Integra MikroTik CHR · Wazuh SIEM · CrowdSec CTI · Suricata IDS/IPS/NSM · MaxMind GeoLite2 · Claude AI · GLPI ITSM · Telegram Bot en un único panel de control*
+*Integra MikroTik CHR · Wazuh SIEM · CrowdSec CTI · Suricata IDS/IPS/NSM · MaxMind GeoLite2 · Claude AI · GLPI ITSM · Telegram Bot · DHCP Admin en un único panel de control*
 
 </div>
 
@@ -31,7 +31,8 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 - **🎣 Phishing** — Detección de dominios sospechosos, sinkhole DNS, alertas de víctimas
 - **🔒 Portal Cautivo** — Gestión de hotspot MikroTik: sesiones, usuarios, perfiles de velocidad
 - **💬 Telegram Bot** — Canal de notificaciones bidireccional: alertas outbound automáticas + consultas en lenguaje natural respondidas por Claude AI (inbound)
-- **📊 Vistas Personalizadas** — Sistema de dashboards configurables por el usuario con catálogo de 53 widgets especializados organizados en 4 categorías
+- **🖧 Administración DHCP** — Gestión completa de DHCP MikroTik: servidores, leases, pools, redes, alertas rogue, opciones custom, correlación GLPI y discovery de dispositivos
+- **📊 Vistas Personalizadas** — Sistema de dashboards configurables por el usuario con catálogo de 56 widgets especializados organizados en 4 categorías
 
 > **Fase actual:** Laboratorio de pruebas. Diseñado para escalar a entornos reales con 1000+ usuarios concurrentes sin reescribir la arquitectura.
 
@@ -46,6 +47,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 | **Red & IPs** | `/network` | Tabla ARP, VLANs (CRUD + tráfico en vivo), etiquetas y grupos de IPs, búsqueda global |
 | **Firewall** | `/firewall` | Bloqueo de IPs, reglas activas, historial de acciones |
 | **Portal Cautivo** | `/portal` | Sesiones en tiempo real, usuarios CRUD, perfiles de velocidad, horarios |
+| **DHCP** | `/dhcp` | Servidores, leases, pools, redes, alertas rogue, opciones, correlación GLPI, discovery |
 | **Phishing** | `/phishing` | Alertas de phishing, víctimas, gestión de sinkhole DNS |
 | **Sistema** | `/system` | Health unificado MikroTik + Wazuh, estado GeoLite2, CLI web integrada |
 | **Reportes** | `/reports` | **Generador IA** (prompt libre, TipTap, PDF) + **Telegram** (bot status, configs automáticos, historial) |
@@ -67,7 +69,9 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 
 NetShield incluye un sistema completo para crear **dashboards configurables por el usuario**, persistidos en SQLite.
 
-### Catálogo de widgets (4 categorías)
+> **56 widgets** organizados en 4 categorías.
+
+### Catálogo de widgets (4 categorías, 56 widgets)
 
 #### 🔵 Standard — Widgets esenciales de monitoreo
 | Widget | Fuente | Descripción |
@@ -78,6 +82,7 @@ NetShield incluye un sistema completo para crear **dashboards configurables por 
 | `standard_crowdsec_blocks` | CrowdSec | Total de bloqueos activos |
 | `standard_mitre_summary` | Wazuh | Resumen de técnicas MITRE ATT&CK |
 | `standard_top_agents` | Wazuh | Top agentes por alertas |
+| `standard_dhcp_servers` | MikroTik | Estado de servidores DHCP |
 
 #### 🟣 Visual — Visualizaciones especializadas
 | Widget | Fuente | Descripción |
@@ -89,6 +94,7 @@ NetShield incluye un sistema completo para crear **dashboards configurables por 
 | `visual_event_counter` | Multi | Contador giratorio de eventos con velocidad |
 | `visual_network_pulse` | MikroTik | ECG animado del tráfico de red en SVG |
 | `visual_protocol_donut` | Suricata | Donut de distribución de protocolos NSM |
+| `visual_subnet_usage` | MikroTik DHCP | Barras de uso de subredes por pool DHCP |
 
 #### 🟠 Technical — Vistas técnicas avanzadas
 | Widget | Fuente | Descripción |
@@ -101,6 +107,7 @@ NetShield incluye un sistema completo para crear **dashboards configurables por 
 | `technical_correlation_timeline` | Multi | Timeline de correlación cruzada Wazuh+Suricata+CrowdSec |
 | `technical_critical_assets` | GLPI | Activos críticos con estado de salud y agente Wazuh |
 | `technical_action_log` | Sistema | Log de acciones de seguridad recientes |
+| `technical_dhcp_leases` | MikroTik DHCP | Tabla de leases DHCP activos con filtros |
 
 #### 🟢 Hybrid — Widgets de correlación multi-fuente
 | Widget | Fuente | Descripción |
@@ -114,6 +121,7 @@ NetShield incluye un sistema completo para crear **dashboards configurables por 
 | `hybrid_geoblock_predictor` | GeoIP | Sugerencias predictivas de geo-bloqueo con un clic |
 | `hybrid_suricata_glpi` | Suricata+GLPI | Correlación de alertas con activos del inventario |
 | `hybrid_view_report_generator` | Claude AI | Generador de reportes IA desde una vista |
+| `hybrid_dhcp_discovery` | DHCP+GLPI | Discovery de dispositivos: registered/unregistered/stale |
 
 ### Flujo del View Builder
 
@@ -357,7 +365,7 @@ netShield2/
 │   │   └── geoip/               # GeoLite2-City.mmdb + GeoLite2-ASN.mmdb (no en git)
 │   ├── scripts/
 │   │   └── download_geoip.py    # Script de descarga de bases de datos MaxMind
-│   ├── routers/                 # 15 routers REST
+│   ├── routers/                 # 16 routers REST
 │   │   ├── mikrotik.py          # Endpoints MikroTik (interfaces, ARP, firewall)
 │   │   ├── vlans.py             # CRUD de VLANs + tráfico
 │   │   ├── wazuh.py             # Alertas, agentes, MITRE ATT&CK
@@ -370,6 +378,7 @@ netShield2/
 │   │   ├── crowdsec.py          # Decisiones, métricas, bouncers, CTI
 │   │   ├── geoip.py             # Lookup/bulk, top países/ASNs, sugerencias de geo-bloqueo
 │   │   ├── suricata.py          # Motor IDS/IPS/NSM (24 endpoints)
+│   │   ├── dhcp.py              # Administración DHCP (20 endpoints, Fase 1 + Fase 2 cross-service)
 │   │   ├── views.py             # CRUD de vistas personalizadas + widgets (SQLite persistido)
 │   │   ├── widgets.py           # Endpoints de datos agregados para widgets (threat level, heatmap,
 │   │   │                        #   correlation timeline, confirmed threats, incident lifecycle,
@@ -392,17 +401,17 @@ netShield2/
 │   │   ├── mock_data.py         # Datos simulados reproducibles (seed=42)
 │   │   └── mock_service.py      # CRUD en memoria + estado de mock por servicio
 │   ├── models/                  # Modelos SQLAlchemy (incluye CustomView)
-│   ├── schemas/                 # Schemas Pydantic v2
+│   ├── schemas/                 # Schemas Pydantic v2 (17 archivos, incluye dhcp.py)
 │   └── templates/               # Plantilla HTML para PDF
 │
 ├── frontend/
 │   └── src/
-│       ├── App.tsx              # Rutas SPA (19 vistas)
+│       ├── App.tsx              # Rutas SPA (22 vistas + redirect + fallback)
 │       ├── types.ts             # Tipos TypeScript compartidos (~1600 líneas)
 │       ├── index.css            # Design system y tokens @theme
 │       ├── services/
 │       │   └── api.ts           # Cliente API centralizado (~2000 líneas, 15+ namespaces)
-│       ├── hooks/               # 35+ custom hooks (TanStack Query + WebSocket)
+│       ├── hooks/               # 40+ custom hooks (TanStack Query + WebSocket)
 │       │   ├── useWebSocket.ts              # Hook base WebSocket con reconexión
 │       │   ├── useTheme.ts                  # Hook de theming (light/dark/system)
 │       │   ├── useSuricataEngine.ts         # Estado motor + series + reloadRules
@@ -417,13 +426,14 @@ netShield2/
 │       │   ├── useTelegramStatus.ts         # Estado del bot Telegram (polling 30s)
 │       │   ├── useTelegramConfigs.ts        # CRUD configs + sendTest + sendSummary
 │       │   ├── useTelegramLogs.ts           # Historial de mensajes con filtros
+│       │   ├── useDhcp.ts                   # DHCP: 7 read + 10 mutation + 5 Fase 2 hooks
 │       │   ├── useCustomViews.ts            # CRUD de vistas personalizadas
 │       │   ├── useWidgetCatalog.ts          # Catálogo de widgets tabulado por categoría
 │       │   ├── widgets/                     # Hooks por categoría de widget
-│       │   │   ├── visual/index.ts          # useActivityHeatmap, useThreatGauge, useNetworkPulse...
-│       │   │   ├── technical/index.ts       # usePacketInspector, useFlowTable, useLiveLogs...
-│       │   │   └── hybrid/index.ts          # useIpProfiler, useConfirmedThreats, useWorldThreatMap...
-│       │   └── ...                          # + 20 hooks de dominio (portal, GLPI, CrowdSec, etc.)
+│       │   │   ├── visual/index.ts          # useActivityHeatmap, useThreatGauge, useSubnetUsageWidget...
+│       │   │   ├── technical/index.ts       # usePacketInspector, useFlowTable, useDhcpLeasesWidget...
+│       │   │   └── hybrid/index.ts          # useIpProfiler, useConfirmedThreats, useDhcpDiscoveryWidget...
+│       │   └── ...                          # + 21 hooks de dominio (portal, GLPI, CrowdSec, DHCP, etc.)
 │       └── components/          # Componentes por dominio
 │           ├── Layout.tsx               # Sidebar glassmorphic + topbar (status dots + theming)
 │           ├── common/                  # Componentes compartidos
@@ -431,6 +441,7 @@ netShield2/
 │           ├── security/                # QuickView + ConfigView
 │           ├── firewall/                # Reglas y bloqueos
 │           ├── network/                 # ARP, VLANs, labels, groups
+│           ├── dhcp/                    # Administración DHCP (DhcpPage.tsx, 36KB)
 │           ├── portal/                  # Portal cautivo
 │           ├── phishing/                # Panel de phishing
 │           ├── reports/                 # Generador IA (TipTap) + Telegram Bot (9 componentes)
@@ -443,16 +454,18 @@ netShield2/
 │           │   ├── ViewsListPage.tsx        # Lista de dashboards guardados
 │           │   ├── ViewDetailPage.tsx       # Dashboard en vivo con widgets
 │           │   ├── ViewBuilderPage.tsx      # Editor con catálogo tabulado
-│           │   └── WidgetRenderer.tsx       # Renderer dinámico de 53 widgets
+│           │   └── WidgetRenderer.tsx       # Renderer dinámico de 56 widgets
 │           └── widgets/                 # Biblioteca de widgets por categoría
 │               ├── common/              # WidgetSkeleton, WidgetErrorState, WidgetHeader
 │               ├── visual/              # ThreatGauge, ActivityHeatmap, NetworkPulse,
+│               │                        # DhcpSubnetUsage,
 │               │                        # AgentsThermometer, BlocksTimeline, EventCounter,
 │               │                        # ProtocolDonut
 │               ├── technical/           # PacketInspector, FlowTableWidget, LiveLogs,
+│               │                        # DhcpLeasesWidget,
 │               │                        # FirewallTree, CrowdSecRaw, CorrelationTimeline,
 │               │                        # CriticalAssets, ActionLogWidget
-│               └── hybrid/              # WorldThreatMap, ConfirmedThreats, CountryRadar,
+│               └── hybrid/              # WorldThreatMap, ConfirmedThreats, CountryRadar, DhcpDiscovery,
 │                                        # IpProfiler, IncidentLifecycle, DefenseLayers,
 │                                        # GeoblockPredictor, SuricataGlpiCorrelation,
 │                                        # ViewReportGenerator
@@ -490,6 +503,7 @@ netShield2/
 - **TTLCache para GeoIP** — Las 10 000 entradas más recientes se mantienen en RAM con TTL de 1 hora, evitando consultas repetidas a las .mmdb.
 - **Auto-response circuit** — El circuito Suricata → CrowdSec + MikroTik requiere confirmación humana en el frontend (`ConfirmModal`). El auto-trigger sin interacción está deshabilitado por defecto.
 - **Catálogo de widgets server-driven** — El backend define el catálogo completo de widgets con schema de configuración por tipo (`/api/views/widgets/catalog`). El frontend lo consume dinámicamente para renderizar el catálogo tabulado sin hardcodear tipos.
+- **DHCP sin servicio propio** — Las operaciones DHCP se implementan como métodos del `MikroTikService` existente (20 métodos) porque todas son llamadas a la API RouterOS. El router `dhcp.py` consume directamente `get_mikrotik_service()`. Los endpoints Fase 2 (correlación GLPI, discovery, enriquecimiento Wazuh) usan lazy imports cross-service.
 - **WidgetRenderer desacoplado** — Un único componente mapea cada `widget.type` a su componente React y les pasa `config`. Agregar un widget nuevo solo requiere: (1) registrar en el catálogo del backend, (2) crear el componente React, (3) añadir el `case` en `WidgetRenderer`.
 
 ---
@@ -577,6 +591,33 @@ GET  /api/widgets/suricata-asset-correlation — Correlación Suricata × invent
 GET  /api/widgets/world-threat-map      — Intensidad de amenazas por país (para mapa mundial)
 POST /api/widgets/view-report           — Generar reporte IA desde una vista personalizada
 
+# DHCP (20 endpoints)
+GET  /api/dhcp/servers                  — Listar servidores DHCP
+POST /api/dhcp/servers                  — Crear servidor DHCP
+PUT  /api/dhcp/servers/:id/toggle       — Habilitar/deshabilitar servidor
+GET  /api/dhcp/leases                   — Listar leases (filtros: server, status, search)
+POST /api/dhcp/leases                   — Crear lease estático (reservación)
+PUT  /api/dhcp/leases/:id               — Actualizar lease (comment, rate-limit, disabled)
+DEL  /api/dhcp/leases/:id               — Eliminar lease
+POST /api/dhcp/leases/:id/make-static   — Convertir lease dinámico → estático
+PUT  /api/dhcp/leases/:id/block         — Bloquear/desbloquear acceso DHCP del cliente
+GET  /api/dhcp/networks                 — Listar configuraciones de red DHCP
+POST /api/dhcp/networks                 — Crear configuración de red
+PUT  /api/dhcp/networks/:id             — Actualizar configuración de red
+GET  /api/dhcp/pools                    — Listar pools de direcciones IP
+POST /api/dhcp/pools                    — Crear pool
+PUT  /api/dhcp/pools/:id                — Actualizar pool
+GET  /api/dhcp/pools/usage              — Utilización de subredes por pool
+GET  /api/dhcp/alerts                   — Alertas de servidor DHCP rogue
+POST /api/dhcp/alerts                   — Crear configuración de alerta rogue
+GET  /api/dhcp/options                  — Opciones DHCP custom
+POST /api/dhcp/options                  — Crear opción DHCP
+GET  /api/dhcp/correlation/glpi         — Correlación leases ↔ inventario GLPI
+GET  /api/dhcp/discovery                — Discovery de dispositivos (registered/unregistered/stale)
+GET  /api/dhcp/wazuh/enriched           — Alertas Wazuh enriquecidas con contexto DHCP
+POST /api/dhcp/alerts/:id/block-rogue   — Bloquear servidor DHCP rogue vía firewall
+POST /api/dhcp/discovery/create-ticket  — Crear ticket GLPI para dispositivo no inventariado
+
 # GLPI
 GET  /api/glpi/*                        — Activos, tickets, usuarios, ubicaciones
 
@@ -608,7 +649,7 @@ GET  /api/phishing/*                    — Alertas, víctimas, sinkhole
 POST /api/security/*                    — Auto-block, geo-block, cuarentena
 ```
 
-> La carpeta `/postman/` incluye una colección con **104+ requests** y 3 entornos preconfigurados (mock, local real, lab).
+> La carpeta `/postman/` incluye una colección con **120+ requests** y 3 entornos preconfigurados (mock, local real, lab).
 
 ---
 
@@ -658,6 +699,6 @@ postman/NetShield.postman_collection.json
 
 **Hecho con ❤️ para monitoreo de redes**
 
-*NetShield Dashboard — v2.4*
+*NetShield Dashboard — v2.5*
 
 </div>

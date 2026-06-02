@@ -2,7 +2,7 @@
 
 ## ¿Qué es este proyecto?
 
-NetShield Dashboard es una plataforma web de monitoreo y gestión de seguridad de red para entornos de laboratorio. Integra un router MikroTik CHR (API RouterOS), un SIEM Wazuh (API REST), un motor IDS/IPS/NSM Suricata, un motor de reputación CrowdSec, un ITSM GLPI, inteligencia GeoIP (MaxMind GeoLite2), un bot bidireccional de Telegram, y generación de reportes con IA (Claude de Anthropic) — todo en un único panel de control con 53 widgets configurables y 6 temas visuales.
+NetShield Dashboard es una plataforma web de monitoreo y gestión de seguridad de red para entornos de laboratorio. Integra un router MikroTik CHR (API RouterOS), un SIEM Wazuh (API REST), un motor IDS/IPS/NSM Suricata, un motor de reputación CrowdSec, un ITSM GLPI, inteligencia GeoIP (MaxMind GeoLite2), un bot bidireccional de Telegram, administración DHCP completa, y generación de reportes con IA (Claude de Anthropic) — todo en un único panel de control con 56 widgets configurables y 6 temas visuales.
 
 **Fase actual:** Laboratorio de pruebas.
 **Objetivo futuro:** Escalar a entornos reales soportando picos de 1000 usuarios concurrentes sin reescribir la arquitectura.
@@ -242,7 +242,7 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 ### Backend
 
 - **Respuesta consistente:** Todo endpoint devuelve `{"success": bool, "data": ..., "error": null | "mensaje"}`. Implementado vía `APIResponse.ok(data)` y `APIResponse.fail(error)` del schema `schemas/common.py`.
-- **Un router por dominio:** `mikrotik.py`, `wazuh.py`, `crowdsec.py`, `suricata.py`, `geoip.py`, `glpi.py`, `portal.py`, `reports.py`, `network.py`, `security.py`, `phishing.py`, `views.py`, `widgets.py`, `vlans.py`, `cli.py` (15 routers).
+- **Un router por dominio:** `mikrotik.py`, `wazuh.py`, `crowdsec.py`, `suricata.py`, `geoip.py`, `glpi.py`, `portal.py`, `reports.py`, `network.py`, `security.py`, `phishing.py`, `views.py`, `widgets.py`, `vlans.py`, `cli.py`, `dhcp.py` (16 routers).
 - **Servicios como singletons:** Variable de módulo + función `get_X_service()`. Excepción: `AIService` crea instancia por llamada.
 - **Mock guard en servicios:** Al inicio de cada método: `if settings.should_mock_X: return MockData.X.funcion()`. Los guards están en servicios (no en routers) para que los WebSockets también los respeten.
 - **Async everywhere:** Todo es async. Librerías síncronas (`routeros-api`, WeasyPrint, requests) se ejecutan en `run_in_executor` o `asyncio.to_thread`.
@@ -272,19 +272,19 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 **Backend:**
 - [x] Config con pydantic-settings, 9 flags mock granulares + `MOCK_ALL` [REAL]
 - [x] Base de datos SQLAlchemy async con SQLite, 10 modelos [REAL]
-- [x] 15 routers REST con ~160 endpoints [REAL + MOCK]
+- [x] 16 routers REST con ~180 endpoints [REAL + MOCK]
 - [x] 7 WebSocket endpoints [REAL + MOCK]
-- [x] 15 servicios de lógica de negocio [REAL + MOCK]
+- [x] 16 servicios de lógica de negocio [REAL + MOCK]
 - [x] `glpi_collector.py` — Periodic sync de assets GLPI cada 5 min [REAL]
 - [x] Function calling de Claude con 5 tools [MOCK ONLY sin API key]
 - [x] Mock system completo para todos los servicios [REAL]
 
 **Frontend:**
-- [x] 21 rutas (19 reales + 1 redirect + 1 fallback) [REAL]
+- [x] 23 rutas (22 reales + 1 redirect + 1 fallback) [REAL]
 - [x] Layout con sidebar 7 grupos, topbar con 5 status dots [REAL]
-- [x] 53 widgets en 4 categorías (17 standard, 10 visual, 12 technical, 14 hybrid) [REAL]
+- [x] 56 widgets en 4 categorías (18 standard, 11 visual, 13 technical, 15 hybrid) [REAL]
 - [x] 6 temas visuales con escala de fuente [REAL]
-- [x] 38 custom hooks de datos [REAL]
+- [x] 40 custom hooks de datos [REAL]
 - [x] Sistema de vistas personalizadas con drag-and-drop [REAL]
 - [ ] Responsive móvil (funcional pero no refinado)
 - [ ] Autenticación de usuario
@@ -313,6 +313,7 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 | `/views/new` | `ViewBuilderPage` | ✅ Operativa |
 | `/views/:id` | `ViewDetailPage` | ✅ Operativa |
 | `/views/:id/edit` | `ViewBuilderPage` | ✅ Operativa |
+| `/dhcp` | `DhcpPage` | ✅ Operativa |
 | `/vlans` | → Redirect a `/network` | ✅ Legacy redirect |
 
 ### Servicios externos — estado de integración
@@ -365,7 +366,7 @@ Definida en `config.py`:
 
 ### Qué datos genera cada mock
 
-- **`mock_data.py`** — Repositorio central de datos estáticos (seed=42). Secciones: `MockData.mikrotik.*`, `MockData.wazuh.*`, `MockData.crowdsec.*`, `MockData.suricata.*`, `MockData.geoip.*`, `MockData.glpi.*`, `MockData.ai.*`, `MockData.portal.*`, `MockData.telegram.*`, `MockData.websocket.*`
+- **`mock_data.py`** — Repositorio central de datos estáticos (seed=42). Secciones: `MockData.mikrotik.*`, `MockData.wazuh.*`, `MockData.crowdsec.*`, `MockData.suricata.*`, `MockData.geoip.*`, `MockData.glpi.*`, `MockData.ai.*`, `MockData.portal.*`, `MockData.telegram.*`, `MockData.dhcp.*`, `MockData.websocket.*`
 - **`mock_service.py`** — Facade con estado en memoria para operaciones CRUD: GLPI assets/tickets, CrowdSec decisions/whitelist, Portal users, Telegram configs/logs. También expone `MockService.get_mock_status()` para el badge del frontend.
 
 ### Entidades coherentes entre servicios
@@ -415,6 +416,9 @@ Sin latencia de red, sin límites de requests. MaxMind GeoLite2 hace lookups en 
 ### ¿Por qué el GLPI Collector como background task?
 La API de GLPI es lenta y compleja (múltiples roundtrips). El collector sincroniza assets cada 5 minutos vía `asyncio.to_thread` y mantiene un cache parsed en memoria para reads instantáneos.
 
+### ¿Por qué DHCP en MikroTikService y no en un servicio separado?
+Todas las operaciones DHCP son llamadas a la API RouterOS. Crear un servicio separado duplicaría la conexión y el lock del singleton. Los 20 métodos DHCP comparten el `_api_call()` existente. Los endpoints Fase 2 (correlación GLPI, discovery, enriquecimiento Wazuh) usan lazy imports cross-service directamente en el router.
+
 ### ¿Por qué vistas personalizadas con widgets?
 El dashboard estático no cubre todos los perfiles de usuario. Las vistas permiten crear dashboards a medida con drag-and-drop de widgets de un catálogo tabulado (Standard/Visual/Technical/Hybrid).
 
@@ -455,8 +459,8 @@ En `Layout.tsx`, agregar al array `navGroups`:
 ```tsx
 { to: '/mi-ruta', icon: MiIcono, label: 'Mi Panel', end: false },
 ```
-Actualmente hay 19 ítems de 20 máximos.
+Actualmente hay 20 ítems de 20 máximos.
 
-Última actualización: 2026-04-28
-Basado en análisis de: 120+ archivos
-Versión del proyecto: 2.4 (según README.md)
+Última actualización: 2026-06-02
+Basado en análisis de: 135+ archivos
+Versión del proyecto: 2.5 (según README.md)

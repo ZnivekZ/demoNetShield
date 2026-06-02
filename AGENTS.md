@@ -29,10 +29,10 @@ Este archivo define los agentes contextuales para asistentes de IA que trabajen 
 - `backend/database.py` — SQLAlchemy async engine + session factory
 - `backend/main.py` — App FastAPI, lifespan (startup/shutdown), 7 WebSockets, CORS
 - `backend/schemas/common.py` — `APIResponse[T]` envelope
-- `backend/services/` — 15 servicios de lógica de negocio
-- `backend/services/mock_data.py` — Datos mock estáticos (139KB)
+- `backend/services/` — 16 servicios de lógica de negocio
+- `backend/services/mock_data.py` — Datos mock estáticos (~152KB)
 - `backend/services/mock_service.py` — Facade CRUD en memoria para modo mock
-- `backend/routers/` — 15 routers REST
+- `backend/routers/` — 16 routers REST
 - `backend/models/` — 10 modelos SQLAlchemy (8 archivos)
 
 ---
@@ -59,16 +59,16 @@ Este archivo define los agentes contextuales para asistentes de IA que trabajen 
 - Componentes en **PascalCase** (`AlertsTable.tsx`, `TrafficChart.tsx`)
 - Hooks en **camelCase** con prefijo `use` (`useWazuhSummary.ts`, `useGlpiAssets.ts`)
 - No instalar shadcn/ui ni otras librerías de componentes sin aprobación explícita
-- Sidebar: 7 grupos, 19/20 ítems usados (1 slot libre). Array `navGroups` en `Layout.tsx`
+- Sidebar: 7 grupos, 20/20 ítems usados (0 slots libres). Array `navGroups` en `Layout.tsx`
 - Topbar: 5 status dots (MikroTik, Wazuh, CrowdSec, Suricata, GLPI)
 - 6 temas definidos en `config/themes.ts`, gestionados por `hooks/useTheme.ts`
 
 **Archivos clave:**
 - `frontend/CONTEXT.md` — Lectura obligatoria
-- `frontend/src/App.tsx` — 21 rutas con QueryClientProvider
+- `frontend/src/App.tsx` — 23 rutas con QueryClientProvider
 - `frontend/src/components/Layout.tsx` — Sidebar 7 grupos + topbar
-- `frontend/src/services/api.ts` — Cliente API centralizado (única fuente HTTP)
-- `frontend/src/types.ts` — Tipos TypeScript (~39KB, espejo de schemas Pydantic)
+- `frontend/src/services/api.ts` — Cliente API centralizado (18 namespaces, única fuente HTTP)
+- `frontend/src/types.ts` — Tipos TypeScript (~1909 líneas, espejo de schemas Pydantic)
 - `frontend/src/index.css` — Design system, tokens `@theme`, clases custom (121KB)
 - `frontend/src/hooks/useWebSocket.ts` — Hook base WebSocket con reconexión
 - `frontend/src/config/themes.ts` — 6 temas + font scale config
@@ -77,7 +77,7 @@ Este archivo define los agentes contextuales para asistentes de IA que trabajen 
 
 ## Agente: Widget Developer
 
-**Contexto:** Trabaja en el sistema de 53 widgets configurables (4 categorías). Conoce la arquitectura de 3 capas: Hook → Componente → WidgetRenderer.
+**Contexto:** Trabaja en el sistema de 56 widgets configurables (4 categorías). Conoce la arquitectura de 3 capas: Hook → Componente → WidgetRenderer.
 
 **Instrucciones:**
 - Leer `frontend/CONTEXT.md` sección "Sistema de widgets" antes de hacer cualquier cambio
@@ -91,20 +91,20 @@ Este archivo define los agentes contextuales para asistentes de IA que trabajen 
 - Los hooks multi-fuente usan `Promise.allSettled()` con manejo de fallo parcial
 - Componentes comunes en `components/widgets/common/index.tsx`: `WidgetSkeleton`, `WidgetErrorState`, `WidgetHeader`
 
-**Categorías actuales:**
 | Categoría | Widgets | Hooks |
 |-----------|---------|-------|
-| Standard  | 17      | N/A (usan hooks existentes de cada módulo) |
-| Visual | 10 | `hooks/widgets/visual/index.ts` |
-| Technical | 12 | `hooks/widgets/technical/index.ts` |
+| Standard  | 18      | N/A (usan hooks existentes de cada módulo) |
+| Visual | 11 | `hooks/widgets/visual/index.ts` |
+| Technical | 13 | `hooks/widgets/technical/index.ts` |
 | Hybrid | 14 | `hooks/widgets/hybrid/index.ts` |
-| **Total** | **53** | |
+| **Total** | **56** | |
 
 **Archivos clave:**
-- `frontend/src/components/views/WidgetRenderer.tsx` — Dispatcher central (22KB)
-- `frontend/src/hooks/widgets/visual/index.ts` — 10 hooks visuales
-- `frontend/src/hooks/widgets/technical/index.ts` — 12 hooks técnicos
-- `frontend/src/hooks/widgets/hybrid/index.ts` — 14 hooks híbridos
+- `frontend/src/components/views/WidgetRenderer.tsx` — Dispatcher central (24KB)
+- `frontend/src/hooks/widgets/visual/index.ts` — 11 hooks visuales
+- `frontend/src/hooks/widgets/technical/index.ts` — 13 hooks técnicos
+- `frontend/src/hooks/widgets/hybrid/index.ts` — 15 hooks híbridos
+- `frontend/src/hooks/useDhcp.ts` — DHCP: 7 read + 10 mutation + 5 Fase 2
 - `frontend/src/components/widgets/{visual,technical,hybrid}/` — Componentes
 - `frontend/src/components/views/ViewBuilderPage.tsx` — Editor drag-and-drop
 
@@ -204,4 +204,5 @@ Este archivo define los agentes contextuales para asistentes de IA que trabajen 
 - `backend/services/ai_service.py` — Function calling y system prompts (prompt injection)
 - `backend/services/glpi_collector.py` — Background sync con credenciales GLPI
 - `backend/services/auth_provider.py` — Autenticación de usuarios hotspot
-- `backend/schemas/` — Schemas de validación Pydantic (16 archivos, incluye `cli.py`)
+- `backend/schemas/` — Schemas de validación Pydantic (17 archivos, incluye `dhcp.py` y `cli.py`)
+- `backend/routers/dhcp.py` — Endpoints DHCP Fase 1 + Fase 2 (29KB, superficie de bloqueo)

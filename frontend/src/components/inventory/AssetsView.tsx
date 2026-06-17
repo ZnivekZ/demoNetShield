@@ -24,6 +24,16 @@ const STATUS_OPTS = [
   { value: 'bajo_investigacion', label: 'Cuarentena' },
 ];
 
+const TYPE_OPTS = [
+  { value: '', label: 'Todos los tipos' },
+  { value: 'Computer', label: '🖥 Computadora' },
+  { value: 'NetworkEquipment', label: '🔌 Equipo de Red' },
+  { value: 'Printer', label: '🖨 Impresora' },
+  { value: 'Phone', label: '📱 Teléfono' },
+  { value: 'Peripheral', label: '🖱 Periférico' },
+  { value: 'Monitor', label: '🖥 Monitor' },
+];
+
 function StatusBadge({ status }: { status: string }) {
   const classes: Record<string, string> = {
     activo: 'badge-success',
@@ -50,6 +60,7 @@ export function AssetsView() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedAsset, setSelectedAsset] = useState<GlpiAsset | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -61,7 +72,11 @@ export function AssetsView() {
     limit: 100,
   });
 
-  const assets = data?.assets ?? [];
+  const allAssets = data?.assets ?? [];
+  // Filtro por tipo client-side (el campo `type` viene del backend como string)
+  const assets = typeFilter
+    ? allAssets.filter(a => (a as GlpiAsset & { type?: string }).type === typeFilter)
+    : allAssets;
 
   return (
     <div className="assets-view">
@@ -77,6 +92,17 @@ export function AssetsView() {
             style={{ width: 180, fontSize: '0.8rem' }}
           >
             {STATUS_OPTS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <select
+            id="assets-type-filter"
+            className="input"
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            style={{ width: 180, fontSize: '0.8rem' }}
+          >
+            {TYPE_OPTS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
@@ -172,7 +198,7 @@ export function AssetsView() {
                     ) : assets.length === 0 ? (
                       <tr>
                         <td colSpan={7} style={{ textAlign: 'center', color: 'var(--color-surface-500)', padding: '2rem', fontSize: '0.85rem' }}>
-                          {search ? `Sin resultados para "${search}"` : 'No hay activos en el inventario.'}
+                          {search ? `Sin resultados para "${search}"` : typeFilter ? `Sin activos del tipo seleccionado` : 'No hay activos en el inventario.'}
                         </td>
                       </tr>
                     ) : (

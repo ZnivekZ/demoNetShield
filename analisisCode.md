@@ -605,6 +605,46 @@ const queryClient = new QueryClient({
 
 ---
 
+## 13. Arquitectura del Frontend: SPA (Single-Page Application)
+
+NetShield Dashboard es una **SPA (Single-Page Application)** con renderizado enteramente en el cliente (**CSR — Client-Side Rendering**). A continuación las evidencias concretas extraídas del código fuente.
+
+### 13.1 Un solo archivo HTML servido al navegador
+
+En `frontend/index.html` existe un único `<div id="root">` donde React monta toda la aplicación. El servidor nunca genera HTML dinámico — sirve este archivo estático una sola vez y JavaScript toma el control total del DOM.
+
+### 13.2 Client-Side Routing con React Router
+
+En `frontend/src/App.tsx` se usa `BrowserRouter` + `<Routes>` de `react-router-dom`. Esto significa que la navegación entre las ~23 rutas (`/`, `/network`, `/firewall`, `/crowdsec`, etc.) ocurre **sin recargar la página**. React Router intercepta los cambios de URL y renderiza el componente correspondiente directamente en el cliente.
+
+### 13.3 Layout persistente con `<Outlet />`
+
+En `frontend/src/components/Layout.tsx`, el sidebar, topbar y status indicators se renderizan **una sola vez**. Solo el contenido interno cambia vía `<Outlet />` (línea 298 de Layout.tsx). La estructura visual persiste entre navegaciones — rasgo definitorio de una SPA.
+
+### 13.4 Bundled por Vite (CSR puro, sin SSR)
+
+En `frontend/vite.config.ts` se configura Vite como bundler con `@vitejs/plugin-react`. **No hay SSR** (Server-Side Rendering), ni SSG (Static Site Generation), ni metaframework tipo Next.js o Remix. Es React "vanilla" con Vite — 100% client-side.
+
+### 13.5 Data fetching asíncrono desde el cliente
+
+Todo el data fetching se realiza con **TanStack Query** (`useQuery` / `useMutation`) llamando a un backend API en `:8000` vía proxy de Vite. No hay pre-rendering ni datos inyectados desde el servidor en el HTML.
+
+### 13.6 Tabla resumen
+
+| Característica | Valor |
+|---|---|
+| **Arquitectura** | SPA (Single-Page Application) |
+| **Rendering** | CSR (Client-Side Rendering) |
+| **Router** | React Router v7 (`BrowserRouter`) |
+| **Bundler** | Vite 8 |
+| **Framework UI** | React 19 (sin metaframework) |
+| **Data Fetching** | TanStack Query 5 → REST API + 7 WebSockets |
+| **SSR / SSG** | No |
+
+> **Definición formal:** Una SPA con renderizado enteramente en el cliente (CSR), routing declarativo client-side, y comunicación con el backend vía API REST y WebSockets.
+
+---
+
 *Análisis generado: 2026-05-25*
 *Fuentes: CONTEXT.md, backend/CONTEXT.md, frontend/CONTEXT.md, README.md, requirements.txt, package.json*
 *Versión del proyecto: 2.4*

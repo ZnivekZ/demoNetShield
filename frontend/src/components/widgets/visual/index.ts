@@ -1,5 +1,5 @@
 /**
- * Visual Widgets — 10 componentes de visualización.
+ * Visual Widgets — 12 componentes de visualización.
  * Importar individualmente para lazy loading.
  */
 
@@ -13,3 +13,5 @@ export { BlocksTimeline } from './BlocksTimeline';
 export { PortalUsage } from './PortalUsage';
 export { PhishingStats } from './PhishingStats';
 export { AgentAlertHeatmap } from './AgentAlertHeatmap';
+export { DhcpSubnetUsage } from './DhcpSubnetUsage';
+export { QueueBars } from './QueueBars';

@@ -293,6 +293,115 @@ export interface AddressListEntry {
   creation_time: string;
 }
 
+export interface NatRule {
+  id: string;
+  chain: string;
+  action: string;
+  src_address: string;
+  dst_address: string;
+  src_port: string;
+  dst_port: string;
+  to_addresses: string;
+  to_ports: string;
+  protocol: string;
+  in_interface: string;
+  out_interface: string;
+  comment: string;
+  disabled: boolean;
+  invalid: boolean;
+  dynamic: boolean;
+  bytes: number;
+  packets: number;
+}
+
+export interface RouteEntry {
+  id: string;
+  dst_address: string;
+  gateway: string;
+  gateway_status: string;
+  distance: number;
+  scope: number;
+  target_scope: number;
+  routing_mark: string;
+  comment: string;
+  active: boolean;
+  dynamic: boolean;
+  disabled: boolean;
+  static: boolean;
+  connect: boolean;
+  ospf: boolean;
+}
+
+export interface IPAddress {
+  id: string;
+  address: string;
+  network: string;
+  interface: string;
+  actual_interface: string;
+  comment: string;
+  disabled: boolean;
+  dynamic: boolean;
+  invalid: boolean;
+}
+
+export interface BridgePort {
+  id: string;
+  interface: string;
+  bridge: string;
+  priority: string;
+  path_cost: number;
+  horizon: string;
+  learn: string;
+  discover: string;
+  hw: boolean;
+  comment: string;
+  disabled: boolean;
+  inactive: boolean;
+  dynamic: boolean;
+  pvid: number;
+}
+
+export interface QueueEntry {
+  id: string;
+  name: string;
+  target: string;
+  max_limit: string;
+  burst_limit: string;
+  burst_threshold: string;
+  burst_time: string;
+  priority: string;
+  queue: string;
+  parent: string;
+  comment: string;
+  disabled: boolean;
+  invalid: boolean;
+  dynamic: boolean;
+  bytes: number;
+  packets: number;
+  dropped: number;
+  rate: string;
+  packet_rate: string;
+  queued_bytes: string;
+  queued_packets: string;
+}
+
+export interface QueueCreate {
+  name: string;
+  target: string;
+  max_limit?: string;
+  burst_limit?: string;
+  burst_threshold?: string;
+  burst_time?: string;
+  comment?: string;
+}
+
+export interface QueueUpdate {
+  name?: string;
+  max_limit?: string;
+  comment?: string;
+  disabled?: boolean;
+}
+
 /* ── Phishing Types ─────────────────────────────────────────── */
 
 export interface PhishingAlert {

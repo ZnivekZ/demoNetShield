@@ -7,9 +7,146 @@ import {
   Activity,
   Wifi,
   WifiOff,
+  Pencil,
 } from 'lucide-react';
 import { vlansApi } from '../../services/api';
 import type { VlanInfo } from '../../types';
+
+// ── Edit Modal ─────────────────────────────────────────────────────────────────
+
+interface VlanEditModalProps {
+  vlan: VlanInfo;
+  onClose: () => void;
+}
+
+function VlanEditModal({ vlan, onClose }: VlanEditModalProps) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState(vlan.name);
+  const [comment, setComment] = useState(vlan.comment ?? '');
+  const [error, setError] = useState<string | null>(null);
+
+  const updateMutation = useMutation({
+    mutationFn: () => vlansApi.updateVlan(vlan.id, { name, comment: comment || undefined }),
+    onSuccess: (res) => {
+      if (res.success) {
+        queryClient.invalidateQueries({ queryKey: ['vlans'] });
+        onClose();
+      } else {
+        setError((res as any).error ?? 'Error al actualizar la VLAN');
+      }
+    },
+    onError: (err: any) => setError(err.message ?? 'Error de conexión'),
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!name.trim()) { setError('El nombre es obligatorio'); return; }
+    updateMutation.mutate();
+  };
+
+  return (
+    <div
+      className="confirm-modal-overlay"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="confirm-modal portal-form-modal animate-fade-in-up"
+        style={{ maxWidth: 420 }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="confirm-modal__header">
+          <h3 className="confirm-modal__title">Editar VLAN</h3>
+          <button
+            type="button"
+            className="confirm-modal__close"
+            onClick={onClose}
+            aria-label="Cerrar"
+          >✕</button>
+        </div>
+
+        <form
+          onSubmit={handleSubmit}
+          className="confirm-modal__body"
+          style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+        >
+          {error && (
+            <div style={{
+              padding: '8px 12px',
+              background: 'rgba(239,68,68,0.1)',
+              border: '1px solid var(--color-danger)',
+              borderRadius: 4,
+              color: 'var(--color-danger)',
+              fontSize: 13,
+            }}>
+              {error}
+            </div>
+          )}
+
+          {/* VLAN ID — read-only info */}
+          <div style={{
+            padding: '10px 14px',
+            background: 'var(--color-surface-2)',
+            borderRadius: 6,
+            fontSize: 13,
+          }}>
+            <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: 11, fontWeight: 600 }}>VLAN ID · INTERFAZ</p>
+            <p style={{ margin: '4px 0 0', fontFamily: 'monospace', fontWeight: 700 }}>
+              {vlan.vlan_id} · {vlan.interface}
+            </p>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+              Nombre *
+            </label>
+            <input
+              className="input"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              required
+              placeholder="ej: VLAN-Servidores"
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+              Comentario
+            </label>
+            <input
+              className="input"
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder="Descripción de la VLAN"
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div className="confirm-modal__actions" style={{ marginTop: 4 }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={onClose}
+              disabled={updateMutation.isPending}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={updateMutation.isPending}
+            >
+              {updateMutation.isPending ? 'Guardando...' : 'Guardar cambios'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Panel ─────────────────────────────────────────────────────────────────
 
 export default function VlanPanel() {
   const queryClient = useQueryClient();
@@ -27,6 +164,9 @@ export default function VlanPanel() {
   const [name, setName] = useState('');
   const [iface, setIface] = useState('ether1');
   const [comment, setComment] = useState('');
+
+  // ── Edit modal state ──
+  const [editVlan, setEditVlan] = useState<VlanInfo | null>(null);
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -168,6 +308,13 @@ export default function VlanPanel() {
                   />
                   <button
                     className="btn btn-ghost p-1.5"
+                    onClick={() => setEditVlan(v)}
+                    title="Editar nombre y comentario"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-brand-400" />
+                  </button>
+                  <button
+                    className="btn btn-ghost p-1.5"
                     onClick={() => deleteMutation.mutate(v.id)}
                     title="Eliminar VLAN"
                   >
@@ -179,6 +326,14 @@ export default function VlanPanel() {
           </div>
         )}
       </div>
+
+      {/* ── Edit modal ── */}
+      {editVlan && (
+        <VlanEditModal
+          vlan={editVlan}
+          onClose={() => setEditVlan(null)}
+        />
+      )}
     </div>
   );
 }

@@ -32,7 +32,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 - **🔒 Portal Cautivo** — Gestión de hotspot MikroTik: sesiones, usuarios, perfiles de velocidad
 - **💬 Telegram Bot** — Canal de notificaciones bidireccional: alertas outbound automáticas + consultas en lenguaje natural respondidas por Claude AI (inbound)
 - **🖧 Administración DHCP** — Gestión completa de DHCP MikroTik: servidores, leases, pools, redes, alertas rogue, opciones custom, correlación GLPI y discovery de dispositivos
-- **📊 Vistas Personalizadas** — Sistema de dashboards configurables por el usuario con catálogo de 56 widgets especializados organizados en 4 categorías
+- **📊 Vistas Personalizadas** — Sistema de dashboards configurables por el usuario con catálogo de **59 widgets** especializados organizados en 4 categorías
 
 > **Fase actual:** Laboratorio de pruebas. Diseñado para escalar a entornos reales con 1000+ usuarios concurrentes sin reescribir la arquitectura.
 
@@ -61,7 +61,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 | **Suricata — Reglas** | `/suricata/rules` | Gestión de firmas: toggle on/off, rulesets, actualización vía suricata-update |
 | **Vistas** | `/views` | Lista de dashboards personalizados guardados |
 | **Vista Detail** | `/views/:id` | Dashboard personalizado con widgets en grid |
-| **View Builder** | `/views/:id/edit` | Editor de vistas con catálogo tabulado de 53 widgets |
+| **View Builder** | `/views/:id/edit` | Editor de vistas con catálogo tabulado de **59 widgets** |
 
 ---
 
@@ -69,7 +69,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 
 NetShield incluye un sistema completo para crear **dashboards configurables por el usuario**, persistidos en SQLite.
 
-> **56 widgets** organizados en 4 categorías.
+> **59 widgets** organizados en 4 categorías.
 
 ### Catálogo de widgets (4 categorías, 56 widgets)
 
@@ -95,6 +95,7 @@ NetShield incluye un sistema completo para crear **dashboards configurables por 
 | `visual_network_pulse` | MikroTik | ECG animado del tráfico de red en SVG |
 | `visual_protocol_donut` | Suricata | Donut de distribución de protocolos NSM |
 | `visual_subnet_usage` | MikroTik DHCP | Barras de uso de subredes por pool DHCP |
+| `visual_queue_bars` | MikroTik | Barras de ancho de banda up/down por Simple Queue |
 
 #### 🟠 Technical — Vistas técnicas avanzadas
 | Widget | Fuente | Descripción |
@@ -108,6 +109,8 @@ NetShield incluye un sistema completo para crear **dashboards configurables por 
 | `technical_critical_assets` | GLPI | Activos críticos con estado de salud y agente Wazuh |
 | `technical_action_log` | Sistema | Log de acciones de seguridad recientes |
 | `technical_dhcp_leases` | MikroTik DHCP | Tabla de leases DHCP activos con filtros |
+| `technical_nat_table` | MikroTik | Tabla de reglas NAT — masquerade, dst-nat, src-nat |
+| `technical_route_table` | MikroTik | Rutas activas con tipo, gateway y distancia administrativa |
 
 #### 🟢 Hybrid — Widgets de correlación multi-fuente
 | Widget | Fuente | Descripción |
@@ -520,6 +523,14 @@ GET  /api/system/mock-status            — Estado actual de cada servicio (real
 GET  /api/mikrotik/*                    — Interfaces, ARP, firewall, tráfico
 POST /api/mikrotik/firewall/block       — Bloquear IP
 POST /api/mikrotik/firewall/unblock     — Desbloquear IP
+GET  /api/mikrotik/nat-rules            — Reglas NAT (masquerade, dst-nat, src-nat)
+GET  /api/mikrotik/routes               — Tabla de ruteo activa
+GET  /api/mikrotik/addresses            — Direcciones IP asignadas por interfaz
+GET  /api/mikrotik/bridge-ports         — Puertos bridge
+GET  /api/mikrotik/queues               — Simple Queues
+POST /api/mikrotik/queues               — Crear Simple Queue
+PUT  /api/mikrotik/queues/:id           — Actualizar Simple Queue
+DEL  /api/mikrotik/queues/:id           — Eliminar Simple Queue
 
 # VLANs
 GET  /api/vlans                         — Lista de VLANs
@@ -699,6 +710,6 @@ postman/NetShield.postman_collection.json
 
 **Hecho con ❤️ para monitoreo de redes**
 
-*NetShield Dashboard — v2.5*
+*NetShield Dashboard — v2.6*
 
 </div>

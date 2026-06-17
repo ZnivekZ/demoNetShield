@@ -76,6 +76,7 @@ const PortalUsage = lazy(() => import('../widgets/visual/PortalUsage').then(m =>
 const PhishingStats = lazy(() => import('../widgets/visual/PhishingStats').then(m => ({ default: m.PhishingStats })));
 const AgentAlertHeatmap = lazy(() => import('../widgets/visual/AgentAlertHeatmap').then(m => ({ default: m.AgentAlertHeatmap })));
 const DhcpSubnetUsage = lazy(() => import('../widgets/visual/DhcpSubnetUsage').then(m => ({ default: m.DhcpSubnetUsage })));
+const TrafficChartWidget = lazy(() => import('../widgets/visual/TrafficChartWidget').then(m => ({ default: m.TrafficChartWidget })));
 
 // ── Lazy imports nuevos (technical) ──────────────────────────────────
 const DnsMonitor = lazy(() => import('../widgets/technical/DnsMonitor').then(m => ({ default: m.DnsMonitor })));
@@ -83,6 +84,11 @@ const TlsFingerprint = lazy(() => import('../widgets/technical/TlsFingerprint').
 const BandwidthTop = lazy(() => import('../widgets/technical/BandwidthTop').then(m => ({ default: m.BandwidthTop })));
 const HttpInspector = lazy(() => import('../widgets/technical/HttpInspector').then(m => ({ default: m.HttpInspector })));
 const DhcpLeasesWidget = lazy(() => import('../widgets/technical/DhcpLeasesWidget').then(m => ({ default: m.DhcpLeasesWidget })));
+const NatTable = lazy(() => import('../widgets/technical/NatTable').then(m => ({ default: m.NatTable })));
+const RouteTable = lazy(() => import('../widgets/technical/RouteTable').then(m => ({ default: m.RouteTable })));
+
+// ── Lazy imports nuevos (visual Fase 1) ───────────────────────────────
+const QueueBars = lazy(() => import('../widgets/visual/QueueBars').then(m => ({ default: m.QueueBars })));
 
 // ── Lazy imports nuevos (hybrid DHCP) ────────────────────────────────
 const DhcpDiscovery = lazy(() => import('../widgets/hybrid/DhcpDiscovery').then(m => ({ default: m.DhcpDiscovery })));
@@ -221,6 +227,9 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
           const countries = r.data?.countries ?? [];
           return { kind: 'table' as const, data: countries.slice(0, limit), columns: ['country_code', 'country_name', 'count', 'percentage'] };
         }
+        case 'traffic_chart':
+          // Maneja el WebSocket internamente en TrafficChartWidget
+          return { kind: 'custom' as const };
 
         // ── Widgets Visuales ───────────────────────────────────────────
         case 'visual_threat_gauge':
@@ -248,6 +257,9 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
         case 'technical_bandwidth_top':
         case 'technical_http_inspector':
         case 'technical_dhcp_leases':
+        case 'technical_nat_table':
+        case 'technical_route_table':
+        case 'visual_queue_bars':
         // ── Widgets Híbridos ───────────────────────────────────────────
         case 'hybrid_ip_profiler':
         case 'hybrid_confirmed_threats':
@@ -364,6 +376,7 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
   if (data.kind === 'custom') {
     const cfg = widget.config ?? {};
     const customMap: Record<string, React.ReactNode> = {
+      traffic_chart:                 <TrafficChartWidget config={cfg as { interface?: string }} />,
       visual_threat_gauge:           <ThreatGauge config={cfg} />,
       visual_network_pulse:          <NetworkPulse config={cfg as { interface?: string }} />,
       visual_event_counter:          <EventCounter config={cfg as { source?: string }} />,
@@ -388,6 +401,9 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
       technical_bandwidth_top:       <BandwidthTop config={cfg as { limit?: number }} />,
       technical_http_inspector:      <HttpInspector config={cfg as { limit?: number }} />,
       technical_dhcp_leases:         <DhcpLeasesWidget config={cfg as { limit?: number }} />,
+      technical_nat_table:           <NatTable />,
+      technical_route_table:         <RouteTable />,
+      visual_queue_bars:             <QueueBars />,
       hybrid_ip_profiler:            <IpProfiler config={cfg as { default_ip?: string }} />,
       hybrid_confirmed_threats:      <ConfirmedThreats config={cfg} />,
       hybrid_country_radar:          <CountryRadar config={cfg as { limit?: number }} />,

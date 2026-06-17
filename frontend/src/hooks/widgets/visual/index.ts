@@ -238,3 +238,42 @@ export function useSubnetUsageWidget() {
     refetchInterval: 2 * 60_000,
   });
 }
+
+/* ── Queue Bars ────────────────────────────────────────────────── */
+
+export function useQueueBars() {
+  return useQuery({
+    queryKey: ['widget', 'queue-bars'],
+    queryFn: async () => {
+      const res = await mikrotikApi.getQueues();
+      if (!res.success) throw new Error(res.error ?? 'Error cargando queues');
+      const queues = (res.data ?? []) as Array<{
+        id: string; name: string; target: string;
+        max_limit: string; rate: string; dropped: number;
+        bytes: number; disabled: boolean;
+      }>;
+      // Calcular % de uso: rate actual / max_limit
+      function parseMbps(s: string): number {
+        const v = parseFloat(s) || 0;
+        if (s.includes('G')) return v * 1000;
+        if (s.includes('M')) return v;
+        if (s.includes('K')) return v / 1000;
+        return v / 1_000_000;
+      }
+      return queues.map(q => {
+        const [rateUp, rateDown] = q.rate.split('/').map(parseMbps);
+        const [maxUp, maxDown] = q.max_limit.split('/').map(parseMbps);
+        const pctUp = maxUp > 0 ? Math.min(100, Math.round((rateUp / maxUp) * 100)) : 0;
+        const pctDown = maxDown > 0 ? Math.min(100, Math.round((rateDown / maxDown) * 100)) : 0;
+        return {
+          id: q.id, name: q.name, target: q.target,
+          max_limit: q.max_limit, rate: q.rate,
+          pct_up: pctUp, pct_down: pctDown,
+          dropped: q.dropped, disabled: q.disabled,
+        };
+      });
+    },
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+  });
+}

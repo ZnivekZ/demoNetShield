@@ -589,6 +589,7 @@ class MikroTikService:
             vlans = await self._api_call("/interface/vlan")
             vlan_iface_names = {v.get("name", "") for v in vlans}
 
+            addresses = await self._api_call("/ip/address")
             result = []
             for addr in addresses:
                 iface = addr.get("interface", "")
@@ -615,6 +616,7 @@ class MikroTikService:
             from services.mock_data import MockData
             return MockData.mikrotik.system_health()
         try:
+            resources = await self._api_call("/system/resource")
             if resources:
                 r = resources[0]
                 total_ram = int(r.get("total-memory", 0))
@@ -1322,6 +1324,265 @@ class MikroTikService:
             return result
         except Exception as e:
             logger.error("mikrotik_cli_execution_failed", path=clean_path, error=str(e))
+            raise
+
+    # ── NAT Rules ────────────────────────────────────────────────────────────
+
+    async def get_nat_rules(self) -> list[dict]:
+        """
+        [MikroTik API] Get all NAT rules (src-nat, dst-nat, masquerade).
+        Resource: /ip/firewall/nat
+        """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.mikrotik.nat_rules()
+        try:
+            entries = await self._api_call("/ip/firewall/nat")
+            result = []
+            for e in entries:
+                result.append({
+                    "id": e.get(".id", ""),
+                    "chain": e.get("chain", ""),
+                    "action": e.get("action", ""),
+                    "src_address": e.get("src-address", ""),
+                    "dst_address": e.get("dst-address", ""),
+                    "src_port": e.get("src-port", ""),
+                    "dst_port": e.get("dst-port", ""),
+                    "to_addresses": e.get("to-addresses", ""),
+                    "to_ports": e.get("to-ports", ""),
+                    "protocol": e.get("protocol", ""),
+                    "in_interface": e.get("in-interface", ""),
+                    "out_interface": e.get("out-interface", ""),
+                    "comment": e.get("comment", ""),
+                    "disabled": e.get("disabled", "false") == "true",
+                    "invalid": e.get("invalid", "false") == "true",
+                    "dynamic": e.get("dynamic", "false") == "true",
+                    "bytes": int(e.get("bytes", 0)),
+                    "packets": int(e.get("packets", 0)),
+                })
+            logger.debug("mikrotik_nat_rules_fetched", count=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_nat_rules_failed", error=str(e))
+            raise
+
+    # ── Network Topology ─────────────────────────────────────────────────────
+
+    async def get_routes(self) -> list[dict]:
+        """
+        [MikroTik API] Get routing table (static + dynamic).
+        Resource: /ip/route
+        """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.mikrotik.routes()
+        try:
+            entries = await self._api_call("/ip/route")
+            result = []
+            for e in entries:
+                result.append({
+                    "id": e.get(".id", ""),
+                    "dst_address": e.get("dst-address", ""),
+                    "gateway": e.get("gateway", ""),
+                    "gateway_status": e.get("gateway-status", ""),
+                    "distance": int(e.get("distance", 0)),
+                    "scope": int(e.get("scope", 0)),
+                    "target_scope": int(e.get("target-scope", 0)),
+                    "routing_mark": e.get("routing-mark", ""),
+                    "comment": e.get("comment", ""),
+                    "active": e.get("active", "false") == "true",
+                    "dynamic": e.get("dynamic", "false") == "true",
+                    "disabled": e.get("disabled", "false") == "true",
+                    "static": e.get("static", "false") == "true",
+                    "connect": e.get("connect", "false") == "true",
+                    "ospf": e.get("ospf", "false") == "true",
+                })
+            logger.debug("mikrotik_routes_fetched", count=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_routes_failed", error=str(e))
+            raise
+
+    async def get_ip_addresses(self) -> list[dict]:
+        """
+        [MikroTik API] Get all IP addresses assigned to interfaces.
+        Resource: /ip/address
+        """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.mikrotik.ip_addresses()
+        try:
+            entries = await self._api_call("/ip/address")
+            result = []
+            for e in entries:
+                result.append({
+                    "id": e.get(".id", ""),
+                    "address": e.get("address", ""),
+                    "network": e.get("network", ""),
+                    "interface": e.get("interface", ""),
+                    "actual_interface": e.get("actual-interface", ""),
+                    "comment": e.get("comment", ""),
+                    "disabled": e.get("disabled", "false") == "true",
+                    "dynamic": e.get("dynamic", "false") == "true",
+                    "invalid": e.get("invalid", "false") == "true",
+                })
+            logger.debug("mikrotik_ip_addresses_fetched", count=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_ip_addresses_failed", error=str(e))
+            raise
+
+    async def get_bridge_ports(self) -> list[dict]:
+        """
+        [MikroTik API] Get bridge ports configuration.
+        Resource: /interface/bridge/port
+        """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.mikrotik.bridge_ports()
+        try:
+            entries = await self._api_call("/interface/bridge/port")
+            result = []
+            for e in entries:
+                result.append({
+                    "id": e.get(".id", ""),
+                    "interface": e.get("interface", ""),
+                    "bridge": e.get("bridge", ""),
+                    "priority": e.get("priority", "0x80"),
+                    "path_cost": int(e.get("path-cost", 10)),
+                    "horizon": e.get("horizon", "none"),
+                    "learn": e.get("learn", "auto"),
+                    "discover": e.get("discover", "auto"),
+                    "hw": e.get("hw", "true") == "true",
+                    "comment": e.get("comment", ""),
+                    "disabled": e.get("disabled", "false") == "true",
+                    "inactive": e.get("inactive", "false") == "true",
+                    "dynamic": e.get("dynamic", "false") == "true",
+                    "pvid": int(e.get("pvid", 1)),
+                })
+            logger.debug("mikrotik_bridge_ports_fetched", count=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_bridge_ports_failed", error=str(e))
+            raise
+
+    # ── QoS / Simple Queues ───────────────────────────────────────────────────
+
+    async def get_queues(self) -> list[dict]:
+        """
+        [MikroTik API] Get all simple queues (bandwidth limiters).
+        Resource: /queue/simple
+        """
+        if self._settings.should_mock_mikrotik:
+            from services.mock_data import MockData
+            return MockData.mikrotik.queues()
+        try:
+            entries = await self._api_call("/queue/simple")
+            result = []
+            for e in entries:
+                result.append({
+                    "id": e.get(".id", ""),
+                    "name": e.get("name", ""),
+                    "target": e.get("target", ""),
+                    "max_limit": e.get("max-limit", "0/0"),
+                    "burst_limit": e.get("burst-limit", "0/0"),
+                    "burst_threshold": e.get("burst-threshold", "0/0"),
+                    "burst_time": e.get("burst-time", "0s/0s"),
+                    "priority": e.get("priority", "8/8"),
+                    "queue": e.get("queue", "default-small/default-small"),
+                    "parent": e.get("parent", "none"),
+                    "comment": e.get("comment", ""),
+                    "disabled": e.get("disabled", "false") == "true",
+                    "invalid": e.get("invalid", "false") == "true",
+                    "dynamic": e.get("dynamic", "false") == "true",
+                    "bytes": int(e.get("bytes", 0)),
+                    "packets": int(e.get("packets", 0)),
+                    "dropped": int(e.get("dropped", 0)),
+                    "rate": e.get("rate", "0/0"),
+                    "packet_rate": e.get("packet-rate", "0/0"),
+                    "queued_bytes": e.get("queued-bytes", "0/0"),
+                    "queued_packets": e.get("queued-packets", "0/0"),
+                })
+            logger.debug("mikrotik_queues_fetched", count=len(result))
+            return result
+        except Exception as e:
+            logger.error("mikrotik_get_queues_failed", error=str(e))
+            raise
+
+    async def create_queue(
+        self, name: str, target: str, max_limit: str = "0/0",
+        burst_limit: str = "0/0", burst_threshold: str = "0/0",
+        burst_time: str = "0s/0s", comment: str = ""
+    ) -> dict:
+        """
+        [MikroTik API] Create a simple queue (bandwidth limiter).
+        Resource: /queue/simple add
+        max_limit format: 'upload/download' e.g. '5M/10M'
+        """
+        if self._settings.should_mock_mikrotik:
+            return {
+                "id": "mock-queue-1",
+                "name": name,
+                "target": target,
+                "max_limit": max_limit,
+                "mock": True,
+                "action": "created",
+            }
+        try:
+            kwargs: dict = {"name": name, "target": target, "max_limit": max_limit}
+            if burst_limit != "0/0":
+                kwargs["burst_limit"] = burst_limit
+                kwargs["burst_threshold"] = burst_threshold
+                kwargs["burst_time"] = burst_time
+            if comment:
+                kwargs["comment"] = comment
+            rid = await self._api_call("/queue/simple", command="add", **kwargs)
+            logger.info("mikrotik_queue_created", name=name, target=target, max_limit=max_limit)
+            return {"id": rid, "name": name, "target": target, "max_limit": max_limit}
+        except Exception as e:
+            logger.error("mikrotik_create_queue_failed", name=name, error=str(e))
+            raise
+
+    async def update_queue(
+        self, queue_id: str, name: str | None = None, max_limit: str | None = None,
+        comment: str | None = None, disabled: bool | None = None
+    ) -> dict:
+        """
+        [MikroTik API] Update a simple queue.
+        Resource: /queue/simple set
+        """
+        if self._settings.should_mock_mikrotik:
+            return {"id": queue_id, "action": "updated", "mock": True}
+        try:
+            kwargs: dict = {"id": queue_id}
+            if name is not None:
+                kwargs["name"] = name
+            if max_limit is not None:
+                kwargs["max_limit"] = max_limit
+            if comment is not None:
+                kwargs["comment"] = comment
+            if disabled is not None:
+                kwargs["disabled"] = "yes" if disabled else "no"
+            await self._api_call("/queue/simple", command="set", **kwargs)
+            logger.info("mikrotik_queue_updated", id=queue_id)
+            return {"id": queue_id, "action": "updated"}
+        except Exception as e:
+            logger.error("mikrotik_update_queue_failed", id=queue_id, error=str(e))
+            raise
+
+    async def delete_queue(self, queue_id: str) -> dict:
+        """
+        [MikroTik API] Delete a simple queue.
+        Resource: /queue/simple remove
+        """
+        if self._settings.should_mock_mikrotik:
+            return {"id": queue_id, "action": "deleted", "mock": True}
+        try:
+            await self._api_call("/queue/simple", command="remove", id=queue_id)
+            logger.info("mikrotik_queue_deleted", id=queue_id)
+            return {"id": queue_id, "action": "deleted"}
+        except Exception as e:
+            logger.error("mikrotik_delete_queue_failed", id=queue_id, error=str(e))
             raise
 
     async def quarantine_agent_port(self, port_name: str, vlan_id: int) -> dict:

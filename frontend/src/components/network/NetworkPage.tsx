@@ -7,14 +7,32 @@ import {
   Trash2,
   Plus,
   Search,
+  Map,
+  Gauge,
+  Edit2,
+  CheckCircle2,
+  XCircle,
+  RefreshCw,
+  ArrowRight,
 } from 'lucide-react';
 import { networkApi, mikrotikApi } from '../../services/api';
-import type { IPLabel, IPGroup } from '../../types';
+import type { IPLabel, IPGroup, RouteEntry, IPAddress, BridgePort, QueueEntry, QueueCreate, QueueUpdate } from '../../types';
 import VlanPanel from '../vlans/VlanPanel';
+
+type TabId = 'ips' | 'labels' | 'groups' | 'vlans' | 'topologia' | 'queues';
+
+const TAB_LABELS: Record<TabId, string> = {
+  ips: 'Tabla ARP',
+  labels: 'Etiquetas',
+  groups: 'Grupos',
+  vlans: 'VLANs',
+  topologia: 'Topología',
+  queues: 'Queues',
+};
 
 export default function NetworkPage() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'ips' | 'labels' | 'groups' | 'vlans'>('ips');
+  const [activeTab, setActiveTab] = useState<TabId>('ips');
 
   // ── Data queries ──
   const { data: arpResp } = useQuery({
@@ -43,16 +61,16 @@ export default function NetworkPage() {
       <div>
         <h1 className="text-xl font-bold text-surface-100 flex items-center gap-2">
           <Network className="w-5 h-5 text-brand-400" />
-          Red & IPs
+          Red &amp; IPs
         </h1>
         <p className="text-sm text-surface-500 mt-0.5">
-          Gestión de dispositivos, etiquetas y grupos de IP
+          Gestión de dispositivos, etiquetas, grupos, topología y control de ancho de banda
         </p>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 bg-surface-900/50 rounded-xl p-1 w-fit overflow-x-auto">
-        {(['ips', 'labels', 'groups', 'vlans'] as const).map((tab) => (
+        {(Object.keys(TAB_LABELS) as TabId[]).map((tab) => (
           <button
             key={tab}
             className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
@@ -62,7 +80,7 @@ export default function NetworkPage() {
             }`}
             onClick={() => setActiveTab(tab)}
           >
-            {tab === 'ips' ? 'Tabla ARP' : tab === 'labels' ? 'Etiquetas' : tab === 'groups' ? 'Grupos' : 'VLANs'}
+            {TAB_LABELS[tab]}
           </button>
         ))}
       </div>
@@ -79,6 +97,8 @@ export default function NetworkPage() {
           <VlanPanel />
         </div>
       )}
+      {activeTab === 'topologia' && <TopologyPanel />}
+      {activeTab === 'queues' && <QueuesPanel />}
     </div>
   );
 }
@@ -458,5 +478,590 @@ function GroupsPanel({
         </div>
       </div>
     </div>
+  );
+}
+
+/* ── Topology Panel ─────────────────────────────────────────── */
+
+type TopoSubTab = 'routes' | 'addresses' | 'bridge';
+const TOPO_LABELS: Record<TopoSubTab, string> = {
+  routes: 'Rutas',
+  addresses: 'IPs por Interfaz',
+  bridge: 'Bridge Ports',
+};
+
+function TopologyPanel() {
+  const [subTab, setSubTab] = useState<TopoSubTab>('routes');
+
+  const { data: routesResp, isLoading: loadingRoutes, refetch: refetchRoutes } = useQuery({
+    queryKey: ['mikrotik-routes'],
+    queryFn: mikrotikApi.getRoutes,
+    staleTime: 30_000,
+  });
+
+  const { data: addrResp, isLoading: loadingAddr, refetch: refetchAddr } = useQuery({
+    queryKey: ['mikrotik-addresses'],
+    queryFn: mikrotikApi.getIPAddresses,
+    staleTime: 30_000,
+  });
+
+  const { data: bridgeResp, isLoading: loadingBridge, refetch: refetchBridge } = useQuery({
+    queryKey: ['mikrotik-bridge-ports'],
+    queryFn: mikrotikApi.getBridgePorts,
+    staleTime: 30_000,
+  });
+
+  const routes = routesResp?.data ?? [];
+  const addresses = addrResp?.data ?? [];
+  const bridgePorts = bridgeResp?.data ?? [];
+
+  const handleRefresh = () => {
+    refetchRoutes();
+    refetchAddr();
+    refetchBridge();
+  };
+
+  return (
+    <div className="space-y-4 animate-fade-in-up">
+      {/* Sub-tabs + refresh */}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1 bg-surface-900/50 rounded-lg p-1 w-fit">
+          {(Object.keys(TOPO_LABELS) as TopoSubTab[]).map((t) => (
+            <button
+              key={t}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                subTab === t
+                  ? 'bg-brand-600/80 text-white'
+                  : 'text-surface-400 hover:text-surface-200'
+              }`}
+              onClick={() => setSubTab(t)}
+            >
+              {TOPO_LABELS[t]}
+            </button>
+          ))}
+        </div>
+        <button className="btn btn-ghost text-xs gap-1.5" onClick={handleRefresh}>
+          <RefreshCw className="w-3.5 h-3.5" />
+          Actualizar
+        </button>
+      </div>
+
+      {/* Routes */}
+      {subTab === 'routes' && (
+        <div className="glass-card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Map className="w-4 h-4 text-brand-400" />
+            <h2 className="text-sm font-semibold text-surface-200">
+              Tabla de Ruteo ({routes.length} entradas)
+            </h2>
+          </div>
+          {loadingRoutes ? (
+            <div className="flex justify-center py-8"><div className="loading-spinner" /></div>
+          ) : (
+            <div className="overflow-auto max-h-[28rem] rounded-lg">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Destino</th>
+                    <th>Gateway</th>
+                    <th>Dist.</th>
+                    <th>Tipo</th>
+                    <th>Estado</th>
+                    <th>Comentario</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(routes as RouteEntry[]).map((r) => (
+                    <tr key={r.id}>
+                      <td className="font-mono text-xs font-semibold text-surface-100">{r.dst_address}</td>
+                      <td className="font-mono text-xs text-brand-400">
+                        <span className="flex items-center gap-1">
+                          <ArrowRight className="w-3 h-3" />{r.gateway}
+                        </span>
+                      </td>
+                      <td className="text-xs text-center">{r.distance}</td>
+                      <td>
+                        {r.static && <span className="badge badge-info">estática</span>}
+                        {r.connect && <span className="badge badge-success">conectada</span>}
+                        {r.ospf && <span className="badge badge-high">OSPF</span>}
+                        {r.dynamic && !r.connect && !r.ospf && <span className="badge badge-medium">dinámica</span>}
+                      </td>
+                      <td>
+                        {r.active ? (
+                          <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-success, #22c55e)' }}>
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Activa
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs text-danger">
+                            <XCircle className="w-3.5 h-3.5" /> Inactiva
+                          </span>
+                        )}
+                      </td>
+                      <td className="text-xs text-surface-500">{r.comment || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {routes.length === 0 && (
+                <p className="text-center text-surface-500 py-8 text-sm">Sin datos de ruteo</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* IP Addresses */}
+      {subTab === 'addresses' && (
+        <div className="glass-card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Network className="w-4 h-4 text-brand-400" />
+            <h2 className="text-sm font-semibold text-surface-200">
+              IPs por Interfaz ({addresses.length} asignadas)
+            </h2>
+          </div>
+          {loadingAddr ? (
+            <div className="flex justify-center py-8"><div className="loading-spinner" /></div>
+          ) : (
+            <div className="overflow-auto max-h-[28rem] rounded-lg">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Dirección</th>
+                    <th>Red</th>
+                    <th>Interfaz</th>
+                    <th>Tipo</th>
+                    <th>Estado</th>
+                    <th>Comentario</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(addresses as IPAddress[]).map((a) => (
+                    <tr key={a.id}>
+                      <td className="font-mono text-xs font-semibold text-surface-100">{a.address}</td>
+                      <td className="font-mono text-xs text-surface-400">{a.network}</td>
+                      <td className="text-xs">
+                        <span className="font-mono bg-surface-800/50 px-1.5 py-0.5 rounded text-brand-300">
+                          {a.interface}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`badge ${a.dynamic ? 'badge-info' : 'badge-success'}`}>
+                          {a.dynamic ? 'dinámica' : 'estática'}
+                        </span>
+                      </td>
+                      <td>
+                        {a.disabled ? (
+                          <span className="badge badge-danger">deshabilitada</span>
+                        ) : a.invalid ? (
+                          <span className="badge badge-critical">inválida</span>
+                        ) : (
+                          <span className="badge badge-success">activa</span>
+                        )}
+                      </td>
+                      <td className="text-xs text-surface-500">{a.comment || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {addresses.length === 0 && (
+                <p className="text-center text-surface-500 py-8 text-sm">Sin IPs asignadas</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Bridge Ports */}
+      {subTab === 'bridge' && (
+        <div className="glass-card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Network className="w-4 h-4 text-brand-400" />
+            <h2 className="text-sm font-semibold text-surface-200">
+              Puertos Bridge ({bridgePorts.length} configurados)
+            </h2>
+          </div>
+          {loadingBridge ? (
+            <div className="flex justify-center py-8"><div className="loading-spinner" /></div>
+          ) : (
+            <div className="overflow-auto max-h-[28rem] rounded-lg">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Interfaz</th>
+                    <th>Bridge</th>
+                    <th>PVID</th>
+                    <th>Path Cost</th>
+                    <th>HW Offload</th>
+                    <th>Estado</th>
+                    <th>Comentario</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(bridgePorts as BridgePort[]).map((bp) => (
+                    <tr key={bp.id}>
+                      <td className="font-mono text-xs font-semibold text-surface-100">{bp.interface}</td>
+                      <td className="font-mono text-xs text-brand-300">{bp.bridge}</td>
+                      <td className="text-xs text-center font-mono">{bp.pvid}</td>
+                      <td className="text-xs text-center">{bp.path_cost}</td>
+                      <td className="text-center">
+                        {bp.hw ? (
+                          <CheckCircle2 className="w-4 h-4 mx-auto" style={{ color: 'var(--color-success, #22c55e)' }} />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-surface-600 mx-auto" />
+                        )}
+                      </td>
+                      <td>
+                        {bp.disabled ? (
+                          <span className="badge badge-danger">deshabilitado</span>
+                        ) : bp.inactive ? (
+                          <span className="badge badge-medium">inactivo</span>
+                        ) : (
+                          <span className="badge badge-success">activo</span>
+                        )}
+                      </td>
+                      <td className="text-xs text-surface-500">{bp.comment || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {bridgePorts.length === 0 && (
+                <p className="text-center text-surface-500 py-8 text-sm">Sin puertos bridge configurados</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Queues Panel ───────────────────────────────────────────── */
+
+function QueuesPanel() {
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState<QueueCreate>({
+    name: '',
+    target: '',
+    max_limit: '10M/10M',
+    comment: '',
+  });
+
+  const { data: queuesResp, isLoading } = useQuery({
+    queryKey: ['mikrotik-queues'],
+    queryFn: mikrotikApi.getQueues,
+    refetchInterval: 15_000,
+  });
+
+  const queues = (queuesResp?.data ?? []) as QueueEntry[];
+
+  const createMutation = useMutation({
+    mutationFn: (data: QueueCreate) => mikrotikApi.createQueue(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mikrotik-queues'] });
+      setShowForm(false);
+      setFormData({ name: '', target: '', max_limit: '10M/10M', comment: '' });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: QueueUpdate }) =>
+      mikrotikApi.updateQueue(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mikrotik-queues'] });
+      setEditingId(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => mikrotikApi.deleteQueue(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mikrotik-queues'] }),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, disabled }: { id: string; disabled: boolean }) =>
+      mikrotikApi.updateQueue(id, { disabled }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mikrotik-queues'] }),
+  });
+
+  function fmtBytes(bytes: number) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+  }
+
+  function parseMaxLimit(limit: string) {
+    const [up, down] = limit.split('/');
+    return { up: up || '0', down: down || '0' };
+  }
+
+  return (
+    <div className="space-y-4 animate-fade-in-up">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Gauge className="w-4 h-4 text-brand-400" />
+          <h2 className="text-sm font-semibold text-surface-200">
+            Simple Queues — Control de Ancho de Banda
+          </h2>
+          <span className="badge badge-info">{queues.length} colas</span>
+        </div>
+        <button
+          className="btn btn-primary text-xs gap-1.5"
+          onClick={() => setShowForm(!showForm)}
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Nueva Cola
+        </button>
+      </div>
+
+      {/* Create form */}
+      {showForm && (
+        <div className="glass-card p-5 border border-brand-500/20">
+          <h3 className="text-sm font-semibold text-surface-200 mb-4">
+            Crear Nueva Queue Simple
+          </h3>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMutation.mutate(formData);
+            }}
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3"
+          >
+            <div>
+              <label className="text-xs text-surface-400 mb-1 block">Nombre *</label>
+              <input
+                className="input"
+                placeholder="limit-PC-01"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <label className="text-xs text-surface-400 mb-1 block">Target (IP o red) *</label>
+              <input
+                className="input"
+                placeholder="192.168.88.20 o 192.168.88.0/24"
+                value={formData.target}
+                onChange={(e) => setFormData({ ...formData, target: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <label className="text-xs text-surface-400 mb-1 block">
+                Límite (upload/download)
+              </label>
+              <input
+                className="input"
+                placeholder="10M/10M"
+                value={formData.max_limit}
+                onChange={(e) => setFormData({ ...formData, max_limit: e.target.value })}
+              />
+              <p className="text-[0.6rem] text-surface-600 mt-0.5">Ej: 5M/10M — 0/0 = sin límite</p>
+            </div>
+            <div>
+              <label className="text-xs text-surface-400 mb-1 block">Comentario</label>
+              <input
+                className="input"
+                placeholder="Descripción opcional"
+                value={formData.comment}
+                onChange={(e) => setFormData({ ...formData, comment: e.target.value })}
+              />
+            </div>
+            <div className="md:col-span-2 lg:col-span-4 flex gap-2 justify-end">
+              <button
+                type="button"
+                className="btn btn-ghost text-xs"
+                onClick={() => setShowForm(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="btn btn-primary text-xs"
+                disabled={createMutation.isPending}
+              >
+                {createMutation.isPending ? 'Creando...' : 'Crear Queue'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Queues list */}
+      <div className="glass-card p-5">
+        {isLoading ? (
+          <div className="flex justify-center py-8"><div className="loading-spinner" /></div>
+        ) : queues.length === 0 ? (
+          <p className="text-center text-surface-500 py-8 text-sm">
+            No hay queues configuradas. Creá una para limitar el ancho de banda de una IP o red.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {queues.map((q) => {
+              const { up, down } = parseMaxLimit(q.max_limit);
+              const isEditing = editingId === q.id;
+
+              return (
+                <div
+                  key={q.id}
+                  className={`p-4 rounded-xl border transition-all ${
+                    q.disabled
+                      ? 'border-surface-800/20 bg-surface-900/20 opacity-60'
+                      : 'border-surface-700/30 bg-surface-900/40'
+                  }`}
+                >
+                  {isEditing ? (
+                    <EditQueueForm
+                      queue={q}
+                      onSave={(data) => updateMutation.mutate({ id: q.id, data })}
+                      onCancel={() => setEditingId(null)}
+                      isPending={updateMutation.isPending}
+                    />
+                  ) : (
+                    <div className="flex items-start justify-between gap-4">
+                      {/* Queue info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-semibold text-surface-100 truncate">
+                            {q.name}
+                          </span>
+                          {q.disabled && (
+                            <span className="badge badge-danger text-[0.6rem]">deshabilitada</span>
+                          )}
+                          {q.dynamic && (
+                            <span className="badge badge-info text-[0.6rem]">dinámica</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-surface-400 flex-wrap">
+                          <span className="font-mono">🎯 {q.target}</span>
+                          <span className="font-mono text-brand-300">↑ {up} / ↓ {down}</span>
+                          {q.rate !== '0/0' && (
+                            <span className="font-mono" style={{ color: 'var(--color-success, #22c55e)' }}>
+                              ~{q.rate}
+                            </span>
+                          )}
+                          {q.dropped > 0 && (
+                            <span className="font-mono text-warning">
+                              {q.dropped.toLocaleString()} drops
+                            </span>
+                          )}
+                          <span className="text-surface-600">
+                            {fmtBytes(q.bytes)} transferidos
+                          </span>
+                        </div>
+                        {q.comment && (
+                          <p className="text-[0.65rem] text-surface-500 mt-1">{q.comment}</p>
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          className="btn btn-ghost p-1.5"
+                          title={q.disabled ? 'Habilitar' : 'Deshabilitar'}
+                          onClick={() => toggleMutation.mutate({ id: q.id, disabled: !q.disabled })}
+                        >
+                          {q.disabled ? (
+                            <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--color-success, #22c55e)' }} />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-surface-500" />
+                          )}
+                        </button>
+                        <button
+                          className="btn btn-ghost p-1.5"
+                          title="Editar"
+                          onClick={() => setEditingId(q.id)}
+                        >
+                          <Edit2 className="w-4 h-4 text-brand-400" />
+                        </button>
+                        <button
+                          className="btn btn-ghost p-1.5"
+                          title="Eliminar"
+                          onClick={() => {
+                            if (confirm(`¿Eliminar queue "${q.name}"?`)) {
+                              deleteMutation.mutate(q.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4 text-danger" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Edit Queue Form ────────────────────────────────────────── */
+
+function EditQueueForm({
+  queue,
+  onSave,
+  onCancel,
+  isPending,
+}: {
+  queue: QueueEntry;
+  onSave: (data: QueueUpdate) => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const [name, setName] = useState(queue.name);
+  const [maxLimit, setMaxLimit] = useState(queue.max_limit);
+  const [comment, setComment] = useState(queue.comment);
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave({ name, max_limit: maxLimit, comment });
+      }}
+      className="grid grid-cols-1 md:grid-cols-3 gap-3"
+    >
+      <div>
+        <label className="text-xs text-surface-400 mb-1 block">Nombre</label>
+        <input
+          className="input text-sm"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </div>
+      <div>
+        <label className="text-xs text-surface-400 mb-1 block">Límite (up/down)</label>
+        <input
+          className="input text-sm font-mono"
+          value={maxLimit}
+          onChange={(e) => setMaxLimit(e.target.value)}
+          placeholder="10M/10M"
+        />
+      </div>
+      <div>
+        <label className="text-xs text-surface-400 mb-1 block">Comentario</label>
+        <input
+          className="input text-sm"
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+        />
+      </div>
+      <div className="md:col-span-3 flex gap-2 justify-end">
+        <button type="button" className="btn btn-ghost text-xs" onClick={onCancel}>
+          Cancelar
+        </button>
+        <button type="submit" className="btn btn-primary text-xs" disabled={isPending}>
+          {isPending ? 'Guardando...' : 'Guardar Cambios'}
+        </button>
+      </div>
+    </form>
   );
 }

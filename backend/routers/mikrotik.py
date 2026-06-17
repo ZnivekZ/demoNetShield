@@ -242,3 +242,160 @@ async def get_address_list(
         logger.error("api_get_address_list_failed", error=str(e))
         return APIResponse.fail(f"Failed to fetch address list: {str(e)}")
 
+
+# ── NAT Rules ─────────────────────────────────────────────────────────────────
+
+@router.get("/nat-rules")
+async def get_nat_rules(
+    service: MikroTikService = Depends(get_service),
+) -> APIResponse:
+    """
+    [MikroTik API] Get all NAT rules (src-nat, dst-nat, masquerade).
+    Resource: /ip/firewall/nat
+    """
+    try:
+        data = await service.get_nat_rules()
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_get_nat_rules_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch NAT rules: {str(e)}")
+
+
+# ── Network Topology ───────────────────────────────────────────────────────────
+
+@router.get("/routes")
+async def get_routes(
+    service: MikroTikService = Depends(get_service),
+) -> APIResponse:
+    """
+    [MikroTik API] Get routing table (static + dynamic + connected).
+    Resource: /ip/route
+    """
+    try:
+        data = await service.get_routes()
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_get_routes_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch routes: {str(e)}")
+
+
+@router.get("/addresses")
+async def get_ip_addresses(
+    service: MikroTikService = Depends(get_service),
+) -> APIResponse:
+    """
+    [MikroTik API] Get all IP addresses assigned to interfaces.
+    Resource: /ip/address
+    """
+    try:
+        data = await service.get_ip_addresses()
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_get_ip_addresses_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch IP addresses: {str(e)}")
+
+
+@router.get("/bridge-ports")
+async def get_bridge_ports(
+    service: MikroTikService = Depends(get_service),
+) -> APIResponse:
+    """
+    [MikroTik API] Get bridge port configuration.
+    Resource: /interface/bridge/port
+    """
+    try:
+        data = await service.get_bridge_ports()
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_get_bridge_ports_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch bridge ports: {str(e)}")
+
+
+# ── QoS / Simple Queues ────────────────────────────────────────────────────────
+
+@router.get("/queues")
+async def get_queues(
+    service: MikroTikService = Depends(get_service),
+) -> APIResponse:
+    """
+    [MikroTik API] Get all simple queues (bandwidth limiters).
+    Resource: /queue/simple
+    """
+    try:
+        data = await service.get_queues()
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_get_queues_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch queues: {str(e)}")
+
+
+@router.post("/queues")
+async def create_queue(
+    request: dict,
+    service: MikroTikService = Depends(get_service),
+) -> APIResponse:
+    """
+    [MikroTik API] Create a simple queue (bandwidth limiter).
+    Body: {name, target, max_limit, burst_limit?, burst_threshold?, burst_time?, comment?}
+    max_limit format: 'upload/download' e.g. '5M/10M' or '0/0' for unlimited
+    """
+    try:
+        name = request.get("name", "")
+        target = request.get("target", "")
+        if not name or not target:
+            return APIResponse.fail("Fields 'name' and 'target' are required")
+        data = await service.create_queue(
+            name=name,
+            target=target,
+            max_limit=request.get("max_limit", "0/0"),
+            burst_limit=request.get("burst_limit", "0/0"),
+            burst_threshold=request.get("burst_threshold", "0/0"),
+            burst_time=request.get("burst_time", "0s/0s"),
+            comment=request.get("comment", ""),
+        )
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_create_queue_failed", error=str(e))
+        return APIResponse.fail(f"Failed to create queue: {str(e)}")
+
+
+@router.put("/queues/{queue_id}")
+async def update_queue(
+    queue_id: str,
+    request: dict,
+    service: MikroTikService = Depends(get_service),
+) -> APIResponse:
+    """
+    [MikroTik API] Update a simple queue.
+    Body: {name?, max_limit?, comment?, disabled?}
+    """
+    try:
+        data = await service.update_queue(
+            queue_id=queue_id,
+            name=request.get("name"),
+            max_limit=request.get("max_limit"),
+            comment=request.get("comment"),
+            disabled=request.get("disabled"),
+        )
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_update_queue_failed", queue_id=queue_id, error=str(e))
+        return APIResponse.fail(f"Failed to update queue {queue_id}: {str(e)}")
+
+
+@router.delete("/queues/{queue_id}")
+async def delete_queue(
+    queue_id: str,
+    service: MikroTikService = Depends(get_service),
+) -> APIResponse:
+    """
+    [MikroTik API] Delete a simple queue by ID.
+    Resource: /queue/simple remove
+    """
+    try:
+        data = await service.delete_queue(queue_id)
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_delete_queue_failed", queue_id=queue_id, error=str(e))
+        return APIResponse.fail(f"Failed to delete queue {queue_id}: {str(e)}")
+

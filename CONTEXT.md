@@ -282,10 +282,12 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 **Frontend:**
 - [x] 23 rutas (22 reales + 1 redirect + 1 fallback) [REAL]
 - [x] Layout con sidebar 7 grupos, topbar con 5 status dots [REAL]
-- [x] 56 widgets en 4 categorías (18 standard, 11 visual, 13 technical, 15 hybrid) [REAL]
+- [x] **59 widgets** en 4 categorías (17 standard, **12** visual, **15** technical, 15 hybrid) [REAL]
 - [x] 6 temas visuales con escala de fuente [REAL]
 - [x] 40 custom hooks de datos [REAL]
 - [x] Sistema de vistas personalizadas con drag-and-drop [REAL]
+- [x] Filtro por tipo de activo en Inventario (Computer/NetworkEquipment/Printer/Phone/Peripheral/Monitor)
+- [x] Botón 🚦 "Limitar velocidad" en DHCP Leases → crea Simple Queue
 - [ ] Responsive móvil (funcional pero no refinado)
 - [ ] Autenticación de usuario
 
@@ -461,6 +463,12 @@ En `Layout.tsx`, agregar al array `navGroups`:
 ```
 Actualmente hay 20 ítems de 20 máximos.
 
-Última actualización: 2026-06-02
-Basado en análisis de: 135+ archivos
-Versión del proyecto: 2.5 (según README.md)
+Última actualización: 2026-06-16
+Basado en análisis de: 140+ archivos
+Versión del proyecto: 2.6
+
+### Cambios Fase 1 (2026-06-16)
+- **Backend (MikroTik):** Nuevos endpoints `GET /api/mikrotik/nat-rules`, `GET /api/mikrotik/routes`, `GET /api/mikrotik/addresses`, `GET /api/mikrotik/bridge-ports`, CRUD `/api/mikrotik/queues`.
+- **Frontend:** 3 widgets nuevos (`NatTable`, `RouteTable`, `QueueBars`). Catálogo actualizado a 59 widgets.
+- **Frontend:** Filtro por tipo de activo en `AssetsView.tsx`.
+- **Frontend:** Botón 🚦 en DHCP Leases crea Simple Queue directamente.

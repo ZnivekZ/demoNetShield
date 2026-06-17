@@ -359,6 +359,18 @@ _WIDGETS_VISUAL = [
         "preview_color": "#06b6d4",
         "config_schema": {},
     },
+    {
+        "type": "visual_queue_bars",
+        "title": "Uso de Queues",
+        "description": "Barras de ancho de banda en tiempo real por Simple Queue — up/down con color dinámico según utilización",
+        "icon": "Gauge",
+        "source": "mikrotik",
+        "category": "visual",
+        "default_size": "medium",
+        "available_sizes": ["small", "medium", "large"],
+        "preview_color": "#3b82f6",
+        "config_schema": {},
+    },
 ]
 
 _WIDGETS_TECHNICAL = [
@@ -520,6 +532,30 @@ _WIDGETS_TECHNICAL = [
         "available_sizes": ["small", "medium", "large"],
         "preview_color": "#06b6d4",
         "config_schema": {"limit": {"type": "number", "default": 10, "label": "Cantidad"}},
+    },
+    {
+        "type": "technical_nat_table",
+        "title": "Reglas NAT",
+        "description": "Tabla de reglas NAT de MikroTik — masquerade, dst-nat, src-nat con estado y tráfico",
+        "icon": "ArrowLeftRight",
+        "source": "mikrotik",
+        "category": "technical",
+        "default_size": "medium",
+        "available_sizes": ["small", "medium", "large"],
+        "preview_color": "#3b82f6",
+        "config_schema": {},
+    },
+    {
+        "type": "technical_route_table",
+        "title": "Tabla de Ruteo",
+        "description": "Rutas activas del router MikroTik con tipo, gateway y distancia administrativa",
+        "icon": "Map",
+        "source": "mikrotik",
+        "category": "technical",
+        "default_size": "medium",
+        "available_sizes": ["small", "medium", "large"],
+        "preview_color": "#3b82f6",
+        "config_schema": {},
     },
 ]
 
@@ -747,7 +783,7 @@ WIDGET_CATALOG = {
 async def get_widget_catalog() -> APIResponse:
     """
     Retorna el catálogo categorizado de widgets con 4 secciones:
-    standard (17), visual (10), technical (12), hybrid (14). Total: 53 widgets.
+    standard (17), visual (12), technical (15), hybrid (15). Total: 59 widgets.
     """
     return APIResponse.ok(WIDGET_CATALOG)
 

@@ -24,6 +24,13 @@ import type {
   WazuhHealthResponse,
   SystemHealthMikrotik,
   AddressListEntry,
+  NatRule,
+  RouteEntry,
+  IPAddress,
+  BridgePort,
+  QueueEntry,
+  QueueCreate,
+  QueueUpdate,
   PhishingAlert,
   SuspiciousDomain,
   PhishingVictim,
@@ -130,6 +137,33 @@ export const mikrotikApi = {
     api.get<APIResponse<AddressListEntry[]>>('/mikrotik/address-list', {
       params: listName ? { list: listName } : {},
     }).then(r => r.data),
+
+  // ── NAT Rules ───────────────────────────────────────────────
+  getNatRules: () =>
+    api.get<APIResponse<NatRule[]>>('/mikrotik/nat-rules').then(r => r.data),
+
+  // ── Network Topology ────────────────────────────────────────
+  getRoutes: () =>
+    api.get<APIResponse<RouteEntry[]>>('/mikrotik/routes').then(r => r.data),
+
+  getIPAddresses: () =>
+    api.get<APIResponse<IPAddress[]>>('/mikrotik/addresses').then(r => r.data),
+
+  getBridgePorts: () =>
+    api.get<APIResponse<BridgePort[]>>('/mikrotik/bridge-ports').then(r => r.data),
+
+  // ── QoS / Simple Queues ─────────────────────────────────────
+  getQueues: () =>
+    api.get<APIResponse<QueueEntry[]>>('/mikrotik/queues').then(r => r.data),
+
+  createQueue: (data: QueueCreate) =>
+    api.post<APIResponse<QueueEntry>>('/mikrotik/queues', data).then(r => r.data),
+
+  updateQueue: (queueId: string, data: QueueUpdate) =>
+    api.put<APIResponse>(`/mikrotik/queues/${encodeURIComponent(queueId)}`, data).then(r => r.data),
+
+  deleteQueue: (queueId: string) =>
+    api.delete<APIResponse>(`/mikrotik/queues/${encodeURIComponent(queueId)}`).then(r => r.data),
 };
 
 /* ── Wazuh ────────────────────────────────────────────────────── */
@@ -937,6 +971,9 @@ import type {
   DhcpPoolCreate,
   DhcpRogueAlertCreate,
   DhcpOptionCreate,
+  DhcpLeaseGlpiCorrelation,
+  DhcpDiscoveryResult,
+  DhcpEnrichedAlert,
 } from '../types';
 
 export const dhcpApi = {

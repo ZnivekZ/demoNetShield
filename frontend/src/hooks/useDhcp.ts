@@ -28,14 +28,14 @@ import type {
 // ── Query keys ───────────────────────────────────────────────────────────────
 
 export const dhcpKeys = {
-  all:      ['dhcp'] as const,
-  servers:  () => [...dhcpKeys.all, 'servers'] as const,
-  leases:   (params?: object) => [...dhcpKeys.all, 'leases', params] as const,
+  all: ['dhcp'] as const,
+  servers: () => [...dhcpKeys.all, 'servers'] as const,
+  leases: (params?: object) => [...dhcpKeys.all, 'leases', params] as const,
   networks: () => [...dhcpKeys.all, 'networks'] as const,
-  pools:    () => [...dhcpKeys.all, 'pools'] as const,
-  usage:    () => [...dhcpKeys.all, 'usage'] as const,
-  alerts:   () => [...dhcpKeys.all, 'alerts'] as const,
-  options:  () => [...dhcpKeys.all, 'options'] as const,
+  pools: () => [...dhcpKeys.all, 'pools'] as const,
+  usage: () => [...dhcpKeys.all, 'usage'] as const,
+  alerts: () => [...dhcpKeys.all, 'alerts'] as const,
+  options: () => [...dhcpKeys.all, 'options'] as const,
 };
 
 // ── Read hooks ───────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ export const dhcpKeys = {
 export function useDhcpServers() {
   return useQuery({
     queryKey: dhcpKeys.servers(),
-    queryFn:  () => dhcpApi.getServers(),
+    queryFn: () => dhcpApi.getServers(),
     refetchInterval: 60_000,
     select: r => r.data ?? [],
   });
@@ -52,7 +52,7 @@ export function useDhcpServers() {
 export function useDhcpLeases(params?: { server?: string; status?: string; search?: string }) {
   return useQuery({
     queryKey: dhcpKeys.leases(params),
-    queryFn:  () => dhcpApi.getLeases(params),
+    queryFn: () => dhcpApi.getLeases(params),
     refetchInterval: 30_000,
     select: r => r.data ?? [],
   });
@@ -61,7 +61,7 @@ export function useDhcpLeases(params?: { server?: string; status?: string; searc
 export function useDhcpNetworks() {
   return useQuery({
     queryKey: dhcpKeys.networks(),
-    queryFn:  () => dhcpApi.getNetworks(),
+    queryFn: () => dhcpApi.getNetworks(),
     refetchInterval: 60_000,
     select: r => r.data ?? [],
   });
@@ -70,7 +70,7 @@ export function useDhcpNetworks() {
 export function useDhcpPools() {
   return useQuery({
     queryKey: dhcpKeys.pools(),
-    queryFn:  () => dhcpApi.getPools(),
+    queryFn: () => dhcpApi.getPools(),
     refetchInterval: 60_000,
     select: r => r.data ?? [],
   });
@@ -79,7 +79,7 @@ export function useDhcpPools() {
 export function useDhcpSubnetUsage() {
   return useQuery({
     queryKey: dhcpKeys.usage(),
-    queryFn:  () => dhcpApi.getSubnetUsage(),
+    queryFn: () => dhcpApi.getSubnetUsage(),
     refetchInterval: 30_000,
     select: r => r.data ?? [],
   });
@@ -88,7 +88,7 @@ export function useDhcpSubnetUsage() {
 export function useDhcpRogueAlerts() {
   return useQuery({
     queryKey: dhcpKeys.alerts(),
-    queryFn:  () => dhcpApi.getRogueAlerts(),
+    queryFn: () => dhcpApi.getRogueAlerts(),
     refetchInterval: 45_000,
     select: r => r.data ?? [],
   });
@@ -97,7 +97,7 @@ export function useDhcpRogueAlerts() {
 export function useDhcpOptions() {
   return useQuery({
     queryKey: dhcpKeys.options(),
-    queryFn:  () => dhcpApi.getOptions(),
+    queryFn: () => dhcpApi.getOptions(),
     refetchInterval: 120_000,
     select: r => r.data ?? [],
   });
@@ -188,6 +188,18 @@ export function useCreateDhcpPool() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: DhcpPoolCreate) => dhcpApi.createPool(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: dhcpKeys.pools() });
+      qc.invalidateQueries({ queryKey: dhcpKeys.usage() });
+    },
+  });
+}
+
+export function useUpdateDhcpPool() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<DhcpPoolCreate> }) =>
+      dhcpApi.updatePool(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: dhcpKeys.pools() });
       qc.invalidateQueries({ queryKey: dhcpKeys.usage() });

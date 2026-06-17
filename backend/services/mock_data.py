@@ -244,9 +244,248 @@ class MockData:
                  "ttl": "1d", "comment": "[NetShield] Sinkhole", "disabled": False},
             ]
 
+        @staticmethod
+        def nat_rules() -> list[dict]:
+            return [
+                {
+                    "id": "*1", "chain": "srcnat", "action": "masquerade",
+                    "src_address": "", "dst_address": "", "protocol": "",
+                    "src_port": "", "dst_port": "",
+                    "to_addresses": "", "to_ports": "",
+                    "in_interface": "", "out_interface": "ether1",
+                    "comment": "Masquerade — salida WAN",
+                    "disabled": False, "invalid": False, "dynamic": False,
+                    "bytes": 9_834_200_000, "packets": 7_223_400,
+                },
+                {
+                    "id": "*2", "chain": "dstnat", "action": "dst-nat",
+                    "src_address": "", "dst_address": "", "protocol": "tcp",
+                    "src_port": "", "dst_port": "80",
+                    "to_addresses": "192.168.88.50", "to_ports": "80",
+                    "in_interface": "ether1", "out_interface": "",
+                    "comment": "Port-forward HTTP → Wazuh",
+                    "disabled": False, "invalid": False, "dynamic": False,
+                    "bytes": 412_300, "packets": 3_210,
+                },
+                {
+                    "id": "*3", "chain": "dstnat", "action": "dst-nat",
+                    "src_address": "", "dst_address": "", "protocol": "tcp",
+                    "src_port": "", "dst_port": "443",
+                    "to_addresses": "192.168.88.50", "to_ports": "443",
+                    "in_interface": "ether1", "out_interface": "",
+                    "comment": "Port-forward HTTPS → Wazuh",
+                    "disabled": False, "invalid": False, "dynamic": False,
+                    "bytes": 2_109_000, "packets": 14_320,
+                },
+                {
+                    "id": "*4", "chain": "dstnat", "action": "dst-nat",
+                    "src_address": "", "dst_address": "", "protocol": "tcp",
+                    "src_port": "", "dst_port": "22",
+                    "to_addresses": "192.168.88.10", "to_ports": "22",
+                    "in_interface": "ether1", "out_interface": "",
+                    "comment": "Port-forward SSH → PC-Lab-01 (deshabilitada en producción)",
+                    "disabled": True, "invalid": False, "dynamic": False,
+                    "bytes": 0, "packets": 0,
+                },
+                {
+                    "id": "*5", "chain": "srcnat", "action": "src-nat",
+                    "src_address": "192.168.100.0/24", "dst_address": "", "protocol": "",
+                    "src_port": "", "dst_port": "",
+                    "to_addresses": "192.168.88.1", "to_ports": "",
+                    "in_interface": "", "out_interface": "ether2",
+                    "comment": "NAT servidores → LAN",
+                    "disabled": False, "invalid": False, "dynamic": False,
+                    "bytes": 320_000, "packets": 2_100,
+                },
+            ]
+
+        @staticmethod
+        def routes() -> list[dict]:
+            return [
+                {
+                    "id": "*1", "dst_address": "0.0.0.0/0",
+                    "gateway": "192.168.100.1", "gateway_status": "192.168.100.1 reachable",
+                    "distance": 1, "scope": 30, "target_scope": 10,
+                    "routing_mark": "", "comment": "Default gateway WAN",
+                    "active": True, "dynamic": False, "disabled": False,
+                    "static": True, "connect": False, "ospf": False,
+                },
+                {
+                    "id": "*2", "dst_address": "192.168.88.0/24",
+                    "gateway": "ether2", "gateway_status": "ether2 reachable",
+                    "distance": 0, "scope": 10, "target_scope": 10,
+                    "routing_mark": "", "comment": "LAN principal",
+                    "active": True, "dynamic": True, "disabled": False,
+                    "static": False, "connect": True, "ospf": False,
+                },
+                {
+                    "id": "*3", "dst_address": "192.168.100.0/24",
+                    "gateway": "ether1", "gateway_status": "ether1 reachable",
+                    "distance": 0, "scope": 10, "target_scope": 10,
+                    "routing_mark": "", "comment": "Red servidores",
+                    "active": True, "dynamic": True, "disabled": False,
+                    "static": False, "connect": True, "ospf": False,
+                },
+                {
+                    "id": "*4", "dst_address": "10.10.10.0/24",
+                    "gateway": "vlan10", "gateway_status": "vlan10 reachable",
+                    "distance": 0, "scope": 10, "target_scope": 10,
+                    "routing_mark": "", "comment": "VLAN Docentes",
+                    "active": True, "dynamic": True, "disabled": False,
+                    "static": False, "connect": True, "ospf": False,
+                },
+                {
+                    "id": "*5", "dst_address": "10.10.20.0/24",
+                    "gateway": "vlan20", "gateway_status": "vlan20 reachable",
+                    "distance": 0, "scope": 10, "target_scope": 10,
+                    "routing_mark": "", "comment": "VLAN Estudiantes",
+                    "active": True, "dynamic": True, "disabled": False,
+                    "static": False, "connect": True, "ospf": False,
+                },
+                {
+                    "id": "*6", "dst_address": "10.10.30.0/24",
+                    "gateway": "vlan30", "gateway_status": "vlan30 reachable",
+                    "distance": 0, "scope": 10, "target_scope": 10,
+                    "routing_mark": "", "comment": "VLAN Servidores",
+                    "active": True, "dynamic": True, "disabled": False,
+                    "static": False, "connect": True, "ospf": False,
+                },
+                {
+                    "id": "*7", "dst_address": "8.8.8.8/32",
+                    "gateway": "192.168.100.1", "gateway_status": "192.168.100.1 reachable",
+                    "distance": 1, "scope": 30, "target_scope": 10,
+                    "routing_mark": "", "comment": "Route probe DNS",
+                    "active": True, "dynamic": True, "disabled": False,
+                    "static": False, "connect": False, "ospf": False,
+                },
+            ]
+
+        @staticmethod
+        def ip_addresses() -> list[dict]:
+            return [
+                {
+                    "id": "*1", "address": "192.168.100.2/24", "network": "192.168.100.0",
+                    "interface": "ether1", "actual_interface": "ether1",
+                    "comment": "IP WAN (lab: red interna)", "disabled": False, "dynamic": False, "invalid": False,
+                },
+                {
+                    "id": "*2", "address": "192.168.88.1/24", "network": "192.168.88.0",
+                    "interface": "ether2", "actual_interface": "ether2",
+                    "comment": "Gateway LAN Lab Redes", "disabled": False, "dynamic": False, "invalid": False,
+                },
+                {
+                    "id": "*3", "address": "192.168.88.1/24", "network": "192.168.88.0",
+                    "interface": "ether3", "actual_interface": "ether3",
+                    "comment": "Gateway LAN Aula 3", "disabled": False, "dynamic": False, "invalid": False,
+                },
+                {
+                    "id": "*4", "address": "192.168.88.1/24", "network": "192.168.88.0",
+                    "interface": "ether4", "actual_interface": "ether4",
+                    "comment": "Gateway LAN Servidores", "disabled": False, "dynamic": False, "invalid": False,
+                },
+                {
+                    "id": "*5", "address": "10.10.10.1/24", "network": "10.10.10.0",
+                    "interface": "vlan10", "actual_interface": "vlan10",
+                    "comment": "Gateway VLAN Docentes", "disabled": False, "dynamic": False, "invalid": False,
+                },
+                {
+                    "id": "*6", "address": "10.10.20.1/24", "network": "10.10.20.0",
+                    "interface": "vlan20", "actual_interface": "vlan20",
+                    "comment": "Gateway VLAN Estudiantes", "disabled": False, "dynamic": False, "invalid": False,
+                },
+                {
+                    "id": "*7", "address": "10.10.30.1/24", "network": "10.10.30.0",
+                    "interface": "vlan30", "actual_interface": "vlan30",
+                    "comment": "Gateway VLAN Servidores", "disabled": False, "dynamic": False, "invalid": False,
+                },
+            ]
+
+        @staticmethod
+        def bridge_ports() -> list[dict]:
+            return [
+                {
+                    "id": "*1", "interface": "ether2", "bridge": "bridge",
+                    "priority": "0x80", "path_cost": 10, "horizon": "none",
+                    "learn": "yes", "discover": "yes", "hw": True,
+                    "comment": "LAN Lab Redes", "disabled": False, "inactive": False,
+                    "dynamic": False, "pvid": 1,
+                },
+                {
+                    "id": "*2", "interface": "ether3", "bridge": "bridge",
+                    "priority": "0x80", "path_cost": 10, "horizon": "none",
+                    "learn": "yes", "discover": "yes", "hw": True,
+                    "comment": "LAN Aula 3", "disabled": False, "inactive": False,
+                    "dynamic": False, "pvid": 1,
+                },
+                {
+                    "id": "*3", "interface": "ether4", "bridge": "bridge",
+                    "priority": "0x80", "path_cost": 10, "horizon": "none",
+                    "learn": "yes", "discover": "yes", "hw": True,
+                    "comment": "LAN Servidores", "disabled": False, "inactive": False,
+                    "dynamic": False, "pvid": 30,
+                },
+                {
+                    "id": "*4", "interface": "hotspot1", "bridge": "bridge",
+                    "priority": "0x80", "path_cost": 10, "horizon": "none",
+                    "learn": "yes", "discover": "yes", "hw": True,
+                    "comment": "Hotspot portal", "disabled": False, "inactive": False,
+                    "dynamic": False, "pvid": 1,
+                },
+            ]
+
+        @staticmethod
+        def queues() -> list[dict]:
+            return [
+                {
+                    "id": "*1", "name": "limit-PC-Aula3-01", "target": "192.168.88.20",
+                    "max_limit": "10M/10M", "burst_limit": "15M/15M",
+                    "burst_threshold": "8M/8M", "burst_time": "10s/10s",
+                    "priority": "8/8", "queue": "default-small/default-small",
+                    "parent": "none", "comment": "PC-Aula3-01 — límite Aula 3",
+                    "disabled": False, "invalid": False, "dynamic": False,
+                    "bytes": 450_000_000, "packets": 380_000, "dropped": 1_200,
+                    "rate": "4M/4M", "packet_rate": "500/500",
+                    "queued_bytes": "0/0", "queued_packets": "0/0",
+                },
+                {
+                    "id": "*2", "name": "limit-PC-Aula3-02", "target": "192.168.88.21",
+                    "max_limit": "10M/10M", "burst_limit": "15M/15M",
+                    "burst_threshold": "8M/8M", "burst_time": "10s/10s",
+                    "priority": "8/8", "queue": "default-small/default-small",
+                    "parent": "none", "comment": "PC-Aula3-02 — límite Aula 3",
+                    "disabled": False, "invalid": False, "dynamic": False,
+                    "bytes": 210_000_000, "packets": 190_000, "dropped": 430,
+                    "rate": "2M/2M", "packet_rate": "250/250",
+                    "queued_bytes": "0/0", "queued_packets": "0/0",
+                },
+                {
+                    "id": "*3", "name": "limit-unknown-guest", "target": "192.168.88.100",
+                    "max_limit": "1M/1M", "burst_limit": "0/0",
+                    "burst_threshold": "0/0", "burst_time": "0s/0s",
+                    "priority": "8/8", "queue": "default-small/default-small",
+                    "parent": "none", "comment": "Guest — ancho de banda restringido",
+                    "disabled": False, "invalid": False, "dynamic": False,
+                    "bytes": 12_000_000, "packets": 9_800, "dropped": 5_600,
+                    "rate": "900K/900K", "packet_rate": "90/90",
+                    "queued_bytes": "0/0", "queued_packets": "0/0",
+                },
+                {
+                    "id": "*4", "name": "limit-hotspot", "target": "192.168.88.100/24",
+                    "max_limit": "20M/20M", "burst_limit": "0/0",
+                    "burst_threshold": "0/0", "burst_time": "0s/0s",
+                    "priority": "8/8", "queue": "default-small/default-small",
+                    "parent": "none", "comment": "Hotspot global limit",
+                    "disabled": True, "invalid": False, "dynamic": False,
+                    "bytes": 0, "packets": 0, "dropped": 0,
+                    "rate": "0/0", "packet_rate": "0/0",
+                    "queued_bytes": "0/0", "queued_packets": "0/0",
+                },
+            ]
+
     # ── Wazuh ─────────────────────────────────────────────────────────────────
 
     class wazuh:
+
 
         @staticmethod
         def agents() -> list[dict]:

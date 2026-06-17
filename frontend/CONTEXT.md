@@ -111,8 +111,9 @@ frontend/src/
     │   └── NetworkPage.tsx            # Tabs: ARP / VLANs / Labels / Groups (con CRUD)
     │
     ├── dhcp/                          # 1 componente — Administración DHCP MikroTik
-    │   └── DhcpPage.tsx               # Página completa con 7 tabs (servidores, leases, pools,
+    │   └── DhcpPage.tsx               # Página completa con 8 tabs (servidores, leases, pools,
     │                                  # redes, alertas rogue, opciones, correlación GLPI/discovery)
+    │                                  # Leases: botón 🚦 "Limitar velocidad" → SpeedLimitModal → Simple Queue
     │
     ├── vlans/                          # 4 componentes (embebidos en NetworkPage)
     │   ├── VlanPanel.tsx              # Panel principal con lista y estado de alerta
@@ -157,7 +158,8 @@ frontend/src/
     │
     ├── inventory/                      # 14 componentes — GLPI ITSM
     │   ├── InventoryPage.tsx          # Contenedor tabbed (Assets/Tickets/Users/Health)
-    │   ├── AssetsView.tsx             # Vista principal con búsqueda y filtros
+    │   ├── AssetsView.tsx             # Vista principal con búsqueda, filtro de estado y filtro de tipo
+    │   │                              # (Computer / NetworkEquipment / Printer / Phone / Peripheral / Monitor)
     │   ├── AssetDetail.tsx            # Detalle de activo + contexto red + alertas (20KB)
     │   ├── AssetFormModal.tsx          # Modal creación/edición activo
     │   ├── AssetSearch.tsx            # Búsqueda de activos
@@ -205,9 +207,9 @@ frontend/src/
     │   ├── ViewDetailPage.tsx          # Dashboard en vivo con widgets
     │   └── WidgetRenderer.tsx          # Dispatcher dinámico: widget.type → componente (22KB)
     │
-    ├── widgets/                        # Biblioteca de 39 Widgets
+    ├── widgets/                        # Biblioteca de 42 Widgets
     │   ├── common/index.tsx           # WidgetSkeleton, WidgetErrorState, WidgetHeader
-    │   ├── visual/                    # 11 widgets
+    │   ├── visual/                    # 12 widgets
     │   │   ├── ThreatGauge.tsx        # Gauge semicircular 0–100
     │   │   ├── ActivityHeatmap.tsx     # Calendario 7×24h alertas
     │   │   ├── NetworkPulse.tsx       # ECG animado tráfico SVG
@@ -219,8 +221,9 @@ frontend/src/
     │   │   ├── PhishingStats.tsx      # Estadísticas de phishing
     │   │   ├── AgentAlertHeatmap.tsx   # Heatmap agentes × horas
     │   │   ├── DhcpSubnetUsage.tsx    # Barras de uso de subredes DHCP
+    │   │   ├── QueueBars.tsx          # Barras up/down por Simple Queue (Fase 1)
     │   │   └── index.ts               # Re-exports
-    │   ├── technical/                 # 13 widgets
+    │   ├── technical/                 # 15 widgets
     │   │   ├── PacketInspector.tsx     # Alertas Suricata expandibles
     │   │   ├── FlowTableWidget.tsx     # Tabla flujos NSM
     │   │   ├── LiveLogs.tsx           # Terminal logs RouterOS
@@ -234,6 +237,8 @@ frontend/src/
     │   │   ├── BandwidthTop.tsx       # Top IPs por consumo de ancho de banda
     │   │   ├── HttpInspector.tsx      # Transacciones HTTP capturadas
     │   │   ├── DhcpLeasesWidget.tsx   # Tabla de leases DHCP activos
+    │   │   ├── NatTable.tsx           # Tabla de reglas NAT (Fase 1)
+    │   │   ├── RouteTable.tsx         # Tabla de ruteo activo (Fase 1)
     │   │   └── index.ts               # Re-exports
     │   └── hybrid/                    # 15 widgets
     │       ├── WorldThreatMap.tsx      # Mapa mundial por país (d3-geo + topojson)
@@ -534,13 +539,13 @@ switch (widget.type) {
 
 ### Catálogo de widgets implementados
 
-**Visual (11):** ThreatGauge, ActivityHeatmap, NetworkPulse, AgentsThermometer, BlocksTimeline, EventCounter, ProtocolDonut, PortalUsage, PhishingStats, AgentAlertHeatmap, DhcpSubnetUsage
+**Visual (12):** ThreatGauge, ActivityHeatmap, NetworkPulse, AgentsThermometer, BlocksTimeline, EventCounter, ProtocolDonut, PortalUsage, PhishingStats, AgentAlertHeatmap, DhcpSubnetUsage, **QueueBars** (Fase 1)
 
-**Technical (13):** PacketInspector, FlowTableWidget, LiveLogs, FirewallTree, CrowdSecRaw, CorrelationTimeline, CriticalAssets, ActionLogWidget, DnsMonitor, TlsFingerprint, BandwidthTop, HttpInspector, DhcpLeasesWidget
+**Technical (15):** PacketInspector, FlowTableWidget, LiveLogs, FirewallTree, CrowdSecRaw, CorrelationTimeline, CriticalAssets, ActionLogWidget, DnsMonitor, TlsFingerprint, BandwidthTop, HttpInspector, DhcpLeasesWidget, **NatTable, RouteTable** (Fase 1)
 
 **Hybrid (15):** WorldThreatMap, ConfirmedThreats, CountryRadar, IpProfiler, IncidentLifecycle, DefenseLayers, GeoblockPredictor, SuricataGlpiCorrelation, ViewReportGenerator, TelegramActivity, MitreMatrix, VlanHealth, QuarantineTracker, SinkholeEffectiveness, DhcpDiscovery
 
-**Total: 39 widgets (componentes)** + 17 Standard (sin componente propio) = **56 en catálogo**
+**Total: 42 widgets (componentes)** + 17 Standard (sin componente propio) = **59 en catálogo**
 
 ### Hook de widget → Componente
 
@@ -619,7 +624,7 @@ interface ConfirmModalProps {
 Archivo de ~39KB con ~1600 líneas. Espejo de los schemas Pydantic del backend. Contiene:
 
 - `APIResponse<T>` — envelope genérico
-- Tipos MikroTik: `InterfaceInfo`, `ConnectionInfo`, `ARPEntry`, `TrafficData`, `FirewallRule`
+- Tipos MikroTik: `InterfaceInfo`, `ConnectionInfo`, `ARPEntry`, `TrafficData`, `FirewallRule`, `NatRule`, `RouteEntry`, `IPAddress`, `BridgePort`, `QueueEntry`, `QueueCreate`, `QueueUpdate` (Fase 1)
 - Tipos Wazuh: `WazuhAgent`, `WazuhAlert`, `MitreSummary`
 - Tipos CrowdSec: `CrowdSecDecision`, `CrowdSecMetrics`, `CTIResult`, `WhitelistEntry`
 - Tipos Suricata: `SuricataEngineStatus`, `SuricataAlert`, `SuricataFlow`, `SuricataRule`, `AutoResponseConfig`
@@ -652,6 +657,15 @@ Archivo de ~39KB con ~1600 líneas. Espejo de los schemas Pydantic del backend. 
 5. **Ruta** en `App.tsx`: `<Route path="/mi-ruta" element={<MiPage />} />`
 6. **Sidebar** en `Layout.tsx`: Agregar al array `navGroups`
 
-Última actualización: 2026-06-02
-Basado en análisis de: 65+ archivos frontend
-Versión del proyecto: 2.5
+Última actualización: 2026-06-16
+Basado en análisis de: 70+ archivos frontend
+Versión del proyecto: 2.6
+
+### Cambios Fase 1 (2026-06-16)
+- `types.ts` — Nuevos tipos: `NatRule`, `RouteEntry`, `IPAddress`, `BridgePort`, `QueueEntry`, `QueueCreate`, `QueueUpdate`.
+- `api.ts` — `mikrotikApi`: `getNatRules()`, `getRoutes()`, `getIPAddresses()`, `getBridgePorts()`, `getQueues()`, `createQueue()`, `updateQueue()`, `deleteQueue()`.
+- `NetworkPage.tsx` — Tabs nuevos: "Topología" (rutas + IPs + bridge) y "Queues" (CRUD Simple Queues).
+- `FirewallPage.tsx` — Tab nuevo: "NAT" (tabla de reglas NAT).
+- Widgets nuevos: `NatTable`, `RouteTable` (technical), `QueueBars` (visual). Registrados en hooks, exports, `WidgetRenderer.tsx` y catálogo backend.
+- `AssetsView.tsx` — Filtro por tipo de activo (Computer/NetworkEquipment/Printer/Phone/Peripheral/Monitor).
+- `DhcpPage.tsx` — Botón 🚦 "Limitar velocidad" en tabla de leases → `SpeedLimitModal` → crea Simple Queue.

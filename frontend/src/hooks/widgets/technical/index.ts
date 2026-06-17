@@ -227,3 +227,33 @@ export function useDhcpLeasesWidget(limit = 10) {
     refetchInterval: 60_000,
   });
 }
+
+/* ── NAT Table ─────────────────────────────────────────────── */
+
+export function useNatTable() {
+  return useQuery({
+    queryKey: ['widget', 'nat-table'],
+    queryFn: async () => {
+      const res = await mikrotikApi.getNatRules();
+      if (!res.success) throw new Error(res.error ?? 'Error cargando reglas NAT');
+      return res.data ?? [];
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
+/* ── Route Table ───────────────────────────────────────────── */
+
+export function useRouteTable() {
+  return useQuery({
+    queryKey: ['widget', 'route-table'],
+    queryFn: async () => {
+      const res = await mikrotikApi.getRoutes();
+      if (!res.success) throw new Error(res.error ?? 'Error cargando rutas');
+      return res.data ?? [];
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}

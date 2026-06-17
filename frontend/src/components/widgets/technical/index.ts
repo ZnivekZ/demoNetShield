@@ -1,5 +1,5 @@
 /**
- * Technical Widgets — 12 componentes técnicos.
+ * Technical Widgets — 14 componentes técnicos.
  * Importar individualmente para lazy loading.
  */
 
@@ -15,3 +15,6 @@ export { DnsMonitor } from './DnsMonitor';
 export { TlsFingerprint } from './TlsFingerprint';
 export { BandwidthTop } from './BandwidthTop';
 export { HttpInspector } from './HttpInspector';
+export { DhcpLeasesWidget } from './DhcpLeasesWidget';
+export { NatTable } from './NatTable';
+export { RouteTable } from './RouteTable';

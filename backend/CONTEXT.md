@@ -108,6 +108,12 @@ backend/
 **Funciones públicas principales:**
 `get_interfaces()`, `get_connections()`, `get_arp_table()`, `get_traffic()`, `get_firewall_rules()`, `get_blacklist()`, `block_ip()`, `unblock_ip()`, `get_logs()`, `get_health()`, `get_vlan_traffic()`, `create_vlan()`, `update_vlan()`, `delete_vlan()`, `run_command()`, `get_vlan_addresses()`.
 
+**Funciones de topología de red (5 métodos — Fase 1):**
+`get_nat_rules()`, `get_routes()`, `get_ip_addresses()`, `get_bridge_ports()`.
+
+**Funciones QoS / Simple Queues (4 métodos — Fase 1):**
+`get_queues()`, `create_queue()`, `update_queue()`, `delete_queue()`.
+
 **Funciones DHCP (20 métodos):**
 `get_dhcp_servers()`, `create_dhcp_server()`, `toggle_dhcp_server()`,
 `get_dhcp_leases()`, `create_dhcp_lease()`, `update_dhcp_lease()`, `delete_dhcp_lease()`, `make_lease_static()`, `set_dhcp_lease_block()`,
@@ -341,11 +347,11 @@ Se llama en el lifespan de FastAPI al startup. Crea todas las tablas si no exist
 
 ## Mock system
 
-### `mock_data.py` (139KB)
+### `mock_data.py` (~152KB)
 
 Repositorio central de datos simulados con `seed=42` para reproducibilidad. Secciones:
 
-- `MockData.mikrotik.*` — interfaces, ARP, firewall, logs, health, connections, VLANs, blacklist
+- `MockData.mikrotik.*` — interfaces, ARP, firewall, logs, health, connections, VLANs, blacklist, **nat_rules, routes, ip_addresses, bridge_ports, queues** (Fase 1)
 - `MockData.wazuh.*` — agents, alerts, MITRE, health, agents_summary
 - `MockData.crowdsec.*` — decisions, metrics, bouncers, scenarios, CTI, alerts, top_attackers
 - `MockData.suricata.*` — engine_status, engine_stats, alerts, flows, rules, DNS, HTTP, TLS, correlation
@@ -492,6 +498,11 @@ sudo apt install python3-venv python3.12-venv
 # O usar uv: ~/.local/bin/uv venv
 ```
 
-Última actualización: 2026-06-02
-Basado en análisis de: 75+ archivos backend
-Versión del proyecto: 2.5
+Última actualización: 2026-06-16
+Basado en análisis de: 80+ archivos backend
+Versión del proyecto: 2.6
+
+### Cambios Fase 1 (2026-06-16)
+- `mikrotik_service.py` — Nuevos métodos: `get_nat_rules()`, `get_routes()`, `get_ip_addresses()`, `get_bridge_ports()`, `get_queues()`, `create_queue()`, `update_queue()`, `delete_queue()`.
+- `routers/mikrotik.py` — Nuevos endpoints: `GET /api/mikrotik/nat-rules`, `GET /api/mikrotik/routes`, `GET /api/mikrotik/addresses`, `GET /api/mikrotik/bridge-ports`, CRUD `/api/mikrotik/queues`.
+- `mock_data.py` — Mocks para NAT, rutas, IPs, bridge y queues.

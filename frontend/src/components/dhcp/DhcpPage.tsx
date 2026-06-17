@@ -1,15 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   useDhcpServers, useDhcpLeases, useDhcpNetworks,
   useDhcpPools, useDhcpSubnetUsage, useDhcpRogueAlerts, useDhcpOptions,
   useDeleteDhcpLease, useMakeDhcpLeaseStatic, useSetDhcpLeaseBlock,
-  useToggleDhcpServer,
+  useToggleDhcpServer, useCreateDhcpServer,
+  useCreateDhcpLease, useUpdateDhcpLease,
+  useCreateDhcpNetwork, useUpdateDhcpNetwork,
+  useCreateDhcpPool, useUpdateDhcpPool,
+  useCreateDhcpRogueAlert,
+  useCreateDhcpOption,
   // Fase 2
   useDhcpDiscovery, useDhcpGlpiCorrelation, useDhcpWazuhEnriched,
   useBlockRogueDhcp, useCreateDiscoveryTicket,
 } from '../../hooks/useDhcp';
+import { useInterfaces } from '../../hooks/useMikrotikHealth';
+import { mikrotikApi } from '../../services/api';
+import { useMutation } from '@tanstack/react-query';
 import type {
-  DhcpLease, DhcpServer, DhcpSubnetUsage,
+  DhcpLease, DhcpServer, DhcpSubnetUsage, DhcpNetwork, DhcpPool,
   DhcpDiscoveryDevice, DhcpLeaseGlpiCorrelation, DhcpEnrichedAlert,
 } from '../../types';
 
@@ -27,12 +35,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'correlation', label: 'GLPI',           icon: '🔗' },
 ];
 
-
-function formatBytes(n: number) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)} K`;
-  return String(n);
-}
+// ── Shared helpers ─────────────────────────────────────────────────────────────
 
 function UsageBar({ pct }: { pct: number }) {
   const color = pct >= 90 ? 'var(--color-danger)' : pct >= 70 ? 'var(--color-warning, #f59e0b)' : 'var(--color-success)';
@@ -43,10 +46,212 @@ function UsageBar({ pct }: { pct: number }) {
   );
 }
 
+/** Reutilizable: campo de formulario con label */
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+        {label}{required && ' *'}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+/** Reutilizable: muestra errores de formulario */
+function FormError({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <div style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid var(--color-danger)', borderRadius: 4, color: 'var(--color-danger)', fontSize: 13 }}>
+      {message}
+    </div>
+  );
+}
+
+// ── SpeedLimitModal (S2) ─────────────────────────────────────────────────────
+
+function SpeedLimitModal({ ip, onClose }: { ip: string; onClose: () => void }) {
+  const [maxLimit, setMaxLimit] = useState('10M/10M');
+  const [comment, setComment] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const createQueue = useMutation({
+    mutationFn: () => mikrotikApi.createQueue({
+      name: `dhcp-limit-${ip.replace(/\./g, '-')}`,
+      target: ip,
+      max_limit: maxLimit,
+      comment: comment || `DHCP lease: ${ip}`,
+    }),
+    onSuccess: (res) => {
+      if (res.success) onClose();
+      else setError(res.error ?? 'Error al crear la queue');
+    },
+    onError: (err: any) => setError(err.message ?? 'Error'),
+  });
+
+  return (
+    <div className="confirm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="confirm-modal animate-fade-in-up" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <div className="confirm-modal__header">
+          <h3 className="confirm-modal__title">🚦 Limitar velocidad — {ip}</h3>
+          <button type="button" className="confirm-modal__close" onClick={onClose}>✕</button>
+        </div>
+        <form
+          onSubmit={e => { e.preventDefault(); createQueue.mutate(); }}
+          className="confirm-modal__body"
+          style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+        >
+          {error && (
+            <div style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid var(--color-danger)', borderRadius: 4, color: 'var(--color-danger)', fontSize: 13 }}>
+              {error}
+            </div>
+          )}
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+              Límite (upload/download) *
+            </label>
+            <input
+              className="input"
+              value={maxLimit}
+              onChange={e => setMaxLimit(e.target.value)}
+              placeholder="10M/10M"
+              required
+              style={{ width: '100%' }}
+            />
+            <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
+              Formato: upload/download — Ej: 5M/10M · 0/0 = sin límite
+            </p>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Comentario</label>
+            <input
+              className="input"
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder="Descripción del límite"
+              style={{ width: '100%' }}
+            />
+          </div>
+          <div className="confirm-modal__actions" style={{ marginTop: 4 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={createQueue.isPending}>Cancelar</button>
+            <button type="submit" className="btn btn-primary" disabled={createQueue.isPending}>
+              {createQueue.isPending ? 'Creando...' : 'Crear Queue'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Leases Tab ────────────────────────────────────────────────────────────────
+
+interface LeaseFormModalProps {
+  lease?: DhcpLease | null;
+  onClose: () => void;
+}
+
+function LeaseFormModal({ lease, onClose }: LeaseFormModalProps) {
+  const { data: servers = [] } = useDhcpServers();
+  const createLease = useCreateDhcpLease();
+  const updateLease = useUpdateDhcpLease();
+  const isEdit = !!lease;
+
+  const [address, setAddress] = useState(lease?.address ?? '');
+  const [macAddress, setMacAddress] = useState(lease?.mac_address ?? '');
+  const [server, setServer] = useState(lease?.server ?? '');
+  const [comment, setComment] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (servers.length > 0 && !server) setServer(servers[0].name);
+  }, [servers, server]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (isEdit && lease) {
+      updateLease.mutate(
+        { id: lease.id, data: { comment } },
+        {
+          onSuccess: (res) => { if (res.success) onClose(); else setError(res.error ?? 'Error'); },
+          onError: (err: any) => setError(err.message ?? 'Error'),
+        }
+      );
+    } else {
+      if (!address || !macAddress || !server) { setError('Completa los campos obligatorios'); return; }
+      createLease.mutate(
+        { address, mac_address: macAddress, server, comment },
+        {
+          onSuccess: (res) => { if (res.success) onClose(); else setError(res.error ?? 'Error'); },
+          onError: (err: any) => setError(err.message ?? 'Error'),
+        }
+      );
+    }
+  };
+
+  const isPending = createLease.isPending || updateLease.isPending;
+
+  return (
+    <div className="confirm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="confirm-modal portal-form-modal animate-fade-in-up" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div className="confirm-modal__header">
+          <h3 className="confirm-modal__title">{isEdit ? 'Editar Lease' : 'Nueva Reserva DHCP'}</h3>
+          <button type="button" className="confirm-modal__close" onClick={onClose} aria-label="Cerrar">✕</button>
+        </div>
+        <form onSubmit={handleSubmit} className="confirm-modal__body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <FormError message={error} />
+
+          {isEdit ? (
+            <>
+              <div style={{ padding: '10px 14px', background: 'var(--color-surface-2)', borderRadius: 6, fontSize: 13 }}>
+                <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: 11, fontWeight: 600 }}>EDITANDO LEASE</p>
+                <p style={{ margin: '4px 0 0', fontFamily: 'monospace', fontWeight: 700 }}>{lease?.address} — {lease?.mac_address}</p>
+              </div>
+              <Field label="Comentario">
+                <input className="input" value={comment} onChange={e => setComment(e.target.value)} placeholder="Descripción del host" style={{ width: '100%' }} />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field label="Dirección IP" required>
+                <input className="input" value={address} onChange={e => setAddress(e.target.value)} placeholder="192.168.1.50" required style={{ width: '100%' }} />
+              </Field>
+              <Field label="MAC Address" required>
+                <input className="input" value={macAddress} onChange={e => setMacAddress(e.target.value)} placeholder="AA:BB:CC:DD:EE:FF" required style={{ width: '100%' }} />
+              </Field>
+              <Field label="Servidor DHCP" required>
+                <select className="input" value={server} onChange={e => setServer(e.target.value)} required style={{ width: '100%', height: 38 }}>
+                  <option value="">Seleccione un servidor</option>
+                  {servers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Comentario">
+                <input className="input" value={comment} onChange={e => setComment(e.target.value)} placeholder="Descripción del host" style={{ width: '100%' }} />
+              </Field>
+            </>
+          )}
+
+          <div className="confirm-modal__actions" style={{ marginTop: 4 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isPending}>Cancelar</button>
+            <button type="submit" className="btn btn-primary" disabled={isPending}>
+              {isPending ? (isEdit ? 'Guardando...' : 'Creando...') : (isEdit ? 'Guardar cambios' : 'Crear Reserva')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function LeasesTab() {
   const [search, setSearch] = useState('');
   const [serverFilter, setServerFilter] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [editLease, setEditLease] = useState<DhcpLease | null>(null);
+  const [limitIp, setLimitIp] = useState<string | null>(null);
+
   const { data: servers = [] } = useDhcpServers();
   const { data: leases = [], isLoading } = useDhcpLeases(
     search || serverFilter ? { search: search || undefined, server: serverFilter || undefined } : undefined
@@ -62,7 +267,7 @@ function LeasesTab() {
 
   return (
     <div className="animate-fade-in-up">
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         <input
           className="input" placeholder="Buscar IP / MAC / hostname..."
           value={search} onChange={e => setSearch(e.target.value)}
@@ -72,6 +277,9 @@ function LeasesTab() {
           <option value="">Todos los servidores</option>
           {servers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
         </select>
+        <button className="btn btn-primary" style={{ whiteSpace: 'nowrap' }} onClick={() => setShowModal(true)}>
+          ➕ Nueva Reserva
+        </button>
       </div>
 
       {isLoading ? (
@@ -101,7 +309,9 @@ function LeasesTab() {
                     </span>
                   </td>
                   <td style={{ padding: '10px 12px' }}>
-                    <div style={{ display: 'flex', gap: 6 }}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }}
+                        onClick={() => setEditLease(l)} title="Editar lease">✏️</button>
                       {l.dynamic && (
                         <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }}
                           onClick={() => makeStatic.mutate(l.id)} title="Convertir en estática">📌</button>
@@ -111,6 +321,9 @@ function LeasesTab() {
                         title={l.blocked ? 'Desbloquear' : 'Bloquear acceso'}>
                         {l.blocked ? '🔓' : '🚫'}
                       </button>
+                      <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }}
+                        onClick={() => setLimitIp(l.address)}
+                        title="Limitar velocidad con Simple Queue">🚦</button>
                       <button className="btn-danger" style={{ padding: '3px 8px', fontSize: 11 }}
                         onClick={() => { if (confirm(`¿Eliminar lease ${l.address}?`)) deleteLease.mutate(l.id); }}
                         title="Eliminar lease">🗑</button>
@@ -128,17 +341,116 @@ function LeasesTab() {
       <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 8 }}>
         {leases.length} lease{leases.length !== 1 ? 's' : ''} · Actualiza cada 30s
       </p>
+
+      {showModal && <LeaseFormModal onClose={() => setShowModal(false)} />}
+      {editLease && <LeaseFormModal lease={editLease} onClose={() => setEditLease(null)} />}
+      {limitIp && <SpeedLimitModal ip={limitIp} onClose={() => setLimitIp(null)} />}
     </div>
   );
 }
 
 // ── Servers Tab ───────────────────────────────────────────────────────────────
+
+interface ServerFormModalProps {
+  onClose: () => void;
+}
+
+function ServerFormModal({ onClose }: ServerFormModalProps) {
+  const { data: interfaces = [] } = useInterfaces();
+  const { data: pools = [] } = useDhcpPools();
+  const createServer = useCreateDhcpServer();
+  const [name, setName] = useState('');
+  const [iface, setIface] = useState('');
+  const [pool, setPool] = useState('');
+  const [leaseTime, setLeaseTime] = useState('1d');
+  const [authoritative, setAuthoritative] = useState('after-2sec');
+  const [comment, setComment] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (interfaces.length > 0 && !iface) setIface(interfaces[0].name);
+  }, [interfaces, iface]);
+
+  useEffect(() => {
+    if (pools.length > 0 && !pool) setPool(pools[0].name);
+  }, [pools, pool]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name || !iface || !pool) { setError('Por favor completa los campos obligatorios'); return; }
+    createServer.mutate(
+      { name, interface: iface, address_pool: pool, lease_time: leaseTime, authoritative, comment },
+      {
+        onSuccess: (res) => { if (res.success) onClose(); else setError(res.error || 'Error al crear el servidor'); },
+        onError: (err: any) => setError(err.message || 'Error al conectar con el servidor'),
+      }
+    );
+  };
+
+  return (
+    <div className="confirm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="confirm-modal portal-form-modal animate-fade-in-up" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+        <div className="confirm-modal__header">
+          <h3 className="confirm-modal__title">Crear Servidor DHCP</h3>
+          <button type="button" className="confirm-modal__close" onClick={onClose} aria-label="Cerrar">✕</button>
+        </div>
+        <form onSubmit={handleSubmit} className="confirm-modal__body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <FormError message={error} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Field label="Nombre del Servidor" required>
+              <input className="input" value={name} onChange={e => setName(e.target.value)} required placeholder="ej: dhcp-vlan10" style={{ width: '100%' }} />
+            </Field>
+            <Field label="Interfaz" required>
+              <select className="input" value={iface} onChange={e => setIface(e.target.value)} required style={{ width: '100%', height: 38 }}>
+                <option value="">Seleccione una interfaz</option>
+                {interfaces.map(i => <option key={i.name} value={i.name}>{i.name} ({i.type})</option>)}
+              </select>
+            </Field>
+            <Field label="Pool de Direcciones" required>
+              <select className="input" value={pool} onChange={e => setPool(e.target.value)} required style={{ width: '100%', height: 38 }}>
+                <option value="">Seleccione un pool</option>
+                {pools.map(p => <option key={p.id} value={p.name}>{p.name} ({p.ranges})</option>)}
+              </select>
+            </Field>
+            <Field label="Tiempo de Arrendamiento (Lease Time)">
+              <input className="input" value={leaseTime} onChange={e => setLeaseTime(e.target.value)} placeholder="ej: 10m, 30m, 1d" style={{ width: '100%' }} />
+            </Field>
+            <Field label="Autoritativo">
+              <select className="input" value={authoritative} onChange={e => setAuthoritative(e.target.value)} style={{ width: '100%', height: 38 }}>
+                <option value="yes">yes</option>
+                <option value="no">no</option>
+                <option value="after-2sec">after-2sec</option>
+              </select>
+            </Field>
+            <Field label="Comentario">
+              <input className="input" value={comment} onChange={e => setComment(e.target.value)} placeholder="Nota o descripción del servidor" style={{ width: '100%' }} />
+            </Field>
+          </div>
+          <div className="confirm-modal__actions" style={{ marginTop: 8 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={createServer.isPending}>Cancelar</button>
+            <button type="submit" className="btn btn-primary" disabled={createServer.isPending}>
+              {createServer.isPending ? 'Creando...' : 'Crear Servidor'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function ServersTab() {
   const { data: servers = [], isLoading } = useDhcpServers();
   const toggle = useToggleDhcpServer();
+  const [showModal, setShowModal] = useState(false);
 
   return (
     <div className="animate-fade-in-up">
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+          ➕ Nuevo Servidor
+        </button>
+      </div>
+
       {isLoading ? <div className="loading-spinner" /> : (
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
           {servers.map((s: DhcpServer) => (
@@ -166,14 +478,93 @@ function ServersTab() {
           ))}
         </div>
       )}
+
+      {showModal && <ServerFormModal onClose={() => setShowModal(false)} />}
     </div>
   );
 }
 
 // ── Pools Tab ─────────────────────────────────────────────────────────────────
+
+interface PoolFormModalProps {
+  pool?: DhcpPool | null;
+  onClose: () => void;
+}
+
+function PoolFormModal({ pool, onClose }: PoolFormModalProps) {
+  const createPool = useCreateDhcpPool();
+  const updatePool = useUpdateDhcpPool();
+  const isEdit = !!pool;
+
+  const [name, setName] = useState(pool?.name ?? '');
+  const [ranges, setRanges] = useState(pool?.ranges ?? '');
+  const [nextPool, setNextPool] = useState(pool?.next_pool ?? '');
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (isEdit && pool) {
+      updatePool.mutate(
+        { id: pool.id, data: { ranges, next_pool: nextPool || undefined } },
+        {
+          onSuccess: (res) => { if (res.success) onClose(); else setError(res.error ?? 'Error'); },
+          onError: (err: any) => setError(err.message ?? 'Error'),
+        }
+      );
+    } else {
+      if (!name || !ranges) { setError('Nombre y rango son obligatorios'); return; }
+      createPool.mutate(
+        { name, ranges, next_pool: nextPool || undefined },
+        {
+          onSuccess: (res) => { if (res.success) onClose(); else setError(res.error ?? 'Error'); },
+          onError: (err: any) => setError(err.message ?? 'Error'),
+        }
+      );
+    }
+  };
+
+  const isPending = createPool.isPending || updatePool.isPending;
+
+  return (
+    <div className="confirm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="confirm-modal portal-form-modal animate-fade-in-up" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <div className="confirm-modal__header">
+          <h3 className="confirm-modal__title">{isEdit ? 'Editar Pool' : 'Nuevo Pool de Direcciones'}</h3>
+          <button type="button" className="confirm-modal__close" onClick={onClose} aria-label="Cerrar">✕</button>
+        </div>
+        <form onSubmit={handleSubmit} className="confirm-modal__body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <FormError message={error} />
+          <Field label="Nombre del Pool" required>
+            <input className="input" value={name} onChange={e => setName(e.target.value)}
+              disabled={isEdit} required={!isEdit} placeholder="ej: pool-vlan10" style={{ width: '100%' }} />
+          </Field>
+          <Field label="Rango de IPs" required>
+            <input className="input" value={ranges} onChange={e => setRanges(e.target.value)}
+              required placeholder="ej: 192.168.1.100-192.168.1.200" style={{ width: '100%' }} />
+          </Field>
+          <Field label="Pool siguiente (opcional)">
+            <input className="input" value={nextPool} onChange={e => setNextPool(e.target.value)}
+              placeholder="Nombre del pool encadenado" style={{ width: '100%' }} />
+          </Field>
+          <div className="confirm-modal__actions" style={{ marginTop: 4 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isPending}>Cancelar</button>
+            <button type="submit" className="btn btn-primary" disabled={isPending}>
+              {isPending ? (isEdit ? 'Guardando...' : 'Creando...') : (isEdit ? 'Guardar cambios' : 'Crear Pool')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function PoolsTab() {
   const { data: usage = [], isLoading } = useDhcpSubnetUsage();
   const { data: pools = [] } = useDhcpPools();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editPool, setEditPool] = useState<DhcpPool | null>(null);
 
   return (
     <div className="animate-fade-in-up" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -202,13 +593,19 @@ function PoolsTab() {
           </div>
         )}
       </div>
+
       <div>
-        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>Pools Configurados</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Pools Configurados</h3>
+          <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => setShowCreate(true)}>
+            ➕ Nuevo Pool
+          </button>
+        </div>
         <div className="data-table" style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                {['Nombre', 'Rango', 'Pool siguiente'].map(h => (
+                {['Nombre', 'Rango', 'Pool siguiente', 'Acciones'].map(h => (
                   <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 12, color: 'var(--color-text-muted)', fontWeight: 600 }}>{h}</th>
                 ))}
               </tr>
@@ -219,26 +616,139 @@ function PoolsTab() {
                   <td style={{ padding: '10px 12px', fontWeight: 600 }}>{p.name}</td>
                   <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 12 }}>{p.ranges}</td>
                   <td style={{ padding: '10px 12px', color: 'var(--color-text-muted)', fontSize: 12 }}>{p.next_pool || '—'}</td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }}
+                      onClick={() => setEditPool(p)} title="Editar pool">✏️</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {showCreate && <PoolFormModal onClose={() => setShowCreate(false)} />}
+      {editPool && <PoolFormModal pool={editPool} onClose={() => setEditPool(null)} />}
     </div>
   );
 }
 
 // ── Networks Tab ──────────────────────────────────────────────────────────────
+
+interface NetworkFormModalProps {
+  network?: DhcpNetwork | null;
+  onClose: () => void;
+}
+
+function NetworkFormModal({ network, onClose }: NetworkFormModalProps) {
+  const createNetwork = useCreateDhcpNetwork();
+  const updateNetwork = useUpdateDhcpNetwork();
+  const isEdit = !!network;
+
+  const [address, setAddress] = useState(network?.address ?? '');
+  const [gateway, setGateway] = useState(network?.gateway ?? '');
+  const [dnsServer, setDnsServer] = useState(network?.dns_server ?? '');
+  const [domain, setDomain] = useState(network?.domain ?? '');
+  const [ntpServer, setNtpServer] = useState(network?.ntp_server ?? '');
+  const [comment, setComment] = useState(network?.comment ?? '');
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const payload = {
+      address,
+      gateway: gateway || undefined,
+      dns_server: dnsServer || undefined,
+      domain: domain || undefined,
+      ntp_server: ntpServer || undefined,
+      comment: comment || undefined,
+    };
+
+    if (isEdit && network) {
+      updateNetwork.mutate(
+        { id: network.id, data: payload },
+        {
+          onSuccess: (res) => { if (res.success) onClose(); else setError(res.error ?? 'Error'); },
+          onError: (err: any) => setError(err.message ?? 'Error'),
+        }
+      );
+    } else {
+      if (!address) { setError('La dirección de red es obligatoria'); return; }
+      createNetwork.mutate(payload as any,
+        {
+          onSuccess: (res) => { if (res.success) onClose(); else setError(res.error ?? 'Error'); },
+          onError: (err: any) => setError(err.message ?? 'Error'),
+        }
+      );
+    }
+  };
+
+  const isPending = createNetwork.isPending || updateNetwork.isPending;
+
+  return (
+    <div className="confirm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="confirm-modal portal-form-modal animate-fade-in-up" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+        <div className="confirm-modal__header">
+          <h3 className="confirm-modal__title">{isEdit ? 'Editar Red DHCP' : 'Nueva Red DHCP'}</h3>
+          <button type="button" className="confirm-modal__close" onClick={onClose} aria-label="Cerrar">✕</button>
+        </div>
+        <form onSubmit={handleSubmit} className="confirm-modal__body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <FormError message={error} />
+          <Field label="Dirección de Red (CIDR)" required>
+            <input className="input" value={address} onChange={e => setAddress(e.target.value)}
+              disabled={isEdit} required={!isEdit} placeholder="ej: 192.168.1.0/24" style={{ width: '100%' }} />
+          </Field>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Field label="Gateway">
+              <input className="input" value={gateway} onChange={e => setGateway(e.target.value)} placeholder="192.168.1.1" style={{ width: '100%' }} />
+            </Field>
+            <Field label="DNS Server">
+              <input className="input" value={dnsServer} onChange={e => setDnsServer(e.target.value)} placeholder="8.8.8.8" style={{ width: '100%' }} />
+            </Field>
+            <Field label="Dominio">
+              <input className="input" value={domain} onChange={e => setDomain(e.target.value)} placeholder="local.lan" style={{ width: '100%' }} />
+            </Field>
+            <Field label="NTP Server">
+              <input className="input" value={ntpServer} onChange={e => setNtpServer(e.target.value)} placeholder="pool.ntp.org" style={{ width: '100%' }} />
+            </Field>
+          </div>
+          <Field label="Comentario">
+            <input className="input" value={comment} onChange={e => setComment(e.target.value)} placeholder="Descripción de la red" style={{ width: '100%' }} />
+          </Field>
+          <div className="confirm-modal__actions" style={{ marginTop: 4 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isPending}>Cancelar</button>
+            <button type="submit" className="btn btn-primary" disabled={isPending}>
+              {isPending ? (isEdit ? 'Guardando...' : 'Creando...') : (isEdit ? 'Guardar cambios' : 'Crear Red')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function NetworksTab() {
   const { data: networks = [], isLoading } = useDhcpNetworks();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editNetwork, setEditNetwork] = useState<DhcpNetwork | null>(null);
+
   return (
     <div className="animate-fade-in-up">
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>➕ Nueva Red</button>
+      </div>
+
       {isLoading ? <div className="loading-spinner" /> : (
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
           {networks.map(n => (
             <div key={n.id} className="glass-card" style={{ padding: 20 }}>
-              <h3 style={{ margin: '0 0 12px', fontFamily: 'monospace', fontSize: 16, color: 'var(--color-primary)' }}>{n.address}</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <h3 style={{ margin: 0, fontFamily: 'monospace', fontSize: 16, color: 'var(--color-primary)' }}>{n.address}</h3>
+                <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }}
+                  onClick={() => setEditNetwork(n)} title="Editar red">✏️</button>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
                 <div><span style={{ color: 'var(--color-text-muted)', fontSize: 11 }}>GATEWAY</span><br /><strong style={{ fontFamily: 'monospace' }}>{n.gateway || '—'}</strong></div>
                 <div><span style={{ color: 'var(--color-text-muted)', fontSize: 11 }}>DNS</span><br /><strong style={{ fontFamily: 'monospace', fontSize: 12 }}>{n.dns_server || '—'}</strong></div>
@@ -250,14 +760,88 @@ function NetworksTab() {
           ))}
         </div>
       )}
+
+      {showCreate && <NetworkFormModal onClose={() => setShowCreate(false)} />}
+      {editNetwork && <NetworkFormModal network={editNetwork} onClose={() => setEditNetwork(null)} />}
     </div>
   );
 }
 
 // ── Alerts Tab ────────────────────────────────────────────────────────────────
+
+interface RogueAlertFormModalProps {
+  onClose: () => void;
+}
+
+function RogueAlertFormModal({ onClose }: RogueAlertFormModalProps) {
+  const { data: interfaces = [] } = useInterfaces();
+  const createAlert = useCreateDhcpRogueAlert();
+
+  const [iface, setIface] = useState('');
+  const [validServer, setValidServer] = useState('');
+  const [alertTimeout, setAlertTimeout] = useState('30s');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (interfaces.length > 0 && !iface) setIface(interfaces[0].name);
+  }, [interfaces, iface]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!iface) { setError('La interfaz es obligatoria'); return; }
+    createAlert.mutate(
+      { interface: iface, valid_server: validServer || undefined, alert_timeout: alertTimeout },
+      {
+        onSuccess: (res) => { if (res.success) onClose(); else setError(res.error ?? 'Error'); },
+        onError: (err: any) => setError(err.message ?? 'Error'),
+      }
+    );
+  };
+
+  return (
+    <div className="confirm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="confirm-modal portal-form-modal animate-fade-in-up" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <div className="confirm-modal__header">
+          <h3 className="confirm-modal__title">Nueva Alerta Rogue DHCP</h3>
+          <button type="button" className="confirm-modal__close" onClick={onClose} aria-label="Cerrar">✕</button>
+        </div>
+        <form onSubmit={handleSubmit} className="confirm-modal__body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <FormError message={error} />
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>
+            Configura la detección de servidores DHCP no autorizados en una interfaz.
+          </p>
+          <Field label="Interfaz a monitorear" required>
+            <select className="input" value={iface} onChange={e => setIface(e.target.value)} required style={{ width: '100%', height: 38 }}>
+              <option value="">Seleccione una interfaz</option>
+              {interfaces.map(i => <option key={i.name} value={i.name}>{i.name} ({i.type})</option>)}
+            </select>
+          </Field>
+          <Field label="IP del servidor válido (opcional)">
+            <input className="input" value={validServer} onChange={e => setValidServer(e.target.value)}
+              placeholder="192.168.1.1 — vacío = cualquiera" style={{ width: '100%' }} />
+          </Field>
+          <Field label="Timeout de alerta">
+            <input className="input" value={alertTimeout} onChange={e => setAlertTimeout(e.target.value)}
+              placeholder="ej: 30s, 1m" style={{ width: '100%' }} />
+          </Field>
+          <div className="confirm-modal__actions" style={{ marginTop: 4 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={createAlert.isPending}>Cancelar</button>
+            <button type="submit" className="btn btn-primary" disabled={createAlert.isPending}>
+              {createAlert.isPending ? 'Creando...' : 'Crear Alerta'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function AlertsTab() {
   const { data: alerts = [], isLoading } = useDhcpRogueAlerts();
   const blockRogue = useBlockRogueDhcp();
+  const [showCreate, setShowCreate] = useState(false);
+
   return (
     <div className="animate-fade-in-up">
       {alerts.some(a => a.unknown_server_detected) && (
@@ -266,6 +850,11 @@ function AlertsTab() {
           <span style={{ fontWeight: 600, color: 'var(--color-danger)' }}>Servidor DHCP rogue detectado en una o más interfaces</span>
         </div>
       )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>➕ Nueva Alerta</button>
+      </div>
+
       {isLoading ? <div className="loading-spinner" /> : (
         <div style={{ display: 'grid', gap: 12 }}>
           {alerts.map(a => (
@@ -295,21 +884,100 @@ function AlertsTab() {
           {alerts.length === 0 && <p style={{ color: 'var(--color-text-muted)', padding: 32, textAlign: 'center' }}>No hay alertas configuradas</p>}
         </div>
       )}
+
+      {showCreate && <RogueAlertFormModal onClose={() => setShowCreate(false)} />}
     </div>
   );
 }
 
 // ── Options Tab ───────────────────────────────────────────────────────────────
+
+interface OptionFormModalProps {
+  onClose: () => void;
+}
+
+function OptionFormModal({ onClose }: OptionFormModalProps) {
+  const createOption = useCreateDhcpOption();
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [value, setValue] = useState('');
+  const [raw, setRaw] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    const codeNum = parseInt(code, 10);
+    if (!code || isNaN(codeNum) || codeNum < 1 || codeNum > 254) {
+      setError('El código debe ser un número entre 1 y 254');
+      return;
+    }
+    if (!name || !value) { setError('Nombre y valor son obligatorios'); return; }
+    createOption.mutate(
+      { code: codeNum, name, value, raw },
+      {
+        onSuccess: (res) => { if (res.success) onClose(); else setError(res.error ?? 'Error'); },
+        onError: (err: any) => setError(err.message ?? 'Error'),
+      }
+    );
+  };
+
+  return (
+    <div className="confirm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="confirm-modal portal-form-modal animate-fade-in-up" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <div className="confirm-modal__header">
+          <h3 className="confirm-modal__title">Nueva Opción DHCP</h3>
+          <button type="button" className="confirm-modal__close" onClick={onClose} aria-label="Cerrar">✕</button>
+        </div>
+        <form onSubmit={handleSubmit} className="confirm-modal__body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <FormError message={error} />
+          <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: 12 }}>
+            <Field label="Código (1-254)" required>
+              <input className="input" type="number" min="1" max="254" value={code}
+                onChange={e => setCode(e.target.value)} required placeholder="43" style={{ width: '100%' }} />
+            </Field>
+            <Field label="Nombre" required>
+              <input className="input" value={name} onChange={e => setName(e.target.value)}
+                required placeholder="ej: vendor-specific" style={{ width: '100%' }} />
+            </Field>
+          </div>
+          <Field label="Valor" required>
+            <input className="input" value={value} onChange={e => setValue(e.target.value)}
+              required placeholder={raw ? 'Hex: 0x0a0b0c' : 'Texto o IP'} style={{ width: '100%' }} />
+          </Field>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
+            <input type="checkbox" checked={raw} onChange={e => setRaw(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            <span>Valor en hexadecimal raw</span>
+          </label>
+          <div className="confirm-modal__actions" style={{ marginTop: 4 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={createOption.isPending}>Cancelar</button>
+            <button type="submit" className="btn btn-primary" disabled={createOption.isPending}>
+              {createOption.isPending ? 'Creando...' : 'Crear Opción'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function OptionsTab() {
   const { data: options = [], isLoading } = useDhcpOptions();
+  const [showCreate, setShowCreate] = useState(false);
+
   return (
     <div className="animate-fade-in-up">
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>➕ Nueva Opción</button>
+      </div>
+
       {isLoading ? <div className="loading-spinner" /> : (
         <div className="data-table">
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                {['Código', 'Nombre', 'Valor', 'Raw'].map(h => (
+                {['Código', 'Nombre', 'Valor', 'Tipo'].map(h => (
                   <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 12, color: 'var(--color-text-muted)', fontWeight: 600 }}>{h}</th>
                 ))}
               </tr>
@@ -320,18 +988,25 @@ function OptionsTab() {
                   <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--color-primary)' }}>{o.code}</td>
                   <td style={{ padding: '10px 12px', fontWeight: 600 }}>{o.name}</td>
                   <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 12 }}>{o.value}</td>
-                  <td style={{ padding: '10px 12px' }}><span className={o.raw ? 'badge-info' : 'badge-low'} style={{ padding: '2px 8px', borderRadius: 4, fontSize: 11 }}>{o.raw ? 'hex' : 'text'}</span></td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <span className={o.raw ? 'badge-info' : 'badge-low'} style={{ padding: '2px 8px', borderRadius: 4, fontSize: 11 }}>
+                      {o.raw ? 'hex' : 'text'}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      {showCreate && <OptionFormModal onClose={() => setShowCreate(false)} />}
     </div>
   );
 }
 
 // ── Discovery Tab (Fase 2 — S2 + S5) ─────────────────────────────────────────
+
 const STATUS_COLOR: Record<string, string> = {
   registered:   'var(--color-success)',
   unregistered: 'var(--color-danger)',
@@ -348,26 +1023,20 @@ function DiscoveryTab() {
   const createTicket = useCreateDiscoveryTicket();
   const [ticketSent, setTicketSent] = useState<Set<string>>(new Set());
 
-  const allDevices: DhcpDiscoveryDevice[] = [
-    ...data.leases,
-    ...data.stale,
-  ];
+  const allDevices: DhcpDiscoveryDevice[] = [...data.leases, ...data.stale];
   const unregistered = allDevices.filter(d => d.discovery_status === 'unregistered');
   const registered   = allDevices.filter(d => d.discovery_status === 'registered');
   const stale        = allDevices.filter(d => d.discovery_status === 'stale');
 
   const handleTicket = (ip: string) => {
     if (ticketSent.has(ip)) return;
-    createTicket.mutate(ip, {
-      onSuccess: () => setTicketSent(prev => new Set(prev).add(ip)),
-    });
+    createTicket.mutate(ip, { onSuccess: () => setTicketSent(prev => new Set(prev).add(ip)) });
   };
 
   if (isLoading) return <div className="loading-spinner" />;
 
   return (
     <div className="animate-fade-in-up" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Summary */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
         {[
           { label: 'No inventariados', value: unregistered.length, color: 'var(--color-danger)' },
@@ -381,7 +1050,6 @@ function DiscoveryTab() {
         ))}
       </div>
 
-      {/* Device table */}
       <div className="data-table" style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -419,8 +1087,7 @@ function DiscoveryTab() {
                       style={{ padding: '3px 10px', fontSize: 11 }}
                       disabled={ticketSent.has(d.address) || createTicket.isPending}
                       onClick={() => handleTicket(d.address)}
-                      title="S5: Crear ticket GLPI para inventariar este equipo"
-                    >
+                      title="S5: Crear ticket GLPI para inventariar este equipo">
                       {ticketSent.has(d.address) ? '✓ Enviado' : '🎫 Ticket GLPI'}
                     </button>
                   )}
@@ -437,17 +1104,14 @@ function DiscoveryTab() {
 }
 
 // ── Correlation Tab (Fase 2 — S1 + S3) ────────────────────────────────────────
+
 function CorrelationTab() {
   const [subTab, setSubTab] = useState<'glpi' | 'wazuh'>('glpi');
   const { data: corr = [], isLoading: loadingCorr } = useDhcpGlpiCorrelation();
   const { data: enriched = [], isLoading: loadingWazuh } = useDhcpWazuhEnriched(30, 5);
 
-  const LEVEL_COLOR = (lvl: number) =>
-    lvl >= 12 ? 'var(--color-danger)' : lvl >= 9 ? 'var(--color-warning,#f59e0b)' : lvl >= 6 ? 'var(--accent-primary)' : 'var(--color-text-muted)';
-
   return (
     <div className="animate-fade-in-up">
-      {/* Sub-tab switcher */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid var(--color-border)' }}>
         {[
           { id: 'glpi' as const, label: '🔗 DHCP × GLPI' },
@@ -466,7 +1130,6 @@ function CorrelationTab() {
         ))}
       </div>
 
-      {/* S1: GLPI correlation */}
       {subTab === 'glpi' && (
         loadingCorr ? <div className="loading-spinner" /> : (
           <div className="data-table" style={{ overflowX: 'auto' }}>
@@ -502,7 +1165,6 @@ function CorrelationTab() {
         )
       )}
 
-      {/* S3: Wazuh enriched alerts */}
       {subTab === 'wazuh' && (
         loadingWazuh ? <div className="loading-spinner" /> : (
           <div className="data-table" style={{ overflowX: 'auto' }}>
@@ -543,6 +1205,7 @@ function CorrelationTab() {
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function DhcpPage() {
   const [activeTab, setActiveTab] = useState<Tab>('leases');
   const { data: leases = [] } = useDhcpLeases();

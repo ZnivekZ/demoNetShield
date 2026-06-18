@@ -98,3 +98,6 @@ backend/data/geoip/*.mmdb
 *.db
 *.sqlite
 *.sqlite3
+
+# Docs
+docs/

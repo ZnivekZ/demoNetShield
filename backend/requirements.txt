@@ -37,6 +37,10 @@ websockets==14.1
 # CORS & Security
 python-multipart==0.0.20
 
+# Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
 # Utilities
 orjson==3.10.13
 tenacity==9.0.0

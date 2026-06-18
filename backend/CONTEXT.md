@@ -12,7 +12,7 @@ backend/
 ├── requirements.txt           # Dependencias Python con versiones pinneadas (53 líneas)
 │
 ├── models/                    # Modelos SQLAlchemy (tablas de base de datos)
-│   ├── __init__.py            # Re-exporta todos los modelos (10 clases)
+│   ├── __init__.py            # Re-exporta todos los modelos (11 clases)
 │   ├── ip_label.py            # IPLabel: etiquetas asignadas a IPs
 │   ├── ip_group.py            # IPGroup + IPGroupMember: grupos de IPs con criterios
 │   ├── action_log.py          # ActionLog: auditoría de acciones (bloqueos, reportes, etc.)
@@ -20,11 +20,13 @@ backend/
 │   ├── portal_user.py         # PortalUserRegistry: usuarios del portal cautivo creados via NetShield
 │   ├── quarantine_log.py      # QuarantineLog: log de activos GLPI puestos en cuarentena
 │   ├── telegram.py            # TelegramReportConfig, TelegramMessageLog, TelegramPendingMessage
-│   └── custom_view.py         # CustomView: vistas personalizadas del dashboard (layout JSON)
+│   ├── custom_view.py         # CustomView: vistas personalizadas del dashboard (layout JSON)
+│   └── user.py                # User: operadores del dashboard (auth JWT)
 │
-├── schemas/                   # Pydantic v2 schemas para request/response (17 archivos)
+├── schemas/                   # Pydantic v2 schemas para request/response (18 archivos)
 │   ├── __init__.py            # Re-exporta todos los schemas
 │   ├── common.py              # APIResponse[T]: envelope genérico {success, data, error}
+│   ├── auth.py                # LoginRequest, TokenResponse, UserResponse, UserCreate, UserUpdate
 │   ├── mikrotik.py            # InterfaceInfo, ConnectionInfo, ARPEntry, TrafficData, etc.
 │   ├── wazuh.py               # WazuhAgent, WazuhAlert, ActiveResponseRequest
 │   ├── network.py             # IPLabelCreate/Response, IPGroupCreate/Response
@@ -42,8 +44,9 @@ backend/
 │   └── dhcp.py                # DhcpServer, DhcpLease, DhcpNetwork, DhcpPool, DhcpSubnetUsage,
 │                              # DhcpRogueAlert, DhcpOption + 11 schemas de request (Create/Update/Block)
 │
-├── services/                  # Lógica de negocio (16 archivos)
+├── services/                  # Lógica de negocio (17 archivos)
 │   ├── __init__.py
+│   ├── auth_service.py        # Singleton: JWT (python-jose) + bcrypt (passlib). CRUD de usuarios. Sin mock.
 │   ├── mikrotik_service.py    # Singleton: conexión RouterOS API con reconexión automática (39KB)
 │   ├── wazuh_service.py       # Singleton: cliente httpx async con JWT auth (25KB)
 │   ├── crowdsec_service.py    # Singleton: bouncer LAPI, decisiones, CTI, sync a MikroTik (18KB)
@@ -60,8 +63,9 @@ backend/
 │   ├── mock_data.py           # Repositorio central de datos simulados, seed=42 (~152KB)
 │   └── mock_service.py        # Facade CRUD en memoria + get_mock_status() (20KB)
 │
-├── routers/                   # Endpoints FastAPI, un archivo por dominio (16 archivos)
+├── routers/                   # Endpoints FastAPI, un archivo por dominio (17 archivos)
 │   ├── __init__.py
+│   ├── auth.py                # /api/auth/* — login, me, logout, CRUD usuarios (JWT dependency)
 │   ├── mikrotik.py            # /api/mikrotik/* (7KB)
 │   ├── wazuh.py               # /api/wazuh/* (8KB)
 │   ├── crowdsec.py            # /api/crowdsec/* (23KB)

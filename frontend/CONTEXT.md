@@ -5,16 +5,17 @@
 ```
 frontend/src/
 ├── main.tsx                           # Entry point, monta App en #root
-├── App.tsx                            # QueryClientProvider + BrowserRouter + Routes (23 rutas)
+├── App.tsx                            # QueryClientProvider + AuthProvider + BrowserRouter + Routes (25 rutas)
 ├── index.css                          # Design system completo (TailwindCSS v4 + clases custom, 121KB)
-├── types.ts                           # Tipos TypeScript (~39KB, espejo de schemas Pydantic)
+├── types.ts                           # Tipos TypeScript (~39KB, espejo de schemas Pydantic + Auth types)
 │
 ├── services/
-│   └── api.ts                         # Cliente Axios centralizado (~37KB, 15+ namespaces)
+│   └── api.ts                         # Cliente Axios centralizado (~37KB, 18+ namespaces)
+│                                      # Interceptores JWT: request inyecta Bearer token, response maneja 401
 │                                      # Namespaces: mikrotikApi, wazuhApi, networkApi, reportsApi,
 │                                      # securityApi, vlansApi, phishingApi, portalApi, glpiApi,
 │                                      # crowdsecApi, geoipApi, suricataApi, telegramApi,
-│                                      # viewsApi, widgetsApi, systemApi, actionsApi, dhcpApi
+│                                      # viewsApi, widgetsApi, systemApi, actionsApi, dhcpApi, authApi
 │
 ├── config/
 │   └── themes.ts                      # 6 temas disponibles (ThemeConfig[], ThemeId, font scale options)
@@ -64,6 +65,8 @@ frontend/src/
 │   ├── useTelegramLogs.ts             # Historial de mensajes con filtros
 │   └── useQrScanner.ts               # Cámara + QR decode (estado local, sin API)
 │   ├── useDhcp.ts                    # DHCP: 7 read + 10 mutation + 5 Fase 2 hooks
+│   ├── useAuth.ts                    # Estado de autenticación: login, logout, validar token al montar
+│   ├── useUsers.ts                   # CRUD de usuarios dashboard con TanStack Query ['auth-users']
 │   │
 │   └── widgets/                       # Hooks de datos para widgets del catálogo
 │       ├── visual/index.ts            # 11 hooks: ThreatGauge, ActivityHeatmap, NetworkPulse,
@@ -88,9 +91,19 @@ frontend/src/
     │   ├── MockModeBadge.tsx           # Badge amarillo en topbar cuando hay servicios en mock
     │   ├── GlobalSearch.tsx            # Búsqueda global de IPs y hosts
     │   ├── ConfirmModal.tsx            # Modal de confirmación genérico (acciones destructivas)
-    │   ├── SettingsDrawer.tsx          # Panel lateral config: tema + fuente
+    │   ├── SettingsDrawer.tsx          # Panel lateral config: tema + fuente + acceso gestión usuarios
     │   ├── ThemeCard.tsx               # Card preview de tema (swatches + label)
     │   └── FontSizeSlider.tsx          # Slider tamaño de fuente
+    │
+    ├── auth/                           # 3 componentes — Autenticación del dashboard
+    │   ├── AuthContext.tsx             # React Context + AuthProvider + useAuthContext()
+    │   ├── ProtectedRoute.tsx          # Guard de rutas: redirige a /login si no autenticado
+    │   └── LoginPage.tsx               # Pantalla de login (/login) — glassmorphism, shake on error
+    │
+    ├── admin/                          # 2 componentes — Gestión de operadores del dashboard
+    │   ├── UsersManagementPage.tsx     # /admin/users: tabla CRUD de usuarios con toggle is_active
+    │   └── UserFormModal.tsx           # Modal crear/editar usuario (username inmutable en edición)
+    │
     │
     ├── security/                       # 4 componentes
     │   ├── QuickView.tsx              # Vista principal ("/") — stats, tráfico, alertas, conexiones

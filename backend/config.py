@@ -24,7 +24,7 @@ import json
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -121,6 +121,13 @@ class Settings(BaseSettings):
     telegram_admin_chat_ids: str = ""  # IDs separados por coma (autorizados para consultas)
     mock_telegram: bool = True  # True por defecto hasta configurar bot
 
+    # ── Auth / JWT ─────────────────────────────────────────────
+    jwt_secret_key: str = ""        # OBLIGATORIO — falla al arrancar si vacío
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60    # 1 hora de expiración
+    default_admin_user: str = "admin"
+    default_admin_password: str = "admin"
+
     # ── Mock Mode ─────────────────────────────────────────────
     # Global toggle — activa mock para TODOS los servicios
     mock_all: bool = False
@@ -132,6 +139,26 @@ class Settings(BaseSettings):
     mock_crowdsec: bool = False
     # mock_suricata está definida arriba (True por defecto hasta instalación)
     # mock_telegram está definida arriba (True por defecto hasta configurar bot)
+
+    @model_validator(mode="after")
+    def validate_jwt_secret(self) -> "Settings":
+        """JWT_SECRET_KEY es obligatorio para la seguridad del sistema."""
+        if not self.jwt_secret_key:
+            raise ValueError(
+                "\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "  JWT_SECRET_KEY es OBLIGATORIO en backend/.env            \n"
+                "  Generá uno seguro con:                                   \n"
+                "  python -c \"import secrets; print(secrets.token_hex(32))\"\n"
+                "  Luego agregalo a .env: JWT_SECRET_KEY=<valor generado>   \n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            )
+        if len(self.jwt_secret_key) < 32:
+            raise ValueError(
+                "JWT_SECRET_KEY debe tener al menos 32 caracteres. "
+                "Usá: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        return self
 
     @field_validator("cors_origins", mode="before")
     @classmethod

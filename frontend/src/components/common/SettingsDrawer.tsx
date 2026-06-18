@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { X, RotateCcw, Palette, Type } from 'lucide-react';
+import { X, RotateCcw, Palette, Type, Users } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { THEMES } from '../../config/themes';
 import { useTheme } from '../../hooks/useTheme';
 import { ThemeCard } from './ThemeCard';
@@ -13,11 +14,13 @@ interface SettingsDrawerProps {
 /**
  * SettingsDrawer — Panel lateral derecho "Centro de Control".
  * Permite cambiar el tema visual y la escala de tipografía.
+ * También provee acceso a la gestión de usuarios del dashboard.
  * Se cierra al hacer clic fuera o presionar Escape.
  */
 export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   const { theme, fontScale, applyTheme, applyFontScale, reset } = useTheme();
   const drawerRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   // Cerrar con Escape
   useEffect(() => {
@@ -102,6 +105,30 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
               <h3 className="settings-section__title">Tipografía</h3>
             </div>
             <FontSizeSlider value={fontScale} onChange={applyFontScale} />
+          </section>
+
+          <div className="settings-divider" />
+
+          {/* Sección: Administración */}
+          <section className="settings-section">
+            <div className="settings-section__header">
+              <Users size={14} />
+              <h3 className="settings-section__title">Administración</h3>
+            </div>
+            <button
+              id="settings-manage-users-btn"
+              className="settings-reset-btn"
+              onClick={() => { navigate('/admin/users'); onClose(); }}
+              style={{
+                width: '100%',
+                justifyContent: 'flex-start',
+                gap: '0.5rem',
+                color: 'var(--color-surface-200)',
+              }}
+            >
+              <Users size={13} />
+              Gestionar usuarios
+            </button>
           </section>
 
         </div>

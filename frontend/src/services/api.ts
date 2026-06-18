@@ -1,6 +1,12 @@
 import axios from 'axios';
 import type {
   APIResponse,
+  // Auth
+  LoginRequest,
+  TokenResponse,
+  AuthUser,
+  UserCreate,
+  UserUpdate,
   InterfaceInfo,
   ConnectionInfo,
   ARPEntry,
@@ -96,6 +102,33 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 });
+
+// ── JWT Interceptors ──────────────────────────────────────────────────────────
+
+// Inject Authorization header automatically on every request
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('netshield_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Handle 401 globally: clear token and redirect to login
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('netshield_token');
+      localStorage.removeItem('netshield_user');
+      // Avoid redirect loop if already on /login
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 /* ── MikroTik ─────────────────────────────────────────────────── */
 
@@ -1068,4 +1101,29 @@ export const dhcpApi = {
     api.post<APIResponse<{ id: number; title: string }>>(
       '/dhcp/discovery/create-ticket', null, { params: { ip } }
     ).then(r => r.data),
+};
+
+/* ── Auth ─────────────────────────────────────────────────── */
+
+export const authApi = {
+  login: (data: LoginRequest) =>
+    api.post<TokenResponse>('/auth/login', data).then(r => r.data),
+
+  me: () =>
+    api.get<APIResponse<AuthUser>>('/auth/me').then(r => r.data),
+
+  logout: () =>
+    api.post<APIResponse>('/auth/logout').then(r => r.data),
+
+  getUsers: () =>
+    api.get<APIResponse<AuthUser[]>>('/auth/users').then(r => r.data),
+
+  createUser: (data: UserCreate) =>
+    api.post<APIResponse<AuthUser>>('/auth/users', data).then(r => r.data),
+
+  updateUser: (id: number, data: UserUpdate) =>
+    api.put<APIResponse<AuthUser>>(`/auth/users/${id}`, data).then(r => r.data),
+
+  deleteUser: (id: number) =>
+    api.delete<APIResponse>(`/auth/users/${id}`).then(r => r.data),
 };

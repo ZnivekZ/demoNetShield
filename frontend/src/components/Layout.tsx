@@ -5,26 +5,19 @@
  * -----------------------------------------------
  * Original: Dashboard / Firewall / VLANs / Red & IPs / Reportes (5 items)
  *
- * New structure (7 of 20 max items used):
+ * Current structure (7 groups):
  *   SEGURIDAD group:
- *     - Seguridad (/)          — QuickView: alerts, MITRE, top agents (was "Dashboard")
+ *     - Seguridad (/)          — QuickView: alerts, MITRE, top agents
  *     - Configuración (/security/config) — Blacklist, geo-block, sinkhole settings
  *   INFRAESTRUCTURA group:
- *     - Red (/network)         — Traffic, interfaces, VLANs (absorbed), ARP, labels, groups
+ *     - Red (/network)         — Traffic, interfaces, VLANs, ARP, labels, groups
  *     - Firewall (/firewall)   — Rules, blocks, blacklists
  *   HERRAMIENTAS group:
  *     - Phishing (/phishing)   — Detection, victims, domain management, sinkhole
  *     - Sistema (/system)      — Unified MikroTik + Wazuh health, Remote CLI
- *     - Reportes (/reports)    — AI reports (unchanged)
+ *     - Reportes (/reports)    — AI reports
  *
- * Why:
- *   - "Seguridad" absorbs Dashboard (was already 90% Wazuh security data)
- *   - "Red" absorbs VLANs (they're network-layer, not separate domain)
- *   - "Phishing" needs its own item (complex subdomain: victims, sinkhole, simulation)
- *   - "Sistema" is new (unified health view was missing)
- *   - 13 item slots reserved for future expansion (SIEM rules, threat intel, VPN, etc.)
- *
- * Extensibility: Add items to the navGroups array below. Max 20 total items.
+ * Extensibility: Add items to the navGroups array below.
  */
 import { NavLink, Outlet } from 'react-router-dom';
 import {
@@ -50,6 +43,7 @@ import {
   AlertTriangle,
   LayoutDashboard,
   Server,
+  LogOut,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GlobalSearch } from './common/GlobalSearch';
@@ -65,6 +59,7 @@ import { IpContextPanel } from './crowdsec/IpContextPanel';
 import { SettingsDrawer } from './common/SettingsDrawer';
 import { useQuery } from '@tanstack/react-query';
 import { glpiApi } from '../services/api';
+import { useAuthContext } from './auth/AuthContext';
 
 // ── Navigation structure (max 20 items total) ─────────────────
 const navGroups = [
@@ -126,6 +121,7 @@ const navGroups = [
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const { user, logout } = useAuthContext();
 
   // Global block IP flow (triggered by GlobalSearch or NotificationPanel)
   const [blockIPTarget, setBlockIPTarget] = useState<string | null>(null);
@@ -222,7 +218,7 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* Status indicator */}
+        {/* Status indicator + User info */}
         <div className="px-5 py-4 border-t border-surface-800/50">
           <div className="flex items-center gap-2 text-[0.7rem] text-surface-500">
             <Activity className="w-3.5 h-3.5 text-success" />
@@ -231,6 +227,23 @@ export default function Layout() {
           <p className="text-[0.6rem] text-surface-600 mt-1">
             Lab: 192.168.100.118
           </p>
+          {/* Current user + logout */}
+          {user && (
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-surface-800/50">
+              <span className="text-[0.7rem] text-surface-400 font-medium truncate">
+                {user.full_name || user.username}
+              </span>
+              <button
+                id="sidebar-logout-btn"
+                onClick={logout}
+                className="flex items-center gap-1 text-[0.65rem] text-surface-500 hover:text-danger transition-colors"
+                title="Cerrar sesión"
+              >
+                <LogOut className="w-3 h-3" />
+                Salir
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 

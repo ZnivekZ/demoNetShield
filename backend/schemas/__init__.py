@@ -1,6 +1,13 @@
 """Schemas package - Pydantic v2 models for API request/response."""
 
 from schemas.common import APIResponse
+from schemas.auth import (
+    LoginRequest,
+    TokenResponse,
+    UserResponse,
+    UserCreate,
+    UserUpdate,
+)
 from schemas.mikrotik import (
     InterfaceInfo,
     ConnectionInfo,
@@ -126,6 +133,12 @@ from schemas.telegram import (
 
 __all__ = [
     "APIResponse",
+    # Auth
+    "LoginRequest",
+    "TokenResponse",
+    "UserResponse",
+    "UserCreate",
+    "UserUpdate",
     "InterfaceInfo",
     "ConnectionInfo",
     "ARPEntry",

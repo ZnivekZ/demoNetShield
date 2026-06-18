@@ -33,6 +33,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 - **💬 Telegram Bot** — Canal de notificaciones bidireccional: alertas outbound automáticas + consultas en lenguaje natural respondidas por Claude AI (inbound)
 - **🖧 Administración DHCP** — Gestión completa de DHCP MikroTik: servidores, leases, pools, redes, alertas rogue, opciones custom, correlación GLPI y discovery de dispositivos
 - **📊 Vistas Personalizadas** — Sistema de dashboards configurables por el usuario con catálogo de **59 widgets** especializados organizados en 4 categorías
+- **🔑 Autenticación JWT** — Login seguro con tokens JWT, bcrypt para contraseñas, gestión de usuarios del dashboard desde el panel de control
 
 > **Fase actual:** Laboratorio de pruebas. Diseñado para escalar a entornos reales con 1000+ usuarios concurrentes sin reescribir la arquitectura.
 
@@ -62,6 +63,8 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 | **Vistas** | `/views` | Lista de dashboards personalizados guardados |
 | **Vista Detail** | `/views/:id` | Dashboard personalizado con widgets en grid |
 | **View Builder** | `/views/:id/edit` | Editor de vistas con catálogo tabulado de **59 widgets** |
+| **Gestión de usuarios** | `/admin/users` | CRUD de operadores del dashboard (acceso desde ⚙️ topbar) |
+| **Login** | `/login` | Autenticación JWT — única ruta pública |
 
 ---
 
@@ -148,6 +151,7 @@ NetShield incluye un sistema completo para crear **dashboards configurables por 
 |---------|-----------|
 | **FastAPI** 0.115 | Framework web async |
 | **SQLAlchemy** 2.0 + aiosqlite | ORM async con SQLite |
+| **python-jose** + **passlib[bcrypt]** | Autenticación JWT + hashing de contraseñas |
 | **routeros-api** | Cliente API MikroTik (ejecutado en thread pool) |
 | **httpx** | Cliente HTTP async para Wazuh y CrowdSec |
 | **geoip2** 4.8.1 | Consulta local de bases de datos MaxMind GeoLite2 |
@@ -199,7 +203,9 @@ pip install -r backend/requirements.txt
 
 # Configurar variables de entorno
 cp backend/.env.example backend/.env
-# Editar backend/.env con tus credenciales reales
+# Editar backend/.env con tus credenciales reales.
+# OBLIGATORIO: generar y setear JWT_SECRET_KEY
+# python -c "import secrets; print(secrets.token_hex(32))"
 
 # Ejecutar (con venv activado desde la raíz)
 cd backend
@@ -368,7 +374,8 @@ netShield2/
 │   │   └── geoip/               # GeoLite2-City.mmdb + GeoLite2-ASN.mmdb (no en git)
 │   ├── scripts/
 │   │   └── download_geoip.py    # Script de descarga de bases de datos MaxMind
-│   ├── routers/                 # 16 routers REST
+│   ├── routers/                 # 17 routers REST
+│   │   ├── auth.py              # Autenticación JWT: login, me, logout, CRUD usuarios
 │   │   ├── mikrotik.py          # Endpoints MikroTik (interfaces, ARP, firewall)
 │   │   ├── vlans.py             # CRUD de VLANs + tráfico
 │   │   ├── wazuh.py             # Alertas, agentes, MITRE ATT&CK
@@ -403,20 +410,22 @@ netShield2/
 │   │   ├── pdf_service.py       # WeasyPrint + Jinja2
 │   │   ├── mock_data.py         # Datos simulados reproducibles (seed=42)
 │   │   └── mock_service.py      # CRUD en memoria + estado de mock por servicio
-│   ├── models/                  # Modelos SQLAlchemy (incluye CustomView)
-│   ├── schemas/                 # Schemas Pydantic v2 (17 archivos, incluye dhcp.py)
+│   ├── models/                  # Modelos SQLAlchemy (11 modelos, incluye User y CustomView)
+│   ├── schemas/                 # Schemas Pydantic v2 (18 archivos, incluye auth.py y dhcp.py)
 │   └── templates/               # Plantilla HTML para PDF
 │
 ├── frontend/
 │   └── src/
-│       ├── App.tsx              # Rutas SPA (22 vistas + redirect + fallback)
-│       ├── types.ts             # Tipos TypeScript compartidos (~1600 líneas)
+│       ├── App.tsx              # Rutas SPA (23 vistas + redirect + fallback) + AuthProvider
+│       ├── types.ts             # Tipos TypeScript compartidos (~1700 líneas)
 │       ├── index.css            # Design system y tokens @theme
 │       ├── services/
-│       │   └── api.ts           # Cliente API centralizado (~2000 líneas, 15+ namespaces)
-│       ├── hooks/               # 40+ custom hooks (TanStack Query + WebSocket)
+│       │   └── api.ts           # Cliente API centralizado (18+ namespaces + interceptores JWT)
+│       ├── hooks/               # 42+ custom hooks (TanStack Query + WebSocket)
 │       │   ├── useWebSocket.ts              # Hook base WebSocket con reconexión
 │       │   ├── useTheme.ts                  # Hook de theming (light/dark/system)
+│       │   ├── useAuth.ts                   # Estado de autenticación JWT (login/logout/validate)
+│       │   ├── useUsers.ts                  # CRUD de usuarios dashboard (TanStack Query)
 │       │   ├── useSuricataEngine.ts         # Estado motor + series + reloadRules
 │       │   ├── useSuricataAlerts.ts         # Alertas REST + suscripción /ws/suricata/alerts
 │       │   ├── useSuricataFlows.ts          # Flujos, DNS, HTTP, TLS
@@ -438,7 +447,9 @@ netShield2/
 │       │   │   └── hybrid/index.ts          # useIpProfiler, useConfirmedThreats, useDhcpDiscoveryWidget...
 │       │   └── ...                          # + 21 hooks de dominio (portal, GLPI, CrowdSec, DHCP, etc.)
 │       └── components/          # Componentes por dominio
-│           ├── Layout.tsx               # Sidebar glassmorphic + topbar (status dots + theming)
+│           ├── Layout.tsx               # Sidebar glassmorphic + topbar (status dots + theming + logout)
+│           ├── auth/                    # LoginPage · AuthContext · ProtectedRoute
+│           ├── admin/                   # UsersManagementPage · UserFormModal
 │           ├── common/                  # Componentes compartidos
 │           ├── dashboard/               # Dashboard principal
 │           ├── security/                # QuickView + ConfigView
@@ -516,6 +527,16 @@ netShield2/
 La documentación interactiva completa está disponible en `/docs` (Swagger UI) cuando se corre el backend:
 
 ```
+# Auth
+POST /api/auth/login                    — Login (devuelve JWT)
+GET  /api/auth/me                       — Validar sesión activa
+POST /api/auth/logout                   — Logout (stateless, limpia token en cliente)
+GET  /api/auth/users                    — Listar usuarios del dashboard
+POST /api/auth/users                    — Crear usuario
+PUT  /api/auth/users/:id                — Editar usuario (email, nombre, contraseña, is_active)
+DEL  /api/auth/users/:id                — Eliminar usuario
+
+# Sistema
 GET  /api/health                        — Estado del sistema
 GET  /api/system/mock-status            — Estado actual de cada servicio (real o mock)
 
@@ -668,7 +689,7 @@ POST /api/security/*                    — Auto-block, geo-block, cuarentena
 
 > Este proyecto está pensado para **laboratorio de pruebas**. Para producción se deben implementar:
 
-- [ ] Autenticación de usuarios (JWT o sesiones)
+- [x] **Autenticación de usuarios (JWT)** — `JWTAuthMiddleware` global + bcrypt + CRUD usuarios
 - [ ] Rate limiting en endpoints
 - [ ] Validación de permisos por rol (RBAC)
 - [ ] Cache Redis para métricas de tiempo real
@@ -710,6 +731,6 @@ postman/NetShield.postman_collection.json
 
 **Hecho con ❤️ para monitoreo de redes**
 
-*NetShield Dashboard — v2.6*
+*NetShield Dashboard — v2.7*
 
 </div>

@@ -206,6 +206,12 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 | `LOG_LEVEL` | `DEBUG` | Nivel de log |
 | `CORS_ORIGINS` | `["http://localhost:5173","http://localhost:3000"]` | JSON array de orígenes |
 
+### Auth / JWT
+| Variable | Default | Descripción |
+|----------|---------|-------------|
+| `JWT_SECRET_KEY` | — | **Obligatorio.** Mínimo 32 chars. El backend falla al arrancar si no está seteado. Generarlo con: `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `JWT_EXPIRE_MINUTES` | `60` | Tiempo de expiración del token en minutos |
+
 ### Mock Mode
 | Variable | Default | Descripción |
 |----------|---------|-------------|
@@ -242,7 +248,8 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 ### Backend
 
 - **Respuesta consistente:** Todo endpoint devuelve `{"success": bool, "data": ..., "error": null | "mensaje"}`. Implementado vía `APIResponse.ok(data)` y `APIResponse.fail(error)` del schema `schemas/common.py`.
-- **Un router por dominio:** `mikrotik.py`, `wazuh.py`, `crowdsec.py`, `suricata.py`, `geoip.py`, `glpi.py`, `portal.py`, `reports.py`, `network.py`, `security.py`, `phishing.py`, `views.py`, `widgets.py`, `vlans.py`, `cli.py`, `dhcp.py` (16 routers).
+- **Un router por dominio:** `mikrotik.py`, `wazuh.py`, `crowdsec.py`, `suricata.py`, `geoip.py`, `glpi.py`, `portal.py`, `reports.py`, `network.py`, `security.py`, `phishing.py`, `views.py`, `widgets.py`, `vlans.py`, `cli.py`, `dhcp.py`, `auth.py` (17 routers).
+- **Autenticación:** JWT via `JWTAuthMiddleware` global en `main.py`. Valida `Authorization: Bearer <token>` en cada request. Rutas públicas: `/api/auth/login`, `/api/auth/logout`, `/health`, `/docs`, `/ws/*`.
 - **Servicios como singletons:** Variable de módulo + función `get_X_service()`. Excepción: `AIService` crea instancia por llamada.
 - **Mock guard en servicios:** Al inicio de cada método: `if settings.should_mock_X: return MockData.X.funcion()`. Los guards están en servicios (no en routers) para que los WebSockets también los respeten.
 - **Async everywhere:** Todo es async. Librerías síncronas (`routeros-api`, WeasyPrint, requests) se ejecutan en `run_in_executor` o `asyncio.to_thread`.
@@ -254,10 +261,11 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 
 ### Frontend
 
-- **Componentes:** PascalCase, un archivo por componente, agrupados por dominio (`security/`, `crowdsec/`, `suricata/`, `inventory/`, `portal/`, `reports/`, `views/`, `widgets/`, etc.).
+- **Componentes:** PascalCase, un archivo por componente, agrupados por dominio (`security/`, `crowdsec/`, `suricata/`, `inventory/`, `portal/`, `reports/`, `views/`, `widgets/`, `auth/`, `admin/`, etc.).
 - **Hooks:** Prefijo `use`, un hook por fuente de datos, en `src/hooks/`. Widget hooks en `src/hooks/widgets/{visual,technical,hybrid}/index.ts`.
-- **Servicios API:** Centralizados en `src/services/api.ts` (~37KB, 15+ namespaces). Nunca hacer fetch directo.
+- **Servicios API:** Centralizados en `src/services/api.ts` (~37KB, 18+ namespaces). Interceptores JWT: request inyecta `Bearer token`, response maneja 401 global. Nunca hacer fetch directo.
 - **Tipos:** Todos en `src/types.ts` (~39KB), espejo de los schemas Pydantic del backend.
+- **Autenticación:** `AuthProvider` (context) envuelve la app. `ProtectedRoute` bloquea rutas protegidas. Token en `localStorage['netshield_token']`.
 - **Data fetching:** TanStack Query con `queryKey` descriptivos y `refetchInterval` para polling.
 - **Estilos:** TailwindCSS v4 con tokens personalizados definidos en `index.css` vía `@theme`. No hay `tailwind.config.js`.
 - **Clases CSS reutilizables:** `glass-card`, `stat-card`, `badge-*`, `btn-*`, `data-table`, `input`, `sidebar-link`, `status-dot` definidas en `index.css`.
@@ -271,30 +279,32 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 
 **Backend:**
 - [x] Config con pydantic-settings, 9 flags mock granulares + `MOCK_ALL` [REAL]
-- [x] Base de datos SQLAlchemy async con SQLite, 10 modelos [REAL]
-- [x] 16 routers REST con ~180 endpoints [REAL + MOCK]
+- [x] Base de datos SQLAlchemy async con SQLite, 11 modelos [REAL]
+- [x] 17 routers REST con ~185 endpoints [REAL + MOCK]
 - [x] 7 WebSocket endpoints [REAL + MOCK]
-- [x] 16 servicios de lógica de negocio [REAL + MOCK]
+- [x] 17 servicios de lógica de negocio [REAL + MOCK]
 - [x] `glpi_collector.py` — Periodic sync de assets GLPI cada 5 min [REAL]
 - [x] Function calling de Claude con 5 tools [MOCK ONLY sin API key]
 - [x] Mock system completo para todos los servicios [REAL]
+- [x] **Sistema de autenticación JWT** — `JWTAuthMiddleware` global + `AuthService` singleton + CRUD usuarios [REAL]
 
 **Frontend:**
-- [x] 23 rutas (22 reales + 1 redirect + 1 fallback) [REAL]
+- [x] 25 rutas (23 reales + 1 redirect + 1 fallback) [REAL]
 - [x] Layout con sidebar 7 grupos, topbar con 5 status dots [REAL]
 - [x] **59 widgets** en 4 categorías (17 standard, **12** visual, **15** technical, 15 hybrid) [REAL]
 - [x] 6 temas visuales con escala de fuente [REAL]
-- [x] 40 custom hooks de datos [REAL]
+- [x] 42 custom hooks de datos [REAL]
 - [x] Sistema de vistas personalizadas con drag-and-drop [REAL]
 - [x] Filtro por tipo de activo en Inventario (Computer/NetworkEquipment/Printer/Phone/Peripheral/Monitor)
 - [x] Botón 🚦 "Limitar velocidad" en DHCP Leases → crea Simple Queue
+- [x] **Login page** + `AuthContext` + `ProtectedRoute` + panel gestión de usuarios [REAL]
 - [ ] Responsive móvil (funcional pero no refinado)
-- [ ] Autenticación de usuario
 
 ### Rutas del frontend (`App.tsx`)
 
 | Ruta | Componente | Estado |
 |------|-----------|--------|
+| `/login` | `LoginPage` | ✅ Operativa (pública) |
 | `/` | `QuickView` | ✅ Operativa |
 | `/security/config` | `ConfigView` | ✅ Operativa |
 | `/network` | `NetworkPage` | ✅ Operativa |
@@ -316,6 +326,7 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 | `/views/:id` | `ViewDetailPage` | ✅ Operativa |
 | `/views/:id/edit` | `ViewBuilderPage` | ✅ Operativa |
 | `/dhcp` | `DhcpPage` | ✅ Operativa |
+| `/admin/users` | `UsersManagementPage` | ✅ Operativa (desde SettingsDrawer) |
 | `/vlans` | → Redirect a `/network` | ✅ Legacy redirect |
 
 ### Servicios externos — estado de integración
@@ -335,7 +346,6 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 
 - [ ] Cache Redis para métricas de tiempo real
 - [ ] Tests unitarios y de integración
-- [ ] Autenticación de usuarios (JWT/sesiones)
 - [ ] Rate limiting en endpoints
 - [ ] Validación de permisos por rol (RBAC)
 
@@ -461,14 +471,25 @@ En `Layout.tsx`, agregar al array `navGroups`:
 ```tsx
 { to: '/mi-ruta', icon: MiIcono, label: 'Mi Panel', end: false },
 ```
-Actualmente hay 20 ítems de 20 máximos.
+No hay límite fijo de ítems.
 
-Última actualización: 2026-06-16
-Basado en análisis de: 140+ archivos
-Versión del proyecto: 2.6
+Última actualización: 2026-06-17
+Basado en análisis de: 150+ archivos
+Versión del proyecto: 2.7
 
 ### Cambios Fase 1 (2026-06-16)
 - **Backend (MikroTik):** Nuevos endpoints `GET /api/mikrotik/nat-rules`, `GET /api/mikrotik/routes`, `GET /api/mikrotik/addresses`, `GET /api/mikrotik/bridge-ports`, CRUD `/api/mikrotik/queues`.
 - **Frontend:** 3 widgets nuevos (`NatTable`, `RouteTable`, `QueueBars`). Catálogo actualizado a 59 widgets.
 - **Frontend:** Filtro por tipo de activo en `AssetsView.tsx`.
 - **Frontend:** Botón 🚦 en DHCP Leases crea Simple Queue directamente.
+
+### Cambios Auth (2026-06-17)
+- **Backend:** `models/user.py` (tabla `users`), `schemas/auth.py`, `services/auth_service.py` (JWT + bcrypt), `routers/auth.py` (`/api/auth/*`).
+- **Backend:** `JWTAuthMiddleware` global en `main.py` — valida JWT en **todos** los endpoints excepto rutas públicas.
+- **Backend:** `ensure_default_admin()` en lifespan — crea usuario `admin/admin` si la tabla está vacía.
+- **Backend:** `JWT_SECRET_KEY` obligatorio en `.env` con validación al arrancar (`model_validator`).
+- **Frontend:** `authApi` namespace en `api.ts` + interceptores JWT (request inyecta token, response maneja 401).
+- **Frontend:** `useAuth.ts`, `useUsers.ts`, `AuthContext.tsx`, `ProtectedRoute.tsx`, `LoginPage.tsx`.
+- **Frontend:** `UsersManagementPage.tsx` + `UserFormModal.tsx` en `/admin/users`.
+- **Frontend:** Acceso desde SettingsDrawer (⚙️) → "Gestionar usuarios".
+- **Frontend:** Logout en footer del sidebar.

@@ -2016,3 +2016,37 @@ export interface DhcpEnrichedAlert {
   dhcp_is_static: boolean | null;
 }
 
+/* ── Auth Types ──────────────────────────────────────────────── */
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+}
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  email: string | null;
+  full_name: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface UserCreate {
+  username: string;
+  password: string;
+  email?: string;
+  full_name?: string;
+}
+
+export interface UserUpdate {
+  email?: string | null;
+  full_name?: string | null;
+  password?: string;
+  is_active?: boolean;
+}

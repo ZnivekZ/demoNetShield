@@ -22,6 +22,9 @@ import structlog
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from config import get_settings
 from database import close_db, init_db
@@ -33,6 +36,7 @@ from routers import suricata as suricata_router
 from routers import views as views_router
 from routers import widgets as widgets_router
 from routers import dhcp as dhcp_router
+from routers import auth as auth_router
 from services.mikrotik_service import get_mikrotik_service
 from services.wazuh_service import get_wazuh_service
 from services.glpi_service import get_glpi_service
@@ -77,6 +81,11 @@ async def lifespan(app: FastAPI):
     logger.info("netshield_starting", env=settings.app_env)
     await init_db()
     logger.info("database_initialized")
+
+    # Create default admin user if no users exist
+    from services.auth_service import get_auth_service
+    auth_service = get_auth_service()
+    await auth_service.ensure_default_admin()
 
     # Try to connect to MikroTik (non-blocking - will retry on first request if fails)
     try:
@@ -185,6 +194,63 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── JWT Auth Middleware ─────────────────────────────────────────────
+
+# Routes that DON'T require authentication
+_PUBLIC_PATHS: frozenset[str] = frozenset({
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/health",
+    "/",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+})
+
+class JWTAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Global HTTP middleware that validates JWT tokens on every request.
+
+    - Public paths (login, logout, health, docs) pass through without validation.
+    - WebSocket paths (/ws/*) pass through — they handle auth at the connection level.
+    - All other paths require a valid 'Authorization: Bearer <token>' header.
+    - Returns standard APIResponse envelope on 401 so the frontend interceptor
+      catches it consistently.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+
+        # Allow public paths and WebSocket upgrades through
+        if path in _PUBLIC_PATHS or path.startswith("/ws"):
+            return await call_next(request)
+
+        # Validate Bearer token
+        authorization = request.headers.get("Authorization", "")
+        if not authorization.startswith("Bearer "):
+            return JSONResponse(
+                status_code=401,
+                content={"success": False, "data": None, "error": "Token de autenticación requerido"},
+            )
+
+        token = authorization.split(" ", 1)[1]
+
+        # Lazy import to avoid circular dependency at module load time
+        from services.auth_service import decode_token
+        payload = decode_token(token)
+
+        if payload is None:
+            return JSONResponse(
+                status_code=401,
+                content={"success": False, "data": None, "error": "Token inválido o expirado"},
+            )
+
+        return await call_next(request)
+
+
+app.add_middleware(JWTAuthMiddleware)
+
+
 # ── Routers ───────────────────────────────────────────────────────
 
 app.include_router(mikrotik.router)
@@ -203,6 +269,7 @@ app.include_router(suricata_router.router)
 app.include_router(views_router.router)
 app.include_router(widgets_router.router)
 app.include_router(dhcp_router.router)
+app.include_router(auth_router.router)
 
 
 # ── Root & Health Check ───────────────────────────────────────────

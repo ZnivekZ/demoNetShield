@@ -1,23 +1,28 @@
 /**
  * App.tsx — Route configuration for NetShield Dashboard.
  *
- * NAVIGATION DECISION (2026-04-03):
- * See Layout.tsx for full rationale on the 7-group navigation structure.
+ * Auth flow:
+ *   /login              → LoginPage (sin Layout, sin protección)
+ *   todas las demás     → ProtectedRoute → Layout → página
  *
  * Routes:
- *   /                  → QuickView (Security overview — replaces Dashboard)
- *   /security/config   → ConfigView (Blacklist, geo-block, DNS sinkhole)
- *   /network           → NetworkPage (traffic, ARP, labels, groups; VLANs tab merged in)
- *   /firewall          → FirewallPage (existing — firewall rules, blocks)
- *   /phishing          → PhishingPanel (detection, victims, sinkhole)
- *   /system            → SystemHealth (unified MikroTik + Wazuh health, CLI)
- *   /reports           → ReportsPage (existing — AI reports)
+ *   /                  → QuickView (Security overview)
+ *   /security/config   → ConfigView
+ *   /network           → NetworkPage
+ *   /firewall          → FirewallPage
+ *   /phishing          → PhishingPanel
+ *   /system            → SystemHealth
+ *   /reports           → ReportsPage
+ *   /admin/users       → UsersManagementPage (acceso desde SettingsDrawer)
  *
  * Legacy routes:
- *   /vlans             → redirected to /network (VLANs tab now lives there)
+ *   /vlans             → redirected to /network
  */
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider } from './components/auth/AuthContext';
+import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import LoginPage from './components/auth/LoginPage';
 import Layout from './components/Layout';
 // Existing pages
 import FirewallPage from './components/firewall/FirewallPage';
@@ -45,6 +50,8 @@ import ViewBuilderPage from './components/views/ViewBuilderPage';
 import ViewDetailPage from './components/views/ViewDetailPage';
 // DHCP
 import DhcpPage from './components/dhcp/DhcpPage';
+// Admin
+import UsersManagementPage from './components/admin/UsersManagementPage';
 
 
 const queryClient = new QueryClient({
@@ -60,52 +67,67 @@ const queryClient = new QueryClient({
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Layout />}>
-            {/* Security */}
-            <Route path="/" element={<QuickView />} />
-            <Route path="/security/config" element={<ConfigView />} />
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* Login — outside Layout, no auth required */}
+            <Route path="/login" element={<LoginPage />} />
 
-            {/* Infrastructure */}
-            <Route path="/network" element={<NetworkPage />} />
-            <Route path="/firewall" element={<FirewallPage />} />
-            <Route path="/portal" element={<PortalPage />} />
-            <Route path="/dhcp" element={<DhcpPage />} />
+            {/* Protected routes — require valid JWT */}
+            <Route
+              element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }
+            >
+              {/* Security */}
+              <Route path="/" element={<QuickView />} />
+              <Route path="/security/config" element={<ConfigView />} />
 
-            {/* Tools */}
-            <Route path="/phishing" element={<PhishingPanel />} />
-            <Route path="/system" element={<SystemHealth />} />
-            <Route path="/reports" element={<ReportsPage />} />
+              {/* Infrastructure */}
+              <Route path="/network" element={<NetworkPage />} />
+              <Route path="/firewall" element={<FirewallPage />} />
+              <Route path="/portal" element={<PortalPage />} />
+              <Route path="/dhcp" element={<DhcpPage />} />
 
-            {/* Inventory — GLPI */}
-            <Route path="/inventory" element={<InventoryPage />} />
+              {/* Tools */}
+              <Route path="/phishing" element={<PhishingPanel />} />
+              <Route path="/system" element={<SystemHealth />} />
+              <Route path="/reports" element={<ReportsPage />} />
 
-            {/* CrowdSec */}
-            <Route path="/crowdsec" element={<CrowdSecCommandCenter />} />
-            <Route path="/crowdsec/intelligence" element={<CrowdSecIntelligence />} />
-            <Route path="/crowdsec/config" element={<CrowdSecConfig />} />
+              {/* Inventory — GLPI */}
+              <Route path="/inventory" element={<InventoryPage />} />
 
-            {/* Suricata IDS/IPS/NSM */}
-            <Route path="/suricata" element={<SuricataMotorPage />} />
-            <Route path="/suricata/alerts" element={<SuricataAlertsPage />} />
-            <Route path="/suricata/network" element={<SuricataNSMPage />} />
-            <Route path="/suricata/rules" element={<SuricataRulesPage />} />
+              {/* CrowdSec */}
+              <Route path="/crowdsec" element={<CrowdSecCommandCenter />} />
+              <Route path="/crowdsec/intelligence" element={<CrowdSecIntelligence />} />
+              <Route path="/crowdsec/config" element={<CrowdSecConfig />} />
 
-            {/* Legacy redirect — VLANs page merged into /network */}
-            <Route path="/vlans" element={<Navigate to="/network" replace />} />
+              {/* Suricata IDS/IPS/NSM */}
+              <Route path="/suricata" element={<SuricataMotorPage />} />
+              <Route path="/suricata/alerts" element={<SuricataAlertsPage />} />
+              <Route path="/suricata/network" element={<SuricataNSMPage />} />
+              <Route path="/suricata/rules" element={<SuricataRulesPage />} />
 
-            {/* Custom Views */}
-            <Route path="/views" element={<ViewsListPage />} />
-            <Route path="/views/new" element={<ViewBuilderPage />} />
-            <Route path="/views/:id" element={<ViewDetailPage />} />
-            <Route path="/views/:id/edit" element={<ViewBuilderPage />} />
+              {/* Legacy redirect — VLANs page merged into /network */}
+              <Route path="/vlans" element={<Navigate to="/network" replace />} />
 
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+              {/* Custom Views */}
+              <Route path="/views" element={<ViewsListPage />} />
+              <Route path="/views/new" element={<ViewBuilderPage />} />
+              <Route path="/views/:id" element={<ViewDetailPage />} />
+              <Route path="/views/:id/edit" element={<ViewBuilderPage />} />
+
+              {/* Admin — accessible from SettingsDrawer */}
+              <Route path="/admin/users" element={<UsersManagementPage />} />
+
+              {/* Fallback */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

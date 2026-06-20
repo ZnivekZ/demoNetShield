@@ -23,10 +23,13 @@ from schemas.common import APIResponse
 from schemas.glpi import (
     GlpiAssetCreate,
     GlpiAssetUpdate,
+    GlpiAssignmentRequest,
     GlpiAvailability,
     GlpiQuarantineRequest,
     GlpiTicketCreate,
     GlpiTicketStatusUpdate,
+    GlpiUserCreate,
+    GlpiUserUpdate,
     NetworkMaintenanceRequest,
 )
 from services.glpi_service import GLPIService, get_glpi_service
@@ -289,6 +292,53 @@ async def update_asset(
         return APIResponse.fail(f"Error al actualizar activo #{asset_id}: {str(e)}")
 
 
+@router.delete("/assets/{asset_id}")
+async def delete_asset(
+    asset_id: int,
+    glpi: GLPIService = Depends(get_glpi),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """[GLPI API] Delete a GLPI asset."""
+    try:
+        result = await glpi.delete_computer(asset_id)
+        log_entry = ActionLog(
+            action_type="glpi_asset_deleted",
+            details=json.dumps({"asset_id": asset_id}),
+            comment=f"Activo GLPI #{asset_id} eliminado",
+        )
+        db.add(log_entry)
+        await db.flush()
+        logger.info("api_glpi_asset_deleted", asset_id=asset_id)
+        return APIResponse.ok(result)
+    except Exception as e:
+        logger.error("api_glpi_delete_asset_failed", asset_id=asset_id, error=str(e))
+        return APIResponse.fail(f"Error al eliminar activo #{asset_id}: {str(e)}")
+
+
+@router.put("/assets/{asset_id}/assign")
+async def assign_asset(
+    asset_id: int,
+    request: GlpiAssignmentRequest,
+    glpi: GLPIService = Depends(get_glpi),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """[GLPI API] Assign or unassign a GLPI asset to a user."""
+    try:
+        result = await glpi.assign_asset(asset_id, request.user_id)
+        log_entry = ActionLog(
+            action_type="glpi_asset_assigned",
+            details=json.dumps({"asset_id": asset_id, "user_id": request.user_id}),
+            comment=f"Activo GLPI #{asset_id} asignado a usuario #{request.user_id}",
+        )
+        db.add(log_entry)
+        await db.flush()
+        logger.info("api_glpi_asset_assigned", asset_id=asset_id, user_id=request.user_id)
+        return APIResponse.ok(result)
+    except Exception as e:
+        logger.error("api_glpi_assign_asset_failed", asset_id=asset_id, error=str(e))
+        return APIResponse.fail(f"Error al asignar activo #{asset_id}: {str(e)}")
+
+
 @router.post("/assets/{asset_id}/quarantine")
 async def quarantine_asset(
     asset_id: int,
@@ -512,6 +562,90 @@ async def get_user_assets(
     except Exception as e:
         logger.error("api_glpi_get_user_assets_failed", user_id=user_id, error=str(e))
         return APIResponse.fail(f"Error al obtener activos del usuario #{user_id}: {str(e)}")
+
+
+@router.get("/users/{user_id}")
+async def get_user(
+    user_id: int,
+    glpi: GLPIService = Depends(get_glpi),
+) -> APIResponse:
+    """[GLPI API] Get a single GLPI user by ID."""
+    try:
+        user = await glpi.get_user(user_id)
+        return APIResponse.ok(user)
+    except Exception as e:
+        logger.error("api_glpi_get_user_failed", user_id=user_id, error=str(e))
+        return APIResponse.fail(f"Error al obtener usuario #{user_id}: {str(e)}")
+
+
+@router.post("/users")
+async def create_user(
+    request: GlpiUserCreate,
+    glpi: GLPIService = Depends(get_glpi),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """[GLPI API] Create a new GLPI user."""
+    try:
+        result = await glpi.create_user(request.model_dump())
+        log_entry = ActionLog(
+            action_type="glpi_user_created",
+            details=json.dumps({"username": request.name, "department": request.department}),
+            comment=f"Usuario GLPI creado: {request.name}",
+        )
+        db.add(log_entry)
+        await db.flush()
+        logger.info("api_glpi_user_created", name=request.name)
+        return APIResponse.ok(result)
+    except Exception as e:
+        logger.error("api_glpi_create_user_failed", name=request.name, error=str(e))
+        return APIResponse.fail(f"Error al crear usuario: {str(e)}")
+
+
+@router.put("/users/{user_id}")
+async def update_user(
+    user_id: int,
+    request: GlpiUserUpdate,
+    glpi: GLPIService = Depends(get_glpi),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """[GLPI API] Update a GLPI user."""
+    try:
+        result = await glpi.update_user(user_id, request.model_dump(exclude_none=True))
+        log_entry = ActionLog(
+            action_type="glpi_user_updated",
+            details=json.dumps({"user_id": user_id, **request.model_dump(exclude_none=True)}),
+            comment=f"Usuario GLPI #{user_id} actualizado",
+        )
+        db.add(log_entry)
+        await db.flush()
+        logger.info("api_glpi_user_updated", user_id=user_id)
+        return APIResponse.ok(result)
+    except Exception as e:
+        logger.error("api_glpi_update_user_failed", user_id=user_id, error=str(e))
+        return APIResponse.fail(f"Error al actualizar usuario #{user_id}: {str(e)}")
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    glpi: GLPIService = Depends(get_glpi),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """[GLPI API] Delete a GLPI user."""
+    try:
+        result = await glpi.delete_user(user_id)
+        log_entry = ActionLog(
+            action_type="glpi_user_deleted",
+            details=json.dumps({"user_id": user_id}),
+            comment=f"Usuario GLPI #{user_id} eliminado",
+        )
+        db.add(log_entry)
+        await db.flush()
+        logger.info("api_glpi_user_deleted", user_id=user_id)
+        return APIResponse.ok(result)
+    except Exception as e:
+        logger.error("api_glpi_delete_user_failed", user_id=user_id, error=str(e))
+        return APIResponse.fail(f"Error al eliminar usuario #{user_id}: {str(e)}")
 
 
 # ── Locations ─────────────────────────────────────────────────────

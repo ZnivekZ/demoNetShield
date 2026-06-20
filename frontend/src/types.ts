@@ -855,7 +855,10 @@ export interface GlpiUser {
   firstname: string;
   display_name: string;
   email: string;
+  phone?: string;
   department: string;
+  location?: string;
+  title?: string;
   assets_assigned?: GlpiAsset[];
 }
 
@@ -863,6 +866,33 @@ export interface GlpiQuarantineRequest {
   reason: string;
   wazuh_alert_id?: string;
   mikrotik_block_id?: string;
+}
+
+export interface GlpiUserCreate {
+  name: string;
+  realname: string;
+  firstname: string;
+  email?: string;
+  phone?: string;
+  department: string;
+  location?: string;
+  title?: string;
+  comment?: string;
+}
+
+export interface GlpiUserUpdate {
+  realname?: string;
+  firstname?: string;
+  email?: string;
+  phone?: string;
+  department?: string;
+  location?: string;
+  title?: string;
+  comment?: string;
+}
+
+export interface GlpiAssignmentRequest {
+  user_id: number | null;
 }
 
 export interface GlpiAvailability {

@@ -4,7 +4,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { glpiApi } from '../services/api';
-import type { GlpiAssetCreate, GlpiAssetUpdate, GlpiQuarantineRequest } from '../types';
+import type { GlpiAssetCreate, GlpiAssetUpdate, GlpiAssignmentRequest, GlpiQuarantineRequest } from '../types';
 
 const ASSETS_KEY = ['glpi', 'assets'] as const;
 
@@ -129,5 +129,25 @@ export function useGlpiAssetsByLocation(locationId: number | null) {
     enabled: locationId !== null,
     staleTime: 30_000,
     select: (res) => res.data?.assets ?? [],
+  });
+}
+
+export function useDeleteGlpiAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => glpiApi.deleteAsset(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ASSETS_KEY }),
+  });
+}
+
+export function useAssignGlpiAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assetId, data }: { assetId: number; data: GlpiAssignmentRequest }) =>
+      glpiApi.assignAsset(assetId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ASSETS_KEY });
+      qc.invalidateQueries({ queryKey: ['glpi', 'users'] });
+    },
   });
 }

@@ -604,11 +604,8 @@ class GLPIService:
         GET /apirest.php/User
         """
         if self._settings.should_mock_glpi:
-            from services.mock_data import MockData
-            users = MockData.glpi.users()
-            if search:
-                users = [u for u in users if search.lower() in u.get("name", "").lower()]
-            return users[:limit]
+            from services.mock_service import MockService
+            return MockService.glpi_get_users(search=search, limit=limit)
         try:
             params: dict[str, Any] = {
                 "range": f"0-{limit - 1}",
@@ -631,6 +628,11 @@ class GLPIService:
         [GLPI API] Get computers assigned to a specific user.
         GET /apirest.php/Computer with users filter
         """
+        if self._settings.should_mock_glpi:
+            from services.mock_service import MockService
+            assets = MockService.glpi_get_assets()
+            return [a for a in assets if a.get("assigned_user_id") == user_id
+                    or a.get("assigned_user") == (MockService.glpi_get_user(user_id) or {}).get("name", "__none__")]
         try:
             params: dict[str, Any] = {
                 "searchText[users_id_tech]": str(user_id),
@@ -644,6 +646,123 @@ class GLPIService:
             return result
         except Exception as e:
             logger.error("glpi_get_user_assets_failed", user_id=user_id, error=str(e))
+            raise
+
+    async def delete_computer(self, computer_id: int) -> dict:
+        """
+        [GLPI API] Delete a computer from GLPI inventory.
+        DELETE /apirest.php/Computer/{id}
+        """
+        if self._settings.should_mock_glpi:
+            from services.mock_service import MockService
+            return MockService.glpi_delete_asset(computer_id)
+        try:
+            await self._api_request("DELETE", f"/Computer/{computer_id}")
+            logger.info("glpi_computer_deleted", id=computer_id)
+            return {"id": computer_id, "deleted": True}
+        except Exception as e:
+            logger.error("glpi_delete_computer_failed", id=computer_id, error=str(e))
+            raise
+
+    async def get_user(self, user_id: int) -> dict:
+        """
+        [GLPI API] Get a single user by ID.
+        GET /apirest.php/User/{id}
+        """
+        if self._settings.should_mock_glpi:
+            from services.mock_service import MockService
+            user = MockService.glpi_get_user(user_id)
+            if user is None:
+                raise ValueError(f"User #{user_id} not found")
+            return user
+        try:
+            data = await self._api_request("GET", f"/User/{user_id}", params={"expand_dropdowns": 1})
+            return self._normalize_user(data)
+        except Exception as e:
+            logger.error("glpi_get_user_failed", id=user_id, error=str(e))
+            raise
+
+    async def create_user(self, data: dict) -> dict:
+        """
+        [GLPI API] Create a new user in GLPI.
+        POST /apirest.php/User
+        """
+        if self._settings.should_mock_glpi:
+            from services.mock_service import MockService
+            return MockService.glpi_create_user(data)
+        try:
+            payload = {
+                "input": {
+                    "name": data["name"],
+                    "realname": data.get("realname", ""),
+                    "firstname": data.get("firstname", ""),
+                    "email": data.get("email", ""),
+                    "phone": data.get("phone", ""),
+                    "comment": data.get("comment", ""),
+                }
+            }
+            result = await self._api_request("POST", "/User", json_body=payload)
+            glpi_id = result.get("id") if isinstance(result, dict) else None
+            logger.info("glpi_user_created", name=data["name"], id=glpi_id)
+            return {"id": glpi_id, "name": data["name"], "created": True}
+        except Exception as e:
+            logger.error("glpi_create_user_failed", name=data.get("name"), error=str(e))
+            raise
+
+    async def update_user(self, user_id: int, data: dict) -> dict:
+        """
+        [GLPI API] Update a user in GLPI.
+        PUT /apirest.php/User/{id}
+        """
+        if self._settings.should_mock_glpi:
+            from services.mock_service import MockService
+            return MockService.glpi_update_user(user_id, data)
+        try:
+            input_data: dict[str, Any] = {"id": user_id}
+            for field in ("realname", "firstname", "email", "phone", "comment"):
+                if field in data and data[field] is not None:
+                    input_data[field] = data[field]
+            await self._api_request("PUT", f"/User/{user_id}", json_body={"input": input_data})
+            logger.info("glpi_user_updated", id=user_id)
+            return {"id": user_id, "updated": True}
+        except Exception as e:
+            logger.error("glpi_update_user_failed", id=user_id, error=str(e))
+            raise
+
+    async def delete_user(self, user_id: int) -> dict:
+        """
+        [GLPI API] Delete a user from GLPI.
+        DELETE /apirest.php/User/{id}
+        """
+        if self._settings.should_mock_glpi:
+            from services.mock_service import MockService
+            return MockService.glpi_delete_user(user_id)
+        try:
+            await self._api_request("DELETE", f"/User/{user_id}")
+            logger.info("glpi_user_deleted", id=user_id)
+            return {"id": user_id, "deleted": True}
+        except Exception as e:
+            logger.error("glpi_delete_user_failed", id=user_id, error=str(e))
+            raise
+
+    async def assign_asset(self, asset_id: int, user_id: int | None) -> dict:
+        """
+        [GLPI API] Assign or unassign an asset to a user.
+        PUT /apirest.php/Computer/{id} with users_id_tech
+        """
+        if self._settings.should_mock_glpi:
+            from services.mock_service import MockService
+            return MockService.glpi_assign_asset(asset_id, user_id)
+        try:
+            input_data: dict[str, Any] = {
+                "id": asset_id,
+                "users_id_tech": user_id if user_id is not None else 0,
+            }
+            await self._api_request("PUT", f"/Computer/{asset_id}", json_body={"input": input_data})
+            logger.info("glpi_asset_assigned", asset_id=asset_id, user_id=user_id)
+            return {"id": asset_id, "user_id": user_id, "assigned": True}
+        except Exception as e:
+            logger.error("glpi_assign_asset_failed", asset_id=asset_id, error=str(e))
             raise
 
     # ── Hybrid: Health ────────────────────────────────────────────
@@ -988,7 +1107,10 @@ class GLPIService:
             "realname": raw.get("realname", ""),
             "firstname": raw.get("firstname", ""),
             "email": raw.get("email", ""),
+            "phone": raw.get("phone", ""),
             "department": raw.get("usertitles_id", ""),
+            "location": raw.get("locations_id", "") if not isinstance(raw.get("locations_id"), dict) else raw.get("locations_id", {}).get("name", ""),
+            "title": raw.get("usertitles_id", "") if isinstance(raw.get("usertitles_id"), str) else "",
             "display_name": f"{raw.get('firstname', '')} {raw.get('realname', '')}".strip()
                 or raw.get("name", ""),
         }

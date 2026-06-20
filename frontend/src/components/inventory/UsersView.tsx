@@ -1,20 +1,27 @@
 /**
- * UsersView — User-to-asset mapping view.
+ * UsersView — User-to-asset mapping view with CRUD.
  * Shows: user list with search + per-user asset table on click.
+ * Actions: create / edit / delete user.
  */
 import { useState } from 'react';
-import { Users, Monitor, Mail, Building2, Search, X } from 'lucide-react';
-import { useGlpiUsers, useGlpiUserAssets } from '../../hooks/useGlpiUsers';
+import { Users, Monitor, Mail, Building2, Search, X, Plus, Pencil, Trash2, Phone, MapPin } from 'lucide-react';
+import { useGlpiUsers, useGlpiUserAssets, useDeleteGlpiUser } from '../../hooks/useGlpiUsers';
+import { GlpiUserFormModal } from './GlpiUserFormModal';
+import { useQueryClient } from '@tanstack/react-query';
 import type { GlpiUser } from '../../types';
 
 function UserRow({
   user,
   isSelected,
   onSelect,
+  onEdit,
+  onDelete,
 }: {
   user: GlpiUser;
   isSelected: boolean;
   onSelect: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div
@@ -25,7 +32,7 @@ function UserRow({
       <div className="user-row__avatar">
         {(user.display_name || user.name).slice(0, 2).toUpperCase()}
       </div>
-      <div className="user-row__info">
+      <div className="user-row__info" style={{ flex: 1 }}>
         <div className="user-row__name">{user.display_name || user.name}</div>
         {user.email && (
           <div className="user-row__meta">
@@ -35,8 +42,44 @@ function UserRow({
         {user.department && (
           <div className="user-row__meta">
             <Building2 size={10} /> {user.department}
+            {user.title && ` · ${user.title}`}
           </div>
         )}
+        {user.phone && (
+          <div className="user-row__meta">
+            <Phone size={10} /> {user.phone}
+          </div>
+        )}
+        {user.location && (
+          <div className="user-row__meta">
+            <MapPin size={10} /> {user.location}
+          </div>
+        )}
+      </div>
+
+      {/* Inline actions */}
+      <div
+        style={{ display: 'flex', gap: '0.2rem', flexShrink: 0 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          id={`user-edit-${user.id}`}
+          className="btn btn-ghost"
+          title="Editar usuario"
+          style={{ padding: '0.2rem 0.35rem' }}
+          onClick={onEdit}
+        >
+          <Pencil size={12} />
+        </button>
+        <button
+          id={`user-delete-${user.id}`}
+          className="btn btn-ghost"
+          title="Eliminar usuario"
+          style={{ padding: '0.2rem 0.35rem', color: 'var(--color-danger)' }}
+          onClick={onDelete}
+        >
+          <Trash2 size={12} />
+        </button>
       </div>
     </div>
   );
@@ -100,16 +143,35 @@ function UserAssetTable({ userId, userName }: { userId: number; userName: string
 }
 
 export function UsersView() {
+  const qc = useQueryClient();
   const [selectedUser, setSelectedUser] = useState<GlpiUser | null>(null);
+  const [editUser, setEditUser] = useState<GlpiUser | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
+
   const { data, isLoading } = useGlpiUsers({ search: search || undefined });
+  const deleteUser = useDeleteGlpiUser();
 
   const users = data?.users ?? [];
   const isMock = data?.mock;
 
+  function handleDelete(user: GlpiUser) {
+    if (deletingId === user.id) {
+      deleteUser.mutate(user.id, {
+        onSuccess: () => {
+          setDeletingId(null);
+          if (selectedUser?.id === user.id) setSelectedUser(null);
+        },
+      });
+    } else {
+      setDeletingId(user.id);
+    }
+  }
+
   return (
     <div className="users-view">
-      {/* Header */}
+      {/* Header toolbar */}
       <div className="glass-card users-toolbar">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Users size={16} style={{ color: 'var(--color-brand-400)' }} />
@@ -119,28 +181,40 @@ export function UsersView() {
           {isMock && <span className="badge badge-warning" style={{ fontSize: '0.62rem' }}>Demo</span>}
         </div>
 
-        {/* Search */}
-        <div style={{ position: 'relative' }}>
-          <Search size={13} style={{
-            position: 'absolute', left: 9, top: '50%',
-            transform: 'translateY(-50%)', color: 'var(--color-surface-400)',
-          }} />
-          <input
-            id="users-search-input"
-            className="input"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar usuario…"
-            style={{ paddingLeft: 30, width: 220, fontSize: '0.8rem' }}
-          />
-          {search && (
-            <button
-              onClick={() => setSearch('')}
-              style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-surface-400)', display: 'flex' }}
-            >
-              <X size={12} />
-            </button>
-          )}
+        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+          {/* Search */}
+          <div style={{ position: 'relative' }}>
+            <Search size={13} style={{
+              position: 'absolute', left: 9, top: '50%',
+              transform: 'translateY(-50%)', color: 'var(--color-surface-400)',
+            }} />
+            <input
+              id="users-search-input"
+              className="input"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar usuario…"
+              style={{ paddingLeft: 30, width: 200, fontSize: '0.8rem' }}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-surface-400)', display: 'flex' }}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* Create button */}
+          <button
+            id="users-create-btn"
+            className="btn btn-primary"
+            onClick={() => setShowCreateModal(true)}
+            style={{ fontSize: '0.8rem' }}
+          >
+            <Plus size={14} /> Nuevo usuario
+          </button>
         </div>
       </div>
 
@@ -157,12 +231,45 @@ export function UsersView() {
             </div>
           ) : (
             users.map((user) => (
-              <UserRow
-                key={user.id}
-                user={user}
-                isSelected={selectedUser?.id === user.id}
-                onSelect={() => setSelectedUser(selectedUser?.id === user.id ? null : user)}
-              />
+              <div key={user.id}>
+                <UserRow
+                  user={user}
+                  isSelected={selectedUser?.id === user.id}
+                  onSelect={() => setSelectedUser(selectedUser?.id === user.id ? null : user)}
+                  onEdit={() => setEditUser(user)}
+                  onDelete={() => handleDelete(user)}
+                />
+                {/* Delete confirmation inline */}
+                {deletingId === user.id && (
+                  <div style={{
+                    padding: '0.5rem 1rem',
+                    background: 'rgba(239,68,68,0.08)',
+                    borderTop: '1px solid rgba(239,68,68,0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.6rem',
+                    fontSize: '0.75rem',
+                  }}>
+                    <span style={{ color: '#fca5a5', flex: 1 }}>
+                      ¿Eliminar a <strong>{user.display_name}</strong>?
+                    </span>
+                    <button
+                      className="btn"
+                      style={{ padding: '0.2rem 0.7rem', fontSize: '0.72rem', background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                      onClick={() => handleDelete(user)}
+                    >
+                      Confirmar
+                    </button>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }}
+                      onClick={() => setDeletingId(null)}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )}
+              </div>
             ))
           )}
         </div>
@@ -179,6 +286,20 @@ export function UsersView() {
           </div>
         )}
       </div>
+
+      {/* Modals */}
+      {(showCreateModal || editUser) && (
+        <GlpiUserFormModal
+          mode={editUser ? 'edit' : 'create'}
+          user={editUser ?? undefined}
+          onClose={() => { setShowCreateModal(false); setEditUser(null); }}
+          onSaved={() => {
+            setShowCreateModal(false);
+            setEditUser(null);
+            qc.invalidateQueries({ queryKey: ['glpi', 'users'] });
+          }}
+        />
+      )}
     </div>
   );
 }

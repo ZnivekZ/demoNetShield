@@ -1,24 +1,26 @@
 /**
  * InventoryPage — Root page for GLPI Inventory Management.
- * Provides 4 tabs: Salud | Activos | Tickets | Usuarios
+ * Provides 5 tabs: Salud | Activos | Tickets | Usuarios | Asignaciones
  * Integrated in App.tsx as /inventory route.
  */
 import { useState } from 'react';
-import { Activity, Monitor, Ticket, Users, Package } from 'lucide-react';
+import { Activity, Monitor, Ticket, Users, Package, Link2 } from 'lucide-react';
 import { HealthView } from './HealthView';
 import { AssetsView } from './AssetsView';
 import { TicketsView } from './TicketsView';
 import { UsersView } from './UsersView';
+import { AssignmentsView } from './AssignmentsView';
 import { useQuery } from '@tanstack/react-query';
 import { glpiApi } from '../../services/api';
 
-type Tab = 'health' | 'assets' | 'tickets' | 'users';
+type Tab = 'health' | 'assets' | 'tickets' | 'users' | 'assignments';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'health', label: 'Salud', icon: Activity },
   { id: 'assets', label: 'Activos', icon: Monitor },
   { id: 'tickets', label: 'Tickets', icon: Ticket },
   { id: 'users', label: 'Usuarios', icon: Users },
+  { id: 'assignments', label: 'Asignaciones', icon: Link2 },
 ];
 
 export function InventoryPage() {
@@ -88,6 +90,7 @@ export function InventoryPage() {
         {activeTab === 'assets' && <AssetsView />}
         {activeTab === 'tickets' && <TicketsView />}
         {activeTab === 'users' && <UsersView />}
+        {activeTab === 'assignments' && <AssignmentsView />}
       </div>
     </div>
   );

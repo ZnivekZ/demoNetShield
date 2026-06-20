@@ -151,8 +151,43 @@ class GlpiUser(BaseModel):
     firstname: Optional[str] = ""
     display_name: str
     email: Optional[str] = ""
+    phone: Optional[str] = ""
     department: Optional[str] = ""
+    location: Optional[str] = ""
+    title: Optional[str] = ""
     assets_assigned: list[GlpiAsset] = []
+
+
+class GlpiUserCreate(BaseModel):
+    """Crear usuario en GLPI."""
+    name: str = Field(..., min_length=1, max_length=100)         # login/username
+    realname: str = Field(..., min_length=1, max_length=255)     # apellido (obligatorio)
+    firstname: str = Field(..., min_length=1, max_length=255)    # nombre (obligatorio)
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    department: str = Field(..., min_length=1)                    # departamento (obligatorio)
+    location: Optional[str] = None
+    title: Optional[str] = None                                   # cargo/rol
+    comment: Optional[str] = None
+
+
+class GlpiUserUpdate(BaseModel):
+    """Actualizar usuario en GLPI."""
+    realname: Optional[str] = None
+    firstname: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    department: Optional[str] = None
+    location: Optional[str] = None
+    title: Optional[str] = None
+    comment: Optional[str] = None
+
+
+# ── Assignment Schema ─────────────────────────────────────────────
+
+class GlpiAssignmentRequest(BaseModel):
+    """Asignar/desasignar equipo a usuario."""
+    user_id: Optional[int] = None    # None = desasignar
 
 
 # ── Quarantine Schemas ────────────────────────────────────────────

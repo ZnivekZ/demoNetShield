@@ -31,9 +31,11 @@ class MockService:
     # ── In-memory stores (reset on server restart) ─────────────────────
     _glpi_assets: list[dict] | None = None
     _glpi_tickets: list[dict] | None = None
+    _glpi_users: list[dict] | None = None
     _portal_users: list[dict] | None = None
     _next_glpi_id: int = 900
     _next_ticket_id: int = 900
+    _next_glpi_user_id: int = 200
     _blocked_ips: list[str] = []
     # CrowdSec mutable state
     _crowdsec_decisions: list[dict] | None = None
@@ -60,6 +62,13 @@ class MockService:
         return cls._glpi_tickets
 
     @classmethod
+    def _ensure_glpi_users(cls) -> list[dict]:
+        if cls._glpi_users is None:
+            from services.mock_data import MockData
+            cls._glpi_users = [dict(u) for u in MockData.glpi.users()]
+        return cls._glpi_users
+
+    @classmethod
     def _ensure_portal_users(cls) -> list[dict]:
         if cls._portal_users is None:
             cls._portal_users = [dict(u) for u in MockData.portal.users()]
@@ -70,9 +79,11 @@ class MockService:
         """Reset all in-memory state to initial mock data. Useful for tests."""
         cls._glpi_assets = None
         cls._glpi_tickets = None
+        cls._glpi_users = None
         cls._portal_users = None
         cls._next_glpi_id = 900
         cls._next_ticket_id = 900
+        cls._next_glpi_user_id = 200
         cls._blocked_ips = []
         cls._crowdsec_decisions = None
         cls._crowdsec_whitelist = None
@@ -240,6 +251,108 @@ class MockService:
                 logger.info("mock_glpi_ticket_status_updated", id=ticket_id, status=status)
                 return {"id": ticket_id, "status": status, "updated": True, "mock": True}
         return {"id": ticket_id, "updated": False, "mock": True, "error": "Not found"}
+
+    @classmethod
+    def glpi_delete_asset(cls, asset_id: int) -> dict:
+        assets = cls._ensure_glpi_assets()
+        before = len(assets)
+        cls._glpi_assets = [a for a in assets if a["id"] != asset_id]
+        found = len(cls._glpi_assets) < before
+        if not found:
+            raise ValueError(f"Asset '{asset_id}' not found")
+        logger.info("mock_glpi_asset_deleted", id=asset_id)
+        return {"id": asset_id, "deleted": True, "mock": True}
+
+    @classmethod
+    def glpi_get_users(
+        cls,
+        search: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        users = cls._ensure_glpi_users()
+        result = list(users)
+        if search:
+            q = search.lower()
+            result = [u for u in result if q in u.get("name", "").lower()
+                      or q in u.get("firstname", "").lower()
+                      or q in u.get("realname", "").lower()]
+        return result[:limit]
+
+    @classmethod
+    def glpi_get_user(cls, user_id: int) -> dict | None:
+        users = cls._ensure_glpi_users()
+        return next((u for u in users if u["id"] == user_id), None)
+
+    @classmethod
+    def glpi_create_user(cls, data: dict) -> dict:
+        users = cls._ensure_glpi_users()
+        name = data.get("name", "")
+        if any(u["name"] == name for u in users):
+            raise ValueError(f"Username '{name}' already exists")
+        cls._next_glpi_user_id += 1
+        new_id = cls._next_glpi_user_id
+        firstname = data.get("firstname", "")
+        realname = data.get("realname", "")
+        user: dict[str, Any] = {
+            "id": new_id,
+            "name": name,
+            "realname": realname,
+            "firstname": firstname,
+            "display_name": f"{firstname} {realname}".strip(),
+            "email": data.get("email", ""),
+            "phone": data.get("phone", ""),
+            "department": data.get("department", ""),
+            "location": data.get("location", ""),
+            "title": data.get("title", ""),
+            "comment": data.get("comment", ""),
+        }
+        users.append(user)
+        logger.info("mock_glpi_user_created", id=new_id, name=name)
+        return {"id": new_id, "name": name, "created": True, "mock": True}
+
+    @classmethod
+    def glpi_update_user(cls, user_id: int, data: dict) -> dict:
+        users = cls._ensure_glpi_users()
+        for user in users:
+            if user["id"] == user_id:
+                for k, v in data.items():
+                    if v is not None:
+                        user[k] = v
+                # Recompute display_name if name parts changed
+                firstname = user.get("firstname", "")
+                realname = user.get("realname", "")
+                user["display_name"] = f"{firstname} {realname}".strip()
+                logger.info("mock_glpi_user_updated", id=user_id)
+                return {"id": user_id, "updated": True, "mock": True}
+        return {"id": user_id, "updated": False, "error": "Not found", "mock": True}
+
+    @classmethod
+    def glpi_delete_user(cls, user_id: int) -> dict:
+        users = cls._ensure_glpi_users()
+        before = len(users)
+        cls._glpi_users = [u for u in users if u["id"] != user_id]
+        found = len(cls._glpi_users) < before
+        if not found:
+            raise ValueError(f"User '{user_id}' not found")
+        logger.info("mock_glpi_user_deleted", id=user_id)
+        return {"id": user_id, "deleted": True, "mock": True}
+
+    @classmethod
+    def glpi_assign_asset(cls, asset_id: int, user_id: int | None) -> dict:
+        assets = cls._ensure_glpi_assets()
+        for asset in assets:
+            if asset["id"] == asset_id:
+                if user_id is None:
+                    asset["assigned_user"] = ""
+                    asset["assigned_user_id"] = None
+                else:
+                    # Get the username for display
+                    user = cls.glpi_get_user(user_id)
+                    asset["assigned_user"] = user["name"] if user else str(user_id)
+                    asset["assigned_user_id"] = user_id
+                logger.info("mock_glpi_asset_assigned", asset_id=asset_id, user_id=user_id)
+                return {"id": asset_id, "user_id": user_id, "assigned": True, "mock": True}
+        raise ValueError(f"Asset '{asset_id}' not found")
 
     # ── Portal CRUD ────────────────────────────────────────────────────────
 

@@ -60,6 +60,9 @@ import type {
   GlpiTicketCreate,
   GlpiTicketKanban,
   GlpiUser,
+  GlpiUserCreate,
+  GlpiUserUpdate,
+  GlpiAssignmentRequest,
   GlpiQuarantineRequest,
   GlpiAvailability,
   GlpiAssetFullDetail,
@@ -554,6 +557,12 @@ export const glpiApi = {
   updateAsset: (id: number, data: GlpiAssetUpdate) =>
     api.put<APIResponse>(`/glpi/assets/${id}`, data).then(r => r.data),
 
+  deleteAsset: (id: number) =>
+    api.delete<APIResponse>(`/glpi/assets/${id}`).then(r => r.data),
+
+  assignAsset: (assetId: number, data: GlpiAssignmentRequest) =>
+    api.put<APIResponse>(`/glpi/assets/${assetId}/assign`, data).then(r => r.data),
+
   quarantineAsset: (id: number, data: GlpiQuarantineRequest) =>
     api.post<APIResponse>(`/glpi/assets/${id}/quarantine`, data).then(r => r.data),
 
@@ -592,6 +601,18 @@ export const glpiApi = {
     api.get<APIResponse<{ user_id: number; assets: GlpiAsset[]; mock: boolean }>>(
       `/glpi/users/${userId}/assets`
     ).then(r => r.data),
+
+  getUser: (id: number) =>
+    api.get<APIResponse<GlpiUser>>(`/glpi/users/${id}`).then(r => r.data),
+
+  createUser: (data: GlpiUserCreate) =>
+    api.post<APIResponse>('/glpi/users', data).then(r => r.data),
+
+  updateUser: (id: number, data: GlpiUserUpdate) =>
+    api.put<APIResponse>(`/glpi/users/${id}`, data).then(r => r.data),
+
+  deleteUser: (id: number) =>
+    api.delete<APIResponse>(`/glpi/users/${id}`).then(r => r.data),
 
   // ── Locations ────────────────────────────────────────────
   getLocations: () =>

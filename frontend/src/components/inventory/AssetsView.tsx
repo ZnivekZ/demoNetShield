@@ -3,8 +3,8 @@
  * Provides: search bar + status filter + asset table/grid + detail side panel + create modal.
  */
 import { useState } from 'react';
-import { Plus, QrCode, RefreshCw, MapPin } from 'lucide-react';
-import { useGlpiAssets } from '../../hooks/useGlpiAssets';
+import { Plus, QrCode, RefreshCw, MapPin, Pencil, Trash2 } from 'lucide-react';
+import { useGlpiAssets, useDeleteGlpiAsset } from '../../hooks/useGlpiAssets';
 import { useQueryClient } from '@tanstack/react-query';
 import { AssetDetail } from './AssetDetail';
 import { AssetFormModal } from './AssetFormModal';
@@ -63,8 +63,12 @@ export function AssetsView() {
   const [typeFilter, setTypeFilter] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedAsset, setSelectedAsset] = useState<GlpiAsset | null>(null);
+  const [editAsset, setEditAsset] = useState<GlpiAsset | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const deleteAsset = useDeleteGlpiAsset();
 
   const { data, isLoading, isError } = useGlpiAssets({
     search: search || undefined,
@@ -186,6 +190,7 @@ export function AssetsView() {
                       <th>Ubicación</th>
                       <th>Usuario</th>
                       <th>Estado</th>
+                      <th style={{ width: 80, textAlign: 'center' }}>Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -221,6 +226,54 @@ export function AssetsView() {
                           <td style={{ fontSize: '0.72rem' }}>{asset.location || '—'}</td>
                           <td style={{ fontSize: '0.72rem' }}>{asset.assigned_user || '—'}</td>
                           <td><StatusBadge status={asset.status} /></td>
+                          <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                            <div style={{ display: 'flex', gap: '0.3rem', justifyContent: 'center' }}>
+                              <button
+                                id={`asset-edit-${asset.id}`}
+                                className="btn btn-ghost"
+                                title="Editar"
+                                style={{ padding: '0.2rem 0.4rem' }}
+                                onClick={() => setEditAsset(asset)}
+                              >
+                                <Pencil size={12} />
+                              </button>
+                              {deletingId === asset.id ? (
+                                <>
+                                  <button
+                                    className="btn"
+                                    style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem', background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                                    onClick={() => {
+                                      deleteAsset.mutate(asset.id, {
+                                        onSuccess: () => {
+                                          setDeletingId(null);
+                                          if (selectedAsset?.id === asset.id) setSelectedAsset(null);
+                                        },
+                                      });
+                                    }}
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    className="btn btn-ghost"
+                                    style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem' }}
+                                    onClick={() => setDeletingId(null)}
+                                  >
+                                    ✗
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  id={`asset-delete-${asset.id}`}
+                                  className="btn btn-ghost"
+                                  title="Eliminar"
+                                  style={{ padding: '0.2rem 0.4rem', color: 'var(--color-danger)' }}
+                                  onClick={() => setDeletingId(asset.id)}
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -247,12 +300,14 @@ export function AssetsView() {
       </div>
 
       {/* Modals */}
-      {showCreateModal && (
+      {(showCreateModal || editAsset) && (
         <AssetFormModal
-          mode="create"
-          onClose={() => setShowCreateModal(false)}
+          mode={editAsset ? 'edit' : 'create'}
+          asset={editAsset ?? undefined}
+          onClose={() => { setShowCreateModal(false); setEditAsset(null); }}
           onSaved={() => {
             setShowCreateModal(false);
+            setEditAsset(null);
             qc.invalidateQueries({ queryKey: ['glpi', 'assets'] });
           }}
         />

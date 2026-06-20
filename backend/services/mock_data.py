@@ -748,15 +748,25 @@ class MockData:
         def users() -> list[dict]:
             return [
                 {"id": 1, "name": "juan.perez",    "realname": "Pérez",    "firstname": "Juan",
-                 "email": "juan.perez@facultad.edu",    "department": "Docentes",       "display_name": "Juan Pérez"},
+                 "email": "juan.perez@facultad.edu",    "department": "Docentes",
+                 "phone": "123-4567", "location": "Edificio B", "title": "Docente",
+                 "display_name": "Juan Pérez"},
                 {"id": 2, "name": "maria.garcia",  "realname": "García",   "firstname": "María",
-                 "email": "maria.garcia@facultad.edu",  "department": "Administrativos","display_name": "María García"},
+                 "email": "maria.garcia@facultad.edu",  "department": "Administrativos",
+                 "phone": "123-4568", "location": "Edificio A", "title": "Administrativa",
+                 "display_name": "María García"},
                 {"id": 3, "name": "tecnico1",      "realname": "López",    "firstname": "Carlos",
-                 "email": "tecnico1@facultad.edu",      "department": "IT",             "display_name": "Carlos López"},
+                 "email": "tecnico1@facultad.edu",      "department": "IT",
+                 "phone": "123-4569", "location": "Sala Servidores", "title": "Técnico IT",
+                 "display_name": "Carlos López"},
                 {"id": 4, "name": "admin",         "realname": "Admin",    "firstname": "Sistema",
-                 "email": "admin@facultad.edu",         "department": "IT",             "display_name": "Sistema Admin"},
+                 "email": "admin@facultad.edu",         "department": "IT",
+                 "phone": "123-4570", "location": "Sala Servidores", "title": "Administrador",
+                 "display_name": "Sistema Admin"},
                 {"id": 5, "name": "ana.martinez",  "realname": "Martínez", "firstname": "Ana",
-                 "email": "ana.martinez@facultad.edu",  "department": "Docentes",       "display_name": "Ana Martínez"},
+                 "email": "ana.martinez@facultad.edu",  "department": "Docentes",
+                 "phone": "123-4571", "location": "Edificio B", "title": "Docente",
+                 "display_name": "Ana Martínez"},
             ]
 
         @staticmethod

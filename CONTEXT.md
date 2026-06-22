@@ -280,7 +280,7 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 **Backend:**
 - [x] Config con pydantic-settings, 9 flags mock granulares + `MOCK_ALL` [REAL]
 - [x] Base de datos SQLAlchemy async con SQLite, 11 modelos [REAL]
-- [x] 17 routers REST con ~185 endpoints [REAL + MOCK]
+- [x] 17 routers REST con ~191 endpoints [REAL + MOCK]
 - [x] 7 WebSocket endpoints [REAL + MOCK]
 - [x] 17 servicios de lógica de negocio [REAL + MOCK]
 - [x] `glpi_collector.py` — Periodic sync de assets GLPI cada 5 min [REAL]
@@ -293,11 +293,12 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 - [x] Layout con sidebar 7 grupos, topbar con 5 status dots [REAL]
 - [x] **59 widgets** en 4 categorías (17 standard, **12** visual, **15** technical, 15 hybrid) [REAL]
 - [x] 6 temas visuales con escala de fuente [REAL]
-- [x] 42 custom hooks de datos [REAL]
+- [x] 44 custom hooks de datos [REAL]
 - [x] Sistema de vistas personalizadas con drag-and-drop [REAL]
 - [x] Filtro por tipo de activo en Inventario (Computer/NetworkEquipment/Printer/Phone/Peripheral/Monitor)
 - [x] Botón 🚦 "Limitar velocidad" en DHCP Leases → crea Simple Queue
 - [x] **Login page** + `AuthContext` + `ProtectedRoute` + panel gestión de usuarios [REAL]
+- [x] **GLPI CRUD completo** — eliminar activos, asignar equipo↔usuario, crear/editar/eliminar usuarios GLPI [REAL + MOCK]
 - [ ] Responsive móvil (funcional pero no refinado)
 
 ### Rutas del frontend (`App.tsx`)
@@ -473,9 +474,9 @@ En `Layout.tsx`, agregar al array `navGroups`:
 ```
 No hay límite fijo de ítems.
 
-Última actualización: 2026-06-17
+Última actualización: 2026-06-21
 Basado en análisis de: 150+ archivos
-Versión del proyecto: 2.7
+Versión del proyecto: 2.8
 
 ### Cambios Fase 1 (2026-06-16)
 - **Backend (MikroTik):** Nuevos endpoints `GET /api/mikrotik/nat-rules`, `GET /api/mikrotik/routes`, `GET /api/mikrotik/addresses`, `GET /api/mikrotik/bridge-ports`, CRUD `/api/mikrotik/queues`.
@@ -493,3 +494,18 @@ Versión del proyecto: 2.7
 - **Frontend:** `UsersManagementPage.tsx` + `UserFormModal.tsx` en `/admin/users`.
 - **Frontend:** Acceso desde SettingsDrawer (⚙️) → "Gestionar usuarios".
 - **Frontend:** Logout en footer del sidebar.
+
+### Cambios GLPI CRUD completo (2026-06-21)
+- **Backend:** 6 endpoints nuevos en `routers/glpi.py`: `DELETE /assets/{id}`, `PUT /assets/{id}/assign`, `GET/POST/PUT/DELETE /users/{id}`.
+- **Backend:** Nuevos schemas: `GlpiAssignmentRequest`, `GlpiUserCreate`, `GlpiUserUpdate` en `schemas/glpi.py`.
+- **Backend:** Nuevos métodos en `glpi_service.py`: `delete_computer()`, `assign_asset()`, `get_user()`, `create_user()`, `update_user()`, `delete_user()`.
+- **Backend:** CRUD en memoria de usuarios GLPI en `mock_service.py`.
+- **Frontend:** Nuevo componente `AssignmentsView.tsx` — vista de asignaciones equipo↔usuario con tabla + modal.
+- **Frontend:** Nuevo componente `GlpiUserFormModal.tsx` — modal crear/editar usuario GLPI.
+- **Frontend:** `InventoryPage.tsx` — nuevo 5° tab "Asignaciones" (total: Salud/Activos/Tickets/Usuarios/Asignaciones).
+- **Frontend:** `UsersView.tsx` — CRUD completo de usuarios GLPI.
+- **Frontend:** `AssetsView.tsx` — botón eliminar activo + asignación inline.
+- **Frontend:** `useGlpiUsers.ts` — `useCreateGlpiUser()`, `useUpdateGlpiUser()`, `useDeleteGlpiUser()`.
+- **Frontend:** `useGlpiAssets.ts` — `useAssignGlpiAsset()`, `useDeleteGlpiAsset()`.
+- **Frontend:** `api.ts` — `glpiApi`: `deleteAsset()`, `assignAsset()`, `getUser()`, `createUser()`, `updateUser()`, `deleteUser()`.
+- **Frontend:** `types.ts` — nuevos tipos: `GlpiUserCreate`, `GlpiUserUpdate`, `GlpiAssignmentRequest`.

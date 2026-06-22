@@ -52,7 +52,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 | **Phishing** | `/phishing` | Alertas de phishing, víctimas, gestión de sinkhole DNS |
 | **Sistema** | `/system` | Health unificado MikroTik + Wazuh, estado GeoLite2, CLI web integrada |
 | **Reportes** | `/reports` | **Generador IA** (prompt libre, TipTap, PDF) + **Telegram** (bot status, configs automáticos, historial) |
-| **Inventario (GLPI)** | `/inventory` | Activos en kanban, tickets, correlación Wazuh, cuarentena |
+| **Inventario (GLPI)** | `/inventory` | Activos (kanban + eliminar), tickets, usuarios GLPI (CRUD), asignaciones equipo↔usuario, cuarentena |
 | **CrowdSec — Centro de Comando** | `/crowdsec` | Decisiones activas + bandera/ciudad/tipo de red por IP, métricas, bouncers, top atacantes |
 | **CrowdSec — Inteligencia** | `/crowdsec/intelligence` | Top países atacantes (cross-source), sugerencias de geo-bloqueo, escenarios, heatmap |
 | **CrowdSec — Configuración** | `/crowdsec/config` | Whitelist, gestión de bouncers, sincronización con MikroTik firewall |
@@ -651,7 +651,27 @@ POST /api/dhcp/alerts/:id/block-rogue   — Bloquear servidor DHCP rogue vía fi
 POST /api/dhcp/discovery/create-ticket  — Crear ticket GLPI para dispositivo no inventariado
 
 # GLPI
-GET  /api/glpi/*                        — Activos, tickets, usuarios, ubicaciones
+GET  /api/glpi/status                   — Estado de conexión con GLPI
+GET  /api/glpi/assets                   — Listar activos con filtros (search, type, status)
+POST /api/glpi/assets                   — Crear activo
+GET  /api/glpi/assets/:id               — Detalle de activo
+PUT  /api/glpi/assets/:id               — Actualizar activo
+DEL  /api/glpi/assets/:id               — Eliminar activo
+PUT  /api/glpi/assets/:id/assign        — Asignar/desasignar activo a usuario GLPI
+POST /api/glpi/assets/:id/quarantine    — Poner activo en cuarentena (bloqueo MikroTik)
+POST /api/glpi/assets/:id/unquarantine  — Sacar activo de cuarentena
+GET  /api/glpi/assets/stats             — Estadísticas por tipo y estado
+GET  /api/glpi/assets/health            — Salud de activos correlacionada con Wazuh
+GET  /api/glpi/tickets                  — Listar tickets
+POST /api/glpi/tickets                  — Crear ticket
+PUT  /api/glpi/tickets/:id/status       — Cambiar estado del ticket
+GET  /api/glpi/users                    — Listar usuarios GLPI
+GET  /api/glpi/users/:id                — Obtener usuario GLPI por ID
+POST /api/glpi/users                    — Crear usuario GLPI
+PUT  /api/glpi/users/:id                — Actualizar usuario GLPI
+DEL  /api/glpi/users/:id                — Eliminar usuario GLPI
+GET  /api/glpi/users/:id/assets         — Activos asignados a un usuario
+GET  /api/glpi/locations                — Ubicaciones de activos
 
 # Portal Cautivo
 GET  /api/portal/*                      — Sesiones, usuarios, perfiles, config
@@ -731,6 +751,6 @@ postman/NetShield.postman_collection.json
 
 **Hecho con ❤️ para monitoreo de redes**
 
-*NetShield Dashboard — v2.7*
+*NetShield Dashboard — v2.8*
 
 </div>

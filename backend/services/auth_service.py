@@ -194,7 +194,7 @@ class AuthService:
             result = await session.execute(select(User))
             existing = result.scalar_one_or_none()
             if existing:
-                logger.info("auth_admin_check", status="users_exist", count="≥1")
+                logger.info("auth_admin_check", status="users_exist", count=">=1")
                 return
 
         # Table is empty — create default admin

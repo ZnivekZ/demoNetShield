@@ -42,10 +42,10 @@ frontend/src/
 │   ├── useSuricataRules.ts            # Rules + toggle + update mutations
 │   ├── useSuricataAutoResponse.ts     # Config + history + trigger mutation
 │   ├── useSuricataCorrelation.ts      # CrowdSec × Wazuh correlation
-│   ├── useGlpiAssets.ts               # Assets CRUD + stats + health + quarantine
+│   ├── useGlpiAssets.ts               # Assets CRUD + stats + health + quarantine + assign + delete
 │   ├── useGlpiTickets.ts              # Tickets CRUD
-│   ├── useGlpiUsers.ts               # Users lista
-│   ├── useGlpiHealth.ts              # Health correlacionada
+│   ├── useGlpiUsers.ts                # Users lista + useCreateGlpiUser, useUpdateGlpiUser, useDeleteGlpiUser
+│   ├── useGlpiHealth.ts               # Health correlacionada
 │   ├── usePortalSessions.ts           # Sessions + WebSocket
 │   ├── usePortalUsers.ts              # Users CRUD + bulk import
 │   ├── usePortalConfig.ts             # Config + schedule + setup
@@ -169,10 +169,11 @@ frontend/src/
     │   ├── TelegramHistory.tsx         # Historial de mensajes con filtros
     │   └── BotConversation.tsx         # Chat UI conversaciones inbound
     │
-    ├── inventory/                      # 14 componentes — GLPI ITSM
-    │   ├── InventoryPage.tsx          # Contenedor tabbed (Assets/Tickets/Users/Health)
+    ├── inventory/                      # 16 componentes — GLPI ITSM
+    │   ├── InventoryPage.tsx          # Contenedor tabbed (Salud/Activos/Tickets/Usuarios/Asignaciones) — 5 tabs
     │   ├── AssetsView.tsx             # Vista principal con búsqueda, filtro de estado y filtro de tipo
     │   │                              # (Computer / NetworkEquipment / Printer / Phone / Peripheral / Monitor)
+    │   │                              # Botón eliminar activo + asignación de usuario inline
     │   ├── AssetDetail.tsx            # Detalle de activo + contexto red + alertas (20KB)
     │   ├── AssetFormModal.tsx          # Modal creación/edición activo
     │   ├── AssetSearch.tsx            # Búsqueda de activos
@@ -182,7 +183,9 @@ frontend/src/
     │   ├── TicketKanban.tsx           # Vista kanban por estado
     │   ├── TicketCard.tsx             # Card individual en kanban
     │   ├── TicketFormModal.tsx         # Modal creación/edición ticket
-    │   ├── UsersView.tsx              # Lista usuarios GLPI
+    │   ├── UsersView.tsx              # Lista usuarios GLPI con CRUD completo (crear, editar, eliminar)
+    │   ├── GlpiUserFormModal.tsx       # Modal crear/editar usuario GLPI (nombre, email, teléfono, cargo, dpto)
+    │   ├── AssignmentsView.tsx         # Vista asignaciones equipo↔usuario: tabla + modal asignar
     │   ├── LocationMap.tsx            # Mapa de ubicaciones de activos
     │   └── QrScanner.tsx              # Scanner QR para identificar activos
     │
@@ -670,9 +673,9 @@ Archivo de ~39KB con ~1600 líneas. Espejo de los schemas Pydantic del backend. 
 5. **Ruta** en `App.tsx`: `<Route path="/mi-ruta" element={<MiPage />} />`
 6. **Sidebar** en `Layout.tsx`: Agregar al array `navGroups`
 
-Última actualización: 2026-06-16
-Basado en análisis de: 70+ archivos frontend
-Versión del proyecto: 2.6
+Última actualización: 2026-06-21
+Basado en análisis de: 75+ archivos frontend
+Versión del proyecto: 2.8
 
 ### Cambios Fase 1 (2026-06-16)
 - `types.ts` — Nuevos tipos: `NatRule`, `RouteEntry`, `IPAddress`, `BridgePort`, `QueueEntry`, `QueueCreate`, `QueueUpdate`.
@@ -682,3 +685,24 @@ Versión del proyecto: 2.6
 - Widgets nuevos: `NatTable`, `RouteTable` (technical), `QueueBars` (visual). Registrados en hooks, exports, `WidgetRenderer.tsx` y catálogo backend.
 - `AssetsView.tsx` — Filtro por tipo de activo (Computer/NetworkEquipment/Printer/Phone/Peripheral/Monitor).
 - `DhcpPage.tsx` — Botón 🚦 "Limitar velocidad" en tabla de leases → `SpeedLimitModal` → crea Simple Queue.
+
+### Cambios Auth (2026-06-17)
+- `authApi` namespace en `api.ts` + interceptores JWT (request inyecta token, response maneja 401).
+- `useAuth.ts` — Estado de autenticación: login, logout, validar token al montar.
+- `useUsers.ts` — CRUD de usuarios dashboard con TanStack Query `['auth-users']`.
+- `AuthContext.tsx`, `ProtectedRoute.tsx`, `LoginPage.tsx` en `components/auth/`.
+- `UsersManagementPage.tsx` + `UserFormModal.tsx` en `components/admin/` — `/admin/users`.
+- Acceso desde `SettingsDrawer` (⚙️) → "Gestionar usuarios".
+- Logout en footer del sidebar.
+
+### Cambios GLPI CRUD completo (2026-06-21)
+- `components/inventory/AssignmentsView.tsx` (nuevo) — Vista de asignaciones equipo↔usuario: tabla searchable + filtro (Todos/Asignados/Sin asignar) + `AssignModal` para seleccionar usuario desde lista GLPI.
+- `components/inventory/GlpiUserFormModal.tsx` (nuevo) — Modal crear/editar usuario GLPI con campos: login (solo create), nombre, apellido, email, teléfono, cargo, departamento (lista predefinida), ubicación.
+- `components/inventory/InventoryPage.tsx` — Nuevo 5° tab "Asignaciones" (icono `Link2`). Tipo: `'health' | 'assets' | 'tickets' | 'users' | 'assignments'`.
+- `components/inventory/UsersView.tsx` — CRUD completo: botones crear, editar, eliminar + `GlpiUserFormModal` integrado.
+- `components/inventory/AssetsView.tsx` — Botón eliminar activo + asignación de usuario inline.
+- `hooks/useGlpiUsers.ts` — Nuevas mutations: `useCreateGlpiUser()`, `useUpdateGlpiUser()`, `useDeleteGlpiUser()`.
+- `hooks/useGlpiAssets.ts` — Nuevas mutations: `useAssignGlpiAsset()`, `useDeleteGlpiAsset()`.
+- `services/api.ts` — `glpiApi`: `deleteAsset()`, `assignAsset()`, `getUser()`, `createUser()`, `updateUser()`, `deleteUser()`.
+- `types.ts` — Nuevos tipos: `GlpiUserCreate`, `GlpiUserUpdate`, `GlpiAssignmentRequest`. Campos nuevos en `GlpiUser`: `phone`, `location`, `title`.
+

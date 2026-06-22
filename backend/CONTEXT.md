@@ -62,6 +62,8 @@ backend/
 │   ├── auth_provider.py       # Autenticación de usuarios hotspot contra MikroTik (7KB)
 │   ├── mock_data.py           # Repositorio central de datos simulados, seed=42 (~152KB)
 │   └── mock_service.py        # Facade CRUD en memoria + get_mock_status() (20KB)
+│                              # GLPI users CRUD en mock: glpi_get_users(), glpi_create_user(),
+│                              #   glpi_update_user(), glpi_delete_user(), glpi_assign_asset()
 │
 ├── routers/                   # Endpoints FastAPI, un archivo por dominio (17 archivos)
 │   ├── __init__.py
@@ -71,7 +73,115 @@ backend/
 │   ├── crowdsec.py            # /api/crowdsec/* (23KB)
 │   ├── suricata.py            # /api/suricata/* (20KB)
 │   ├── geoip.py               # /api/geoip/* (9KB)
-│   ├── glpi.py                # /api/glpi/* (21KB)
+│   ├── glpi.py                # /api/glpi/* — incluye DELETE /assets/{id}, PUT /assets/{id}/assign,
+│   │                          #   GET/POST/PUT/DELETE /users/{id} (29KB)
+│   ├── portal.py              # /api/portal/* (22KB)
+│   ├── reports.py             # /api/reports/* (reportes + telegram, 18KB)
+│   ├── network.py             # /api/network/* (11KB)
+│   ├── security.py            # /api/security/* (9KB)
+│   ├── phishing.py            # /api/phishing/* (17KB)
+│   ├── views.py               # /api/views/* (incluye catálogo de widgets, 33KB)
+│   ├── widgets.py             # /api/widgets/* (datos agregados multi-servicio, 23KB)
+│   ├── vlans.py               # /api/vlans/* (6KB)
+│   ├── cli.py                 # /api/cli/* (4KB)
+│   └── dhcp.py                # /api/dhcp/* — Fase 1: CRUD DHCP (servers, leases, networks, pools,
+│                              #   alerts, options) + Fase 2: correlación GLPI, discovery,
+│                              #   enriquecimiento Wazuh, bloqueo rogue, tickets GLPI (29KB)
+│
+├── scripts/                   # Utilidades de mantenimiento
+│   ├── download_geoip.py      # Descarga bases de datos MaxMind GeoLite2 (.mmdb)
+│   └── setup_hotspot.py       # Configuración inicial del hotspot MikroTik
+│
+├── data/                      # Datos persistentes locales
+│   └── geoip/                 # GeoLite2-City.mmdb + GeoLite2-ASN.mmdb (no en git)
+│
+└── templates/                 # Plantillas Jinja2
+    └── report_base.html       # Template HTML para PDF con cover page y estilos
+```
+
+---
+
+## Servicios externos — patrón de implementación
+
+### `mikrotik_service.py` — MikroTikService
+
+**Patrón:** Singleton vía variable de módulo + `get_mikrotik_service()`.
+**Mock guard:** `if settings.should_mock_mikrotik: return MockData.mikrotik.X()`
+**Conexión:** `routeros_api.RouterOsApiPool` con `plaintext_login=True`. Todas las llamadas vía `run_in_executor`.
+**Reconexión:** Si falla, `_connected = False` → reconexión → reintento. `@retry` de tenacity (3 intentos, backoff 1-10s).
+**Tráfico:** `get_traffic()` calcula delta de bytes/paquetes dividido por tiempo transcurrido.
+**APIs:** API RouterOS en `MIKROTIK_HOST:MIKROTIK_PORT`.
+
+**Funciones públicas principales:**
+`get_interfaces()`, `get_connections()`, `get_arp_table()`, `get_traffic()`, `get_firewall_rules()`, `get_blacklist()`, `block_ip()`, `unblock_ip()`, `get_logs()`, `get_health()`, `get_vlan_traffic()`, `create_vlan()`, `update_vlan()`, `delete_vlan()`, `run_command()`, `get_vlan_addresses()`.
+
+**Funciones de topología de red (5 métodos — Fase 1):**
+`get_nat_rules()`, `get_routes()`, `get_ip_addresses()`, `get_bridge_ports()`.
+
+**Funciones QoS / Simple Queues (4 métodos — Fase 1):**
+`get_queues()`, `create_queue()`, `update_queue()`, `delete_queue()`.
+
+**Funciones DHCP (20 métodos):**
+`get_dhcp_servers()`, `create_dhcp_server()`, `toggle_dhcp_server()`,
+`get_dhcp_leases()`, `create_dhcp_lease()`, `update_dhcp_lease()`, `delete_dhcp_lease()`, `make_lease_static()`, `set_dhcp_lease_block()`,
+`get_dhcp_networks()`, `create_dhcp_network()`, `update_dhcp_network()`,
+`get_ip_pools()`, `create_ip_pool()`, `update_ip_pool()`, `get_dhcp_subnet_usage()`,
+`get_dhcp_rogue_alerts()`, `create_dhcp_rogue_alert()`,
+`get_dhcp_options()`, `create_dhcp_option()`.
+
+---
+
+### `wazuh_service.py` — WazuhService
+
+**Patrón:** Singleton vía `get_wazuh_service()`.
+**Mock guard:** `if settings.should_mock_wazuh: return MockData.wazuh.X()`
+**Autenticación:** JWT de dos pasos (POST `/security/user/authenticate` → Bearer token). Auto-refresh en 401.
+**Cliente:** `httpx.AsyncClient` con `verify=False` (cert autofirmado), timeout 30s.
+**Enriquecimiento GeoIP:** `get_alerts()` agrega campo `geo` vía `GeoIPService.lookup()` (try/except silencioso).
+
+**Funciones públicas:**
+`get_agents()`, `get_agents_summary()`, `get_alerts(limit, level_min, offset)`, `get_alerts_by_agent()`, `get_mitre_summary()`, `get_health()`, `get_critical_alerts()`, `send_active_response()`.
+
+---
+
+### `crowdsec_service.py` — CrowdSecService
+
+**Patrón:** Singleton vía `get_crowdsec_service()`.
+**Mock guard:** `if settings.should_mock_crowdsec: return MockData.crowdsec.X()`
+**Conexión:** LAPI HTTP (puerto 8080), header `X-Api-Key`.
+**Enriquecimiento:** Cada decisión se enriquece con `GeoIPService.lookup(ip)`.
+
+**Funciones públicas:**
+`get_decisions()`, `get_decisions_stream()`, `add_decision()`, `delete_decision()`, `get_metrics()`, `get_bouncers()`, `get_scenarios()`, `get_alerts()`, `cti_lookup()`, `get_top_attackers()`, `sync_to_mikrotik()`.
+
+---
+
+### `suricata_service.py` — SuricataService
+
+**Patrón:** Singleton vía `get_suricata_service()`.
+**Mock guard:** `if settings.should_mock_suricata: return MockData.suricata.X()`
+**Dual canal:** Unix socket (control motor) + Wazuh API (alertas y flujos).
+**Auto-response:** `trigger_auto_response(ip, ...)` → ActionLog → CrowdSec → MikroTik.
+
+**Funciones públicas:**
+`get_engine_status()`, `get_engine_stats()`, `reload_rules()`, `get_alerts()`, `get_alerts_timeline()`, `get_top_signatures()`, `get_alert_categories()`, `get_flows()`, `get_flows_stats()`, `get_dns_queries()`, `get_http_transactions()`, `get_tls_handshakes()`, `get_rules()`, `toggle_rule()`, `get_crowdsec_correlation()`, `get_wazuh_correlation()`, `trigger_auto_response()`.
+
+---
+
+### `geoip_service.py` — GeoIPService
+
+**Patrón:** Clase con métodos estáticos + `get_geoip_service()`.
+**Mock guard:** `if settings.should_mock_geoip: return MockData.geoip.X()`
+**Carga:** `initialize()` carga `.mmdb` en RAM (llamado en lifespan de FastAPI).
+**Cache:** `TTLCache(maxsize=10000, ttl=3600)` — lookups cacheados 1h.
+
+**Funciones públicas:**
+`lookup(ip)`, `lookup_bulk(ips)`, `get_top_countries(source_data)`, `get_db_status()`.
+
+---
+
+### `glpi_service.py` — GLPIService
+│   │                          #   GET/POST/PUT/DELETE /users/{id} (29KB)
 │   ├── portal.py              # /api/portal/* (22KB)
 │   ├── reports.py             # /api/reports/* (reportes + telegram, 18KB)
 │   ├── network.py             # /api/network/* (11KB)
@@ -185,7 +295,19 @@ backend/
 **Cuarentena:** `quarantine_asset()` llama a `MikroTikService.block_ip()` y registra en `QuarantineLog`.
 
 **Funciones públicas:**
-`get_assets()`, `get_asset()`, `create_asset()`, `update_asset()`, `get_asset_stats()`, `get_asset_health()`, `get_tickets()`, `create_ticket()`, `update_ticket_status()`, `get_users()`, `get_locations()`, `quarantine_asset()`, `unquarantine_asset()`.
+`get_assets()`, `get_asset()`, `create_asset()`, `update_asset()`, `delete_computer()`, `assign_asset()`,
+`get_asset_stats()`, `get_asset_health()`,
+`get_tickets()`, `create_ticket()`, `update_ticket_status()`,
+`get_users()`, `get_user()`, `create_user()`, `update_user()`, `delete_user()`,
+`get_locations()`, `quarantine_asset()`, `unquarantine_asset()`.
+
+**Métodos GLPI CRUD (agregados 2026-06-21):**
+- `delete_computer(asset_id)` — Elimina un activo vía DELETE `/Computer/{id}`
+- `assign_asset(asset_id, user_id)` — Asigna/desasigna activo a usuario (user_id=None para desasignar)
+- `get_user(user_id)` — Obtiene un usuario GLPI por ID
+- `create_user(data)` — Crea usuario con campos: name, firstname, realname, email, phone, department, location, title
+- `update_user(user_id, data)` — Actualiza campos de usuario GLPI
+- `delete_user(user_id)` — Elimina usuario GLPI
 
 ---
 
@@ -298,7 +420,7 @@ async def mi_endpoint() -> APIResponse:
 
 ## Base de datos
 
-### Modelos (10 clases en `models/`)
+### Modelos (11 clases en `models/`)
 
 | Modelo | Tabla | Campos principales |
 |--------|-------|-------------------|
@@ -313,6 +435,7 @@ async def mi_endpoint() -> APIResponse:
 | `TelegramMessageLog` | `telegram_message_logs` | id, chat_id, direction, message_type, content, timestamp |
 | `TelegramPendingMessage` | `telegram_pending_messages` | id, chat_id, message_text, created_at |
 | `CustomView` | `custom_views` | id, name, description, layout (JSON), widgets (JSON), created_at, updated_at |
+| `User` | `users` | id, username, email, full_name, hashed_password, is_active, created_at |
 
 ### Inicialización
 
@@ -326,11 +449,12 @@ Se llama en el lifespan de FastAPI al startup. Crea todas las tablas si no exist
 
 ---
 
-## Schemas Pydantic (17 archivos en `schemas/`)
+## Schemas Pydantic (18 archivos en `schemas/`)
 
 | Archivo | Propósito |
 |---------|-----------|
 | `common.py` | `APIResponse[T]` — envelope genérico |
+| `auth.py` | `LoginRequest`, `TokenResponse`, `UserResponse`, `UserCreate`, `UserUpdate` |
 | `mikrotik.py` | InterfaceInfo, ConnectionInfo, ARPEntry, TrafficData, etc. |
 | `wazuh.py` | WazuhAgent, WazuhAlert, ActiveResponseRequest |
 | `network.py` | IPLabelCreate/Response, IPGroupCreate/Response |
@@ -339,7 +463,7 @@ Se llama en el lifespan de FastAPI al startup. Crea todas las tablas si no exist
 | `security.py` | SecurityBlockIPRequest, QuarantineRequest, GeoBlockRequest, CLICommand |
 | `phishing.py` | PhishingAlert, SuspiciousDomain, PhishingVictim, SinkholeCreate |
 | `portal.py` | PortalSession, PortalUser, PortalProfile, PortalConfig, ScheduleDayConfig |
-| `glpi.py` | GlpiAsset, GlpiTicket, GlpiUser, GlpiAssetHealth, QuarantineRequest |
+| `glpi.py` | GlpiAsset, GlpiTicket, GlpiUser, GlpiAssetHealth, QuarantineRequest,<br>**GlpiUserCreate, GlpiUserUpdate, GlpiAssignmentRequest** |
 | `crowdsec.py` | ManualDecisionRequest, WhitelistRequest, FullRemediationRequest |
 | `geoip.py` | GeoIPResult, GeoIPBulkRequest, TopCountriesResponse, GeoBlockSuggestion |
 | `suricata.py` | AutoResponseTriggerRequest, AutoResponseConfigUpdate, RuleToggleRequest |
@@ -502,11 +626,33 @@ sudo apt install python3-venv python3.12-venv
 # O usar uv: ~/.local/bin/uv venv
 ```
 
-Última actualización: 2026-06-16
-Basado en análisis de: 80+ archivos backend
-Versión del proyecto: 2.6
+Última actualización: 2026-06-21
+Basado en análisis de: 85+ archivos backend
+Versión del proyecto: 2.8
 
 ### Cambios Fase 1 (2026-06-16)
 - `mikrotik_service.py` — Nuevos métodos: `get_nat_rules()`, `get_routes()`, `get_ip_addresses()`, `get_bridge_ports()`, `get_queues()`, `create_queue()`, `update_queue()`, `delete_queue()`.
 - `routers/mikrotik.py` — Nuevos endpoints: `GET /api/mikrotik/nat-rules`, `GET /api/mikrotik/routes`, `GET /api/mikrotik/addresses`, `GET /api/mikrotik/bridge-ports`, CRUD `/api/mikrotik/queues`.
 - `mock_data.py` — Mocks para NAT, rutas, IPs, bridge y queues.
+
+### Cambios Auth (2026-06-17)
+- `models/user.py` — Modelo `User` (tabla `users`): id, username, email, full_name, hashed_password, is_active, created_at.
+- `schemas/auth.py` — `LoginRequest`, `TokenResponse`, `UserResponse`, `UserCreate`, `UserUpdate`.
+- `services/auth_service.py` — Singleton `AuthService`: JWT (python-jose) + bcrypt (passlib). Métodos: `authenticate_user()`, `create_access_token()`, `decode_token()`, `get_all_users()`, `get_user_by_id()`, `create_user()`, `update_user()`, `delete_user()`.
+- `routers/auth.py` — `/api/auth/*`: POST login, GET me, POST logout, CRUD `/api/auth/users`. Dependency `get_current_user` valida JWT en header `Authorization: Bearer`.
+- `main.py` — `JWTAuthMiddleware` global valida JWT en todos los endpoints excepto rutas públicas (`/api/auth/login`, `/api/auth/logout`, `/health`, `/docs`, `/ws/*`).
+- `main.py` — `ensure_default_admin()` en lifespan: crea usuario `admin/admin` si la tabla `users` está vacía.
+- `config.py` — Variables `JWT_SECRET_KEY` (obligatorio, mínimo 32 chars) y `JWT_EXPIRE_MINUTES` (default 60).
+- `requirements.txt` — Agregados: `python-jose[cryptography]`, `passlib[bcrypt]`.
+
+### Cambios GLPI CRUD completo (2026-06-21)
+- `routers/glpi.py` — 6 endpoints nuevos:
+  - `DELETE /api/glpi/assets/{id}` — Eliminar activo GLPI.
+  - `PUT /api/glpi/assets/{id}/assign` — Asignar/desasignar activo a usuario (`user_id: int | null`).
+  - `GET /api/glpi/users/{id}` — Obtener usuario GLPI por ID.
+  - `POST /api/glpi/users` — Crear usuario GLPI.
+  - `PUT /api/glpi/users/{id}` — Actualizar usuario GLPI.
+  - `DELETE /api/glpi/users/{id}` — Eliminar usuario GLPI.
+- `schemas/glpi.py` — Nuevos schemas: `GlpiAssignmentRequest`, `GlpiUserCreate`, `GlpiUserUpdate`.
+- `services/glpi_service.py` — Nuevos métodos: `delete_computer()`, `assign_asset()`, `get_user()`, `create_user()`, `update_user()`, `delete_user()`.
+- `services/mock_service.py` — CRUD en memoria de usuarios GLPI: `glpi_get_users()`, `glpi_create_user()`, `glpi_update_user()`, `glpi_delete_user()`, `glpi_assign_asset()`.

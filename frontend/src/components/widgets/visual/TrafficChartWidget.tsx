@@ -86,7 +86,7 @@ export function TrafficChartWidget({ config }: TrafficChartWidgetProps) {
       const point: Record<string, any> = {
         time: entry.timestamp?.split('T')[1]?.substring(0, 5) ?? `${idx}`,
       };
-      for (const t of entry.traffic) {
+      for (const t of (Array.isArray(entry.traffic) ? entry.traffic : [])) {
         if (filterIface && t.interface !== filterIface) continue;
         ifaceSet.add(t.interface);
         point[`${t.interface}_rx`] = t.rx_bytes_per_sec;
@@ -102,7 +102,7 @@ export function TrafficChartWidget({ config }: TrafficChartWidgetProps) {
   }, [trafficHistory, filterIface]);
 
   // Totales actuales (último snapshot)
-  const latestSnapshot = trafficHistory[trafficHistory.length - 1]?.traffic ?? [];
+  const latestSnapshot = Array.isArray(trafficHistory[trafficHistory.length - 1]?.traffic) ? trafficHistory[trafficHistory.length - 1].traffic : [];
   const totals = latestSnapshot
     .filter((t) => !filterIface || t.interface === filterIface)
     .reduce(

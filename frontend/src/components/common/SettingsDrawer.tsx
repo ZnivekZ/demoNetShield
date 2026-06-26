@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { X, RotateCcw, Palette, Type, Users } from 'lucide-react';
+import { X, RotateCcw, Palette, Type, Users, History } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { THEMES } from '../../config/themes';
 import { useTheme } from '../../hooks/useTheme';
@@ -128,6 +128,21 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
             >
               <Users size={13} />
               Gestionar usuarios
+            </button>
+
+            <button
+              id="settings-audit-history-btn"
+              className="settings-reset-btn"
+              onClick={() => { navigate('/admin/audit'); onClose(); }}
+              style={{
+                width: '100%',
+                justifyContent: 'flex-start',
+                gap: '0.5rem',
+                color: 'var(--color-surface-200)',
+              }}
+            >
+              <History size={13} />
+              Historial de actividad
             </button>
           </section>
 

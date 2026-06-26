@@ -14,6 +14,7 @@
  *   /system            → SystemHealth
  *   /reports           → ReportsPage
  *   /admin/users       → UsersManagementPage (acceso desde SettingsDrawer)
+ *   /admin/audit       → AuditHistoryPage    (acceso desde SettingsDrawer)
  *
  * Legacy routes:
  *   /vlans             → redirected to /network
@@ -52,6 +53,7 @@ import ViewDetailPage from './components/views/ViewDetailPage';
 import DhcpPage from './components/dhcp/DhcpPage';
 // Admin
 import UsersManagementPage from './components/admin/UsersManagementPage';
+import AuditHistoryPage from './components/admin/AuditHistoryPage';
 
 
 const queryClient = new QueryClient({
@@ -121,6 +123,7 @@ export default function App() {
 
               {/* Admin — accessible from SettingsDrawer */}
               <Route path="/admin/users" element={<UsersManagementPage />} />
+              <Route path="/admin/audit" element={<AuditHistoryPage />} />
 
               {/* Fallback */}
               <Route path="*" element={<Navigate to="/" replace />} />

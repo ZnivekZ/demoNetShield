@@ -2080,3 +2080,15 @@ export interface UserUpdate {
   password?: string;
   is_active?: boolean;
 }
+
+/* ── Audit / Action Log ──────────────────────────────────────────────── */
+
+export interface ActionLogEntry {
+  id: number;
+  action_type: string;
+  target_ip: string | null;
+  details: Record<string, unknown> | null;
+  performed_by: string;
+  comment: string | null;
+  created_at: string;
+}

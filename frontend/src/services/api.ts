@@ -1148,3 +1148,17 @@ export const authApi = {
   deleteUser: (id: number) =>
     api.delete<APIResponse>(`/auth/users/${id}`).then(r => r.data),
 };
+
+/* ── Audit / Action History ───────────────────────────────────────────── */
+
+export const auditApi = {
+  /** Get paginated action history with optional filters */
+  getHistory: (params?: {
+    limit?: number;
+    action_type?: string;
+    performed_by?: string;
+  }) =>
+    api
+      .get<APIResponse<ActionLogEntry[]>>('/actions/history', { params })
+      .then(r => r.data),
+};

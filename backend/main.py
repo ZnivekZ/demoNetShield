@@ -739,10 +739,14 @@ async def websocket_crowdsec_decisions(websocket: WebSocket):
                             "data": {"decisions": new_decisions, "count": len(new_decisions)},
                         })
             except Exception as e:
-                await websocket.send_json({
-                    "type": "error",
-                    "data": {"message": f"CrowdSec WS error: {str(e)}"},
-                })
+                try:
+                    if websocket.client_state.value == 1:  # CONNECTED
+                        await websocket.send_json({
+                            "type": "error",
+                            "data": {"message": f"CrowdSec WS error: {str(e)}"},
+                        })
+                except Exception:
+                    break  # WebSocket already closed, exit the loop
             tick += 1
             await asyncio.sleep(10)  # Poll every 10s
     except WebSocketDisconnect:

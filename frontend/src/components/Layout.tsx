@@ -50,15 +50,9 @@ import { GlobalSearch } from './common/GlobalSearch';
 import { NotificationPanel } from './security/NotificationPanel';
 import { ConfirmModal } from './common/ConfirmModal';
 import { useBlockIP } from '../hooks/useSecurityActions';
-import { useMikrotikHealth } from '../hooks/useMikrotikHealth';
-import { useWazuhHealth } from '../hooks/useWazuhSummary';
-import { useCrowdSecHealth } from '../hooks/useCrowdSecMetrics';
-import { useSuricataEngine } from '../hooks/useSuricataEngine';
 import { MockModeBadge } from './common/MockModeBadge';
 import { IpContextPanel } from './crowdsec/IpContextPanel';
 import { SettingsDrawer } from './common/SettingsDrawer';
-import { useQuery } from '@tanstack/react-query';
-import { glpiApi } from '../services/api';
 import { useAuthContext } from './auth/AuthContext';
 
 // ── Navigation structure (max 20 items total) ─────────────────
@@ -129,25 +123,6 @@ export default function Layout() {
   // Global IP context panel (CrowdSec unified view)
   const [ipContextTarget, setIpContextTarget] = useState<string | null>(null);
 
-  // Status indicators logic
-  const { data: mtHealth, isLoading: mtLoading, isError: mtError } = useMikrotikHealth();
-  const { data: wazuhHealth, isLoading: wazuhLoading, isError: wazuhError } = useWazuhHealth();
-  const { data: csHealth, isLoading: csLoading, isError: csError } = useCrowdSecHealth();
-  const { isHealthy: surHealthy, isLoadingStatus: surLoading } = useSuricataEngine();
-
-  // GLPI heartbeat
-  const { data: glpiHealth, isLoading: glpiLoading, isError: glpiError } = useQuery({
-    queryKey: ['glpi', 'status', 'heartbeat'],
-    queryFn: () => glpiApi.getStatus(),
-    refetchInterval: 30_000,
-    select: (res) => res.data,
-  });
-
-  const getStatusClass = (isLoading: boolean, isError: boolean, data: unknown) => {
-    if (isLoading) return 'status-dot pending';
-    if (isError || !data) return 'status-dot disconnected';
-    return 'status-dot active';
-  };
 
   const handleBlockIPConfirm = async () => {
     if (!blockIPTarget) return;
@@ -172,7 +147,7 @@ export default function Layout() {
 
       {/* Sidebar */}
       <aside
-        className={`sidebar fixed lg:static z-50 w-64 h-screen flex flex-col transition-transform duration-300 lg:translate-x-0 ${
+        className={`sidebar fixed lg:relative z-50 w-64 h-screen lg:h-auto lg:min-h-screen lg:self-stretch flex flex-col transition-transform duration-300 lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -266,28 +241,8 @@ export default function Layout() {
             />
           </div>
 
-          {/* Status dots + MockModeBadge + Notification Bell */}
+          {/* MockModeBadge + Notification Bell */}
           <div className="flex items-center gap-3 text-xs text-surface-400">
-            <div className="flex items-center gap-1.5" title={mtHealth ? `MikroTik: ${mtHealth.version}` : 'MikroTik'}>
-              <span className={getStatusClass(mtLoading, mtError, mtHealth)} />
-              MikroTik
-            </div>
-            <div className="flex items-center gap-1.5" title={wazuhHealth ? `Wazuh: ${wazuhHealth.version}` : 'Wazuh'}>
-              <span className={getStatusClass(wazuhLoading, wazuhError, wazuhHealth)} />
-              Wazuh
-            </div>
-            <div className="flex items-center gap-1.5" title={csHealth ? `CrowdSec: ${csHealth.active_decisions} decisiones activas` : 'CrowdSec'}>
-              <span className={getStatusClass(csLoading, csError, csHealth)} />
-              CrowdSec
-            </div>
-            <div className="flex items-center gap-1.5" title={surHealthy ? 'Suricata: online' : 'Suricata: offline o en mock'}>
-              <span className={getStatusClass(surLoading, !surHealthy && !surLoading, surHealthy ? {} : null)} />
-              Suricata
-            </div>
-            <div className="flex items-center gap-1.5" title={glpiHealth?.available ? `GLPI: ${glpiHealth.url}` : 'GLPI: desconectado'}>
-              <span className={getStatusClass(glpiLoading, glpiError || (!glpiLoading && !glpiHealth?.available), glpiHealth?.available ? {} : null)} />
-              GLPI
-            </div>
             <MockModeBadge />
             <NotificationPanel
               onBlockIP={ip => setBlockIPTarget(ip)}

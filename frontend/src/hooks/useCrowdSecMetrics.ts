@@ -7,23 +7,22 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { crowdsecApi } from '../services/api';
+import { requireApiSuccess } from '../services/apiResponse';
 
 /** Health check for CrowdSec: uses /crowdsec/metrics as connectivity probe. */
 export function useCrowdSecHealth() {
   return useQuery({
     queryKey: ['crowdsec', 'health'],
-    queryFn: () => crowdsecApi.getMetrics(),
+    queryFn: async () => requireApiSuccess(await crowdsecApi.getMetrics(), 'No se pudo verificar CrowdSec'),
     refetchInterval: 30_000,
-    select: r => r.data ?? null,
   });
 }
 
 export function useCrowdSecMetrics() {
   return useQuery({
     queryKey: ['crowdsec', 'metrics'],
-    queryFn: () => crowdsecApi.getMetrics(),
+    queryFn: async () => requireApiSuccess(await crowdsecApi.getMetrics(), 'No se pudo verificar CrowdSec'),
     refetchInterval: 60_000,
-    select: r => r.data ?? null,
   });
 }
 

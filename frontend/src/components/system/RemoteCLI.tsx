@@ -357,7 +357,7 @@ export function RemoteCLI() {
           </div>
 
           <CLIError error={csError} />
-          {csResult && (
+          {csResult != null && (
             <div className="cli-output">
               <div className="cli-output__header">
                 <span>CrowdSec — {csLastAction}</span>
@@ -389,15 +389,15 @@ export function RemoteCLI() {
 
 // ── Internal helpers ──
 
-function CLIError({ error }: { error: string | null }) {
+function CLIError({ error }: { error: unknown }) {
   if (!error) return null;
+  const message = error instanceof Error ? error.message : String(error);
   return (
     <div style={{ padding: '0.75rem', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: '0.8rem', color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-      <AlertTriangle size={14} /> {error}
+      <AlertTriangle size={14} /> {message}
     </div>
   );
 }
-
 function CLIOutput({ label, result }: { label: string; result: CLIResponse | null }) {
   if (!result) return null;
   return (

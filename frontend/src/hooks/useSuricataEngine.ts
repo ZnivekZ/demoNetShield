@@ -5,15 +5,15 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { suricataApi } from '../services/api';
+import { requireApiSuccess } from '../services/apiResponse';
 
 export function useSuricataEngine(statMinutes = 30) {
   const queryClient = useQueryClient();
 
   const engineStatus = useQuery({
     queryKey: ['suricata', 'engine-status'],
-    queryFn: () => suricataApi.getEngineStatus(),
+    queryFn: async () => requireApiSuccess(await suricataApi.getEngineStatus(), 'No se pudo verificar Suricata'),
     refetchInterval: 10_000,
-    select: r => r.data,
   });
 
   const engineStats = useQuery({
@@ -35,7 +35,10 @@ export function useSuricataEngine(statMinutes = 30) {
     // Engine status
     engineStatus: engineStatus.data,
     isLoadingStatus: engineStatus.isLoading,
+    isFetchingStatus: engineStatus.isFetching,
     isStatusError: engineStatus.isError,
+    statusError: engineStatus.error,
+    refetchStatus: engineStatus.refetch,
 
     // Engine stats + series
     stats: engineStats.data?.stats,

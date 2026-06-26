@@ -8,7 +8,6 @@ interface FontSizeSliderProps {
 /**
  * FontSizeSlider — control de escala de tipografía.
  * Usa los valores predefinidos de FONT_SCALE_OPTIONS.
- * Incluye preview en tiempo real del tamaño de texto.
  */
 export function FontSizeSlider({ value, onChange }: FontSizeSliderProps) {
   const min = FONT_SCALE_OPTIONS[0].value;
@@ -48,16 +47,6 @@ export function FontSizeSlider({ value, onChange }: FontSizeSliderProps) {
             {opt.label}
           </button>
         ))}
-      </div>
-
-      <div className="font-slider__preview">
-        <span className="font-slider__preview-label">Vista previa:</span>
-        <span
-          className="font-slider__preview-text"
-          style={{ fontSize: `${value}rem` }}
-        >
-          NetShield Dashboard
-        </span>
       </div>
     </div>
   );

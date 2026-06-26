@@ -4,13 +4,13 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { mikrotikApi } from '../services/api';
+import { requireApiSuccess } from '../services/apiResponse';
 
 export function useMikrotikHealth() {
   return useQuery({
     queryKey: ['mikrotik', 'health'],
-    queryFn: () => mikrotikApi.getHealth(),
+    queryFn: async () => requireApiSuccess(await mikrotikApi.getHealth(), 'No se pudo verificar MikroTik'),
     refetchInterval: 15_000,
-    select: r => r.data,
   });
 }
 

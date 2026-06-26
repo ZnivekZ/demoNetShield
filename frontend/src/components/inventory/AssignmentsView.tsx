@@ -53,40 +53,46 @@ function AssignModal({ asset, onClose }: AssignModalProps) {
   }
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal-box glass-card" style={{ maxWidth: 420, width: '95vw' }}>
-        <div style={{ marginBottom: '1.2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.3rem' }}>
-            <UserPlus size={18} style={{ color: 'var(--color-accent)' }} />
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>Asignar equipo</h3>
+    <div className="confirm-modal-overlay" role="dialog" aria-modal="true">
+      <div className="confirm-modal animate-fade-in-up" style={{ maxWidth: 420 }}>
+        <div className="confirm-modal__header">
+          <div className="confirm-modal__icon" style={{ color: 'var(--color-brand-400)' }}>
+            <UserPlus size={18} />
           </div>
-          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-surface-400)' }}>
-            <Monitor size={11} style={{ marginRight: 4 }} />
+          <h3 className="confirm-modal__title">Asignar equipo</h3>
+          <button className="confirm-modal__close" onClick={onClose}>
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="confirm-modal__body" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-surface-400)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <Monitor size={12} />
             {asset.name}
           </p>
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="assign-user-select">
+              <User size={12} style={{ marginRight: 4 }} />
+              Seleccionar usuario
+            </label>
+            <select
+              id="assign-user-select"
+              className="input"
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value === '' ? '' : Number(e.target.value))}
+            >
+              <option value="">— Sin asignar —</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.display_name || u.name} ({u.department})
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        <div className="form-group" style={{ marginBottom: '1.2rem' }}>
-          <label className="form-label" htmlFor="assign-user-select">
-            <User size={12} style={{ marginRight: 4 }} />
-            Seleccionar usuario
-          </label>
-          <select
-            id="assign-user-select"
-            className="input"
-            value={selectedUserId}
-            onChange={(e) => setSelectedUserId(e.target.value === '' ? '' : Number(e.target.value))}
-          >
-            <option value="">— Sin asignar —</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.display_name || u.name} ({u.department})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
+        <div className="confirm-modal__actions">
           <button
             id="assign-modal-cancel"
             type="button"
@@ -110,7 +116,6 @@ function AssignModal({ asset, onClose }: AssignModalProps) {
     </div>
   );
 }
-
 export function AssignmentsView() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');

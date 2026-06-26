@@ -1267,8 +1267,6 @@ export default function DhcpPage() {
               transition: 'all .15s', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
             }}>
             {t.icon} {t.label}
-            {t.id === 'discovery'   && <span style={{ fontSize: 10, background: 'var(--accent-primary)', color: '#fff', borderRadius: 8, padding: '1px 5px' }}>NEW</span>}
-            {t.id === 'correlation' && <span style={{ fontSize: 10, background: 'var(--accent-primary)', color: '#fff', borderRadius: 8, padding: '1px 5px' }}>NEW</span>}
           </button>
         ))}
       </div>

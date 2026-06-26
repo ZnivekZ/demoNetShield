@@ -222,19 +222,26 @@ class MockData:
 
         @staticmethod
         def system_health() -> dict:
+            total_memory = 1024 * 1024 * 1024
+            free_memory = 512 * 1024 * 1024
+            used_memory = total_memory - free_memory
             return {
                 "version": "7.14.2 (stable)",
                 "uptime": "15d 4h 22m 13s",
-                "cpu_load": 12,
-                "free_memory": 512 * 1024 * 1024,
-                "total_memory": 1024 * 1024 * 1024,
-                "free_disk": 2048 * 1024 * 1024,
+                "cpu_percent": 12,
+                "ram_used_mb": round(used_memory / (1024 * 1024), 1),
+                "ram_total_mb": round(total_memory / (1024 * 1024), 1),
+                "ram_percent": round(used_memory / total_memory * 100, 1),
+                "temperature": "N/A",
                 "board_name": "CHR",
+                "cpu_load": 12,
+                "free_memory": free_memory,
+                "total_memory": total_memory,
+                "free_disk": 2048 * 1024 * 1024,
                 "architecture_name": "x86_64",
                 "platform": "MikroTik",
                 "bad_blocks": "0%",
             }
-
         @staticmethod
         def dns_static() -> list[dict]:
             return [

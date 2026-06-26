@@ -100,22 +100,23 @@ export function GlpiUserFormModal({ mode, user, onClose, onSaved }: GlpiUserForm
   const isPending = createUser.isPending || updateUser.isPending;
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal-box glass-card" style={{ maxWidth: 500, width: '95vw' }}>
+    <div className="confirm-modal-overlay" role="dialog" aria-modal="true">
+      <div className="confirm-modal animate-fade-in-up" style={{ maxWidth: 520 }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <User size={18} style={{ color: 'var(--color-accent)' }} />
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>
-              {mode === 'create' ? 'Nuevo usuario GLPI' : `Editar: ${user?.display_name}`}
-            </h3>
+        <div className="confirm-modal__header">
+          <div className="confirm-modal__icon" style={{ color: 'var(--color-brand-400)' }}>
+            <User size={18} />
           </div>
-          <button id="glpi-user-modal-close" className="btn btn-ghost" onClick={onClose} style={{ padding: '0.3rem' }}>
-            <X size={16} />
+          <h3 className="confirm-modal__title">
+            {mode === 'create' ? 'Nuevo usuario GLPI' : `Editar: ${user?.display_name}`}
+          </h3>
+          <button id="glpi-user-modal-close" className="confirm-modal__close" onClick={onClose}>
+            <X size={15} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+        <form onSubmit={handleSubmit}>
+          <div className="confirm-modal__body" style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
           {/* Username — solo en create */}
           {mode === 'create' && (
             <div className="form-group">
@@ -246,9 +247,10 @@ export function GlpiUserFormModal({ mode, user, onClose, onSaved }: GlpiUserForm
               {error}
             </div>
           )}
+          </div>
 
           {/* Actions */}
-          <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end', marginTop: '0.4rem' }}>
+          <div className="confirm-modal__actions">
             <button
               id="glpi-user-modal-cancel"
               type="button"

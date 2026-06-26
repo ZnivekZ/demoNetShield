@@ -4,6 +4,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { wazuhApi } from '../services/api';
+import { requireApiSuccess } from '../services/apiResponse';
 
 export function useCriticalAlerts(limit = 50) {
   return useQuery({
@@ -62,8 +63,7 @@ export function useMitreSummary() {
 export function useWazuhHealth() {
   return useQuery({
     queryKey: ['wazuh', 'health'],
-    queryFn: () => wazuhApi.getHealth(),
+    queryFn: async () => requireApiSuccess(await wazuhApi.getHealth(), 'No se pudo verificar Wazuh'),
     refetchInterval: 30_000,
-    select: r => r.data,
   });
 }

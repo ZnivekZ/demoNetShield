@@ -2,7 +2,7 @@
 
 ## ¿Qué es este proyecto?
 
-NetShield Dashboard es una plataforma web de monitoreo y gestión de seguridad de red para entornos de laboratorio. Integra un router MikroTik CHR (API RouterOS), un SIEM Wazuh (API REST), un motor IDS/IPS/NSM Suricata, un motor de reputación CrowdSec, un ITSM GLPI, inteligencia GeoIP (MaxMind GeoLite2), un bot bidireccional de Telegram, administración DHCP completa, y generación de reportes con IA (Claude de Anthropic) — todo en un único panel de control con 56 widgets configurables y 6 temas visuales.
+NetShield Dashboard es una plataforma web de monitoreo y gestión de seguridad de red para entornos de laboratorio. Integra un router MikroTik CHR (API RouterOS), un SIEM Wazuh (API REST), un motor IDS/IPS/NSM Suricata, un motor de reputación CrowdSec, un ITSM GLPI, inteligencia GeoIP (MaxMind GeoLite2), un bot bidireccional de Telegram, administración DHCP completa, y generación de reportes con IA (Claude de Anthropic) — todo en un único panel de control con 59 widgets configurables, auditoría completa de acciones y 6 temas visuales.
 
 **Fase actual:** Laboratorio de pruebas.
 **Objetivo futuro:** Escalar a entornos reales soportando picos de 1000 usuarios concurrentes sin reescribir la arquitectura.
@@ -258,12 +258,14 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 - **Retry:** `tenacity` con `@retry` decorador — backoff exponencial 1-10s, 3 intentos.
 - **Lazy imports:** Cross-service calls usan imports dentro de funciones para evitar circular imports (ej: `suricata → wazuh`, `wazuh → geoip`).
 - **Credenciales:** Jamás hardcodeadas. Todo vía `config.py` → `.env`.
+- **Auditoría:** Acciones críticas de auth (login OK/fail, logout, CRUD de usuarios del dashboard) se registran en la tabla `action_logs` mediante el modelo `ActionLog`. El endpoint `/api/actions/history` expone el historial paginado.
 
 ### Frontend
 
 - **Componentes:** PascalCase, un archivo por componente, agrupados por dominio (`security/`, `crowdsec/`, `suricata/`, `inventory/`, `portal/`, `reports/`, `views/`, `widgets/`, `auth/`, `admin/`, etc.).
 - **Hooks:** Prefijo `use`, un hook por fuente de datos, en `src/hooks/`. Widget hooks en `src/hooks/widgets/{visual,technical,hybrid}/index.ts`.
-- **Servicios API:** Centralizados en `src/services/api.ts` (~37KB, 18+ namespaces). Interceptores JWT: request inyecta `Bearer token`, response maneja 401 global. Nunca hacer fetch directo.
+- **Servicios API:** Centralizados en `src/services/api.ts` (~37KB, 19+ namespaces). Interceptores JWT: request inyecta `Bearer token`, response maneja 401 global. Nunca hacer fetch directo.
+- **Utilidades API:** `src/services/apiResponse.ts` expone `requireApiSuccess<T>()` y `getApiErrorMessage()` para un manejo de errores consistente en hooks.
 - **Tipos:** Todos en `src/types.ts` (~39KB), espejo de los schemas Pydantic del backend.
 - **Autenticación:** `AuthProvider` (context) envuelve la app. `ProtectedRoute` bloquea rutas protegidas. Token en `localStorage['netshield_token']`.
 - **Data fetching:** TanStack Query con `queryKey` descriptivos y `refetchInterval` para polling.
@@ -289,16 +291,17 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 - [x] **Sistema de autenticación JWT** — `JWTAuthMiddleware` global + `AuthService` singleton + CRUD usuarios [REAL]
 
 **Frontend:**
-- [x] 25 rutas (23 reales + 1 redirect + 1 fallback) [REAL]
-- [x] Layout con sidebar 7 grupos, topbar con 5 status dots [REAL]
+- [x] 26 rutas (24 reales + 1 redirect + 1 fallback) [REAL]
+- [x] Layout con sidebar 7 grupos, topbar con MockModeBadge (status dots movidos a SystemHealth) [REAL]
 - [x] **59 widgets** en 4 categorías (17 standard, **12** visual, **15** technical, 15 hybrid) [REAL]
 - [x] 6 temas visuales con escala de fuente [REAL]
-- [x] 44 custom hooks de datos [REAL]
+- [x] 45 custom hooks de datos [REAL]
 - [x] Sistema de vistas personalizadas con drag-and-drop [REAL]
 - [x] Filtro por tipo de activo en Inventario (Computer/NetworkEquipment/Printer/Phone/Peripheral/Monitor)
 - [x] Botón 🚦 "Limitar velocidad" en DHCP Leases → crea Simple Queue
 - [x] **Login page** + `AuthContext` + `ProtectedRoute` + panel gestión de usuarios [REAL]
 - [x] **GLPI CRUD completo** — eliminar activos, asignar equipo↔usuario, crear/editar/eliminar usuarios GLPI [REAL + MOCK]
+- [x] **Historial de actividad** (`/admin/audit`) — auditoría de todas las acciones de auth con filtros por categoría, operador y búsqueda libre [REAL]
 - [ ] Responsive móvil (funcional pero no refinado)
 
 ### Rutas del frontend (`App.tsx`)
@@ -328,6 +331,7 @@ Todas las variables están en `backend/.env.example`. Agrupadas por servicio:
 | `/views/:id/edit` | `ViewBuilderPage` | ✅ Operativa |
 | `/dhcp` | `DhcpPage` | ✅ Operativa |
 | `/admin/users` | `UsersManagementPage` | ✅ Operativa (desde SettingsDrawer) |
+| `/admin/audit` | `AuditHistoryPage` | ✅ Operativa (desde SettingsDrawer) |
 | `/vlans` | → Redirect a `/network` | ✅ Legacy redirect |
 
 ### Servicios externos — estado de integración
@@ -436,7 +440,7 @@ Todas las operaciones DHCP son llamadas a la API RouterOS. Crear un servicio sep
 El dashboard estático no cubre todos los perfiles de usuario. Las vistas permiten crear dashboards a medida con drag-and-drop de widgets de un catálogo tabulado (Standard/Visual/Technical/Hybrid).
 
 ### ¿Por qué 5 status dots en el topbar?
-MikroTik, Wazuh, CrowdSec, Suricata y GLPI — cada uno con indicador visual de conectividad en tiempo real.
+Los indicadores de conectividad (MikroTik, Wazuh, CrowdSec, Suricata, GLPI) se eliminaron del `Layout.tsx` en favor de una sección dedicada en `SystemHealth.tsx`. Esto reduce 5 queries permanentes en todas las vistas a consultas bajo demanda. El componente `IntegrationStatusCard` reutilizable incluye botón de reintento y tooltip de estado detallado.
 
 ---
 
@@ -474,9 +478,9 @@ En `Layout.tsx`, agregar al array `navGroups`:
 ```
 No hay límite fijo de ítems.
 
-Última actualización: 2026-06-21
-Basado en análisis de: 150+ archivos
-Versión del proyecto: 2.8
+Última actualización: 2026-06-28
+Basado en análisis de: 155+ archivos
+Versión del proyecto: 2.9
 
 ### Cambios Fase 1 (2026-06-16)
 - **Backend (MikroTik):** Nuevos endpoints `GET /api/mikrotik/nat-rules`, `GET /api/mikrotik/routes`, `GET /api/mikrotik/addresses`, `GET /api/mikrotik/bridge-ports`, CRUD `/api/mikrotik/queues`.
@@ -505,7 +509,21 @@ Versión del proyecto: 2.8
 - **Frontend:** `InventoryPage.tsx` — nuevo 5° tab "Asignaciones" (total: Salud/Activos/Tickets/Usuarios/Asignaciones).
 - **Frontend:** `UsersView.tsx` — CRUD completo de usuarios GLPI.
 - **Frontend:** `AssetsView.tsx` — botón eliminar activo + asignación inline.
-- **Frontend:** `useGlpiUsers.ts` — `useCreateGlpiUser()`, `useUpdateGlpiUser()`, `useDeleteGlpiUser()`.
-- **Frontend:** `useGlpiAssets.ts` — `useAssignGlpiAsset()`, `useDeleteGlpiAsset()`.
+- **Frontend:** `useGlpiUsers.ts` — Nuevas mutations: `useCreateGlpiUser()`, `useUpdateGlpiUser()`, `useDeleteGlpiUser()`.
+- **Frontend:** `useGlpiAssets.ts` — Nuevas mutations: `useAssignGlpiAsset()`, `useDeleteGlpiAsset()`.
 - **Frontend:** `api.ts` — `glpiApi`: `deleteAsset()`, `assignAsset()`, `getUser()`, `createUser()`, `updateUser()`, `deleteUser()`.
-- **Frontend:** `types.ts` — nuevos tipos: `GlpiUserCreate`, `GlpiUserUpdate`, `GlpiAssignmentRequest`.
+- **Frontend:** `types.ts` — Nuevos tipos: `GlpiUserCreate`, `GlpiUserUpdate`, `GlpiAssignmentRequest`.
+
+### Cambios Auditoría + Robustez (2026-06-28)
+- **Backend:** `routers/auth.py` — Registro de auditoría en `ActionLog` para: `auth_login`, `auth_login_failed`, `auth_logout`, `auth_user_created`, `auth_user_updated`, `auth_user_deleted`. Cada entrada incluye `action_type`, `performed_by`, `details` (JSON), `comment`.
+- **Backend:** `main.py` — Guard defensivo en WebSocket `crowdsec_decisions`: verifica `client_state.value == 1` (CONNECTED) antes de intentar `send_json`, evitando crash al cerrar la conexión.
+- **Backend:** `mock_data.py` — Ajustes menores en datos mock.
+- **Frontend:** `components/admin/AuditHistoryPage.tsx` (nuevo) — Página completa de historial de actividad en `/admin/audit`. Filtros: categoría de acción (14 categorías), operador (dropdown dinámico), búsqueda libre. Paginación con botón "Cargar más" (50 registros por página).
+- **Frontend:** `hooks/useAuditHistory.ts` (nuevo) — Consulta `GET /api/actions/history` con TanStack Query. Filtrado en cliente por `action_type`, `performed_by` y texto libre.
+- **Frontend:** `services/api.ts` — Nuevo namespace `auditApi` con `getHistory({ limit, action_type, performed_by })`.
+- **Frontend:** `services/apiResponse.ts` (nuevo) — Utilidades: `requireApiSuccess<T>()` y `getApiErrorMessage()` para manejo de errores consistente.
+- **Frontend:** `types.ts` — Nuevo tipo `ActionLogEntry` con campos: `id`, `action_type`, `target_ip`, `details`, `performed_by`, `comment`, `created_at`.
+- **Frontend:** `App.tsx` — Nueva ruta `/admin/audit` → `AuditHistoryPage`.
+- **Frontend:** `components/common/SettingsDrawer.tsx` — Nuevo botón "Historial de actividad" (icono `History`) que navega a `/admin/audit`.
+- **Frontend:** `components/Layout.tsx` — Eliminación de los 5 status dots del topbar (MikroTik, Wazuh, CrowdSec, Suricata, GLPI) y sus 5 queries correspondientes. Simplifica el Layout y reduce carga en todas las vistas.
+- **Frontend:** `components/system/SystemHealth.tsx` — Refactorización con guards defensivos para datos opcionales. Nuevo componente interno `IntegrationStatusCard` reutilizable con indicador de estado, tooltip y botón de reintento.

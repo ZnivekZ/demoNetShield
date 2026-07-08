@@ -31,6 +31,7 @@ import {
   Shield,
   Menu,
   X,
+  ChevronLeft,
   Activity,
   Wifi,
   Package,
@@ -114,6 +115,7 @@ const navGroups = [
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { user, logout } = useAuthContext();
 
@@ -136,7 +138,7 @@ export default function Layout() {
   };
 
   return (
-    <div className="flex w-full min-h-screen">
+    <div className="w-full min-h-screen">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -147,9 +149,9 @@ export default function Layout() {
 
       {/* Sidebar */}
       <aside
-        className={`sidebar fixed lg:relative z-50 w-64 h-screen lg:h-auto lg:min-h-screen lg:self-stretch flex flex-col transition-transform duration-300 lg:translate-x-0 ${
+        className={`sidebar fixed top-0 left-0 z-50 w-64 h-screen flex flex-col transition-transform duration-300 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${sidebarHidden ? 'lg:-translate-x-full' : 'lg:translate-x-0'}`}
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-5 py-6">
@@ -165,15 +167,25 @@ export default function Layout() {
             </p>
           </div>
           <button
+            className="ml-auto hidden lg:flex items-center justify-center text-surface-400 hover:text-surface-100 transition-colors"
+            onClick={() => setSidebarHidden(true)}
+            aria-label="Ocultar menú lateral"
+            title="Ocultar menú lateral"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <button
             className="ml-auto lg:hidden text-surface-400 hover:text-surface-100"
             onClick={() => setSidebarOpen(false)}
+            aria-label="Cerrar menú lateral"
+            title="Cerrar menú lateral"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Navigation — grouped */}
-        <nav className="flex-1 px-3 overflow-y-auto" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+        <nav className="sidebar-scroll-area flex-1 min-h-0 px-3" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
           {navGroups.map(group => (
             <div key={group.label} style={{ marginBottom: '0.5rem' }}>
               <p className="sidebar-section-title">{group.label}</p>
@@ -222,13 +234,26 @@ export default function Layout() {
         </div>
       </aside>
 
+      {sidebarHidden && (
+        <button
+          className="sidebar-toggle-floating hidden lg:flex"
+          onClick={() => setSidebarHidden(false)}
+          aria-label="Mostrar menú lateral"
+          title="Mostrar menú lateral"
+        >
+          <Menu className="w-4 h-4" />
+        </button>
+      )}
+
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
+      <main className={`flex flex-col min-h-screen overflow-x-hidden transition-[margin] duration-300 ${sidebarHidden ? 'lg:ml-0' : 'lg:ml-64'}`}>
         {/* Top bar */}
-        <header className="sticky top-0 z-30 flex items-center gap-4 px-6 py-3 bg-surface-950/80 backdrop-blur-xl border-b border-surface-800/30">
+        <header className={`sticky top-0 z-30 flex items-center gap-4 px-6 py-3 bg-surface-950/80 backdrop-blur-xl border-b border-surface-800/30 transition-[padding] duration-300 ${sidebarHidden ? 'lg:pl-16' : ''}`}>
           <button
             className="lg:hidden text-surface-400 hover:text-surface-100"
             onClick={() => setSidebarOpen(true)}
+            aria-label="Abrir menú lateral"
+            title="Abrir menú lateral"
           >
             <Menu className="w-5 h-5" />
           </button>

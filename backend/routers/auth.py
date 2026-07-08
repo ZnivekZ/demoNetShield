@@ -19,12 +19,11 @@ Dependency `get_current_user`:
     Lanza HTTPException 401 si el token es inválido/expirado o el usuario está inactivo.
 
 Audit:
-    Todas las acciones de auth (login, logout, CRUD usuarios) se registran en ActionLog.
+    Todas las acciones de auth (login, logout, CRUD usuarios) se registran en ActionLog
+    a través de audit_service.log_action().
 """
 
 from __future__ import annotations
-
-import json
 
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -35,7 +34,7 @@ from database import get_db
 from schemas.auth import LoginRequest, TokenResponse, UserCreate, UserResponse, UserUpdate
 from schemas.common import APIResponse
 from services.auth_service import create_access_token, decode_token, get_auth_service
-from models.action_log import ActionLog
+from services.audit_service import log_action
 from models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -110,16 +109,14 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         user = await auth_service.authenticate_user(body.username, body.password)
 
         if not user:
-            # Log failed login attempt
-            log_entry = ActionLog(
+            await log_action(
+                db,
                 action_type="auth_login_failed",
-                details=json.dumps({"reason": "invalid_credentials"}),
+                severity="info",
+                details={"reason": "invalid_credentials"},
                 performed_by=body.username,
                 comment=f"Intento de login fallido: {body.username}",
             )
-            db.add(log_entry)
-            await db.flush()
-
             raise HTTPException(
                 status_code=401,
                 detail="Credenciales incorrectas",
@@ -128,15 +125,14 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
         token = create_access_token(data={"sub": str(user.id)})
 
-        # Log successful login
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="auth_login",
-            details=json.dumps({"method": "jwt", "user_id": user.id}),
+            severity="low",
+            details={"method": "jwt", "user_id": user.id},
             performed_by=user.username,
             comment=f"Login exitoso: {user.username}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         return TokenResponse(access_token=token)
 
@@ -166,15 +162,14 @@ async def logout(
     This endpoint exists so the frontend can call it on logout for consistency.
     Logs the logout action for audit trail.
     """
-    # Log logout
-    log_entry = ActionLog(
+    await log_action(
+        db,
         action_type="auth_logout",
-        details=json.dumps({"user_id": current_user.id}),
+        severity="low",
+        details={"user_id": current_user.id},
         performed_by=current_user.username,
         comment=f"Logout: {current_user.username}",
     )
-    db.add(log_entry)
-    await db.flush()
 
     return APIResponse.ok({"message": "Sesión cerrada correctamente"})
 
@@ -204,20 +199,19 @@ async def create_user(
         auth_service = get_auth_service()
         user = await auth_service.create_user(body)
 
-        # Log user creation
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="auth_user_created",
-            details=json.dumps({
+            severity="high",
+            details={
                 "new_user": user.username,
                 "new_user_id": user.id,
                 "email": user.email,
                 "full_name": user.full_name,
-            }),
+            },
             performed_by=current_user.username,
             comment=f"Usuario creado: {user.username}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         return APIResponse.ok(_user_to_response(user))
     except ValueError as e:
@@ -253,19 +247,18 @@ async def update_user(
         if not user:
             return APIResponse.fail(f"Usuario con id={user_id} no encontrado")
 
-        # Log user update
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="auth_user_updated",
-            details=json.dumps({
+            severity="high",
+            details={
                 "target_user": user.username,
                 "target_user_id": user_id,
                 "changes": changes,
-            }),
+            },
             performed_by=current_user.username,
             comment=f"Usuario editado: {user.username} ({', '.join(changes)})",
         )
-        db.add(log_entry)
-        await db.flush()
 
         return APIResponse.ok(_user_to_response(user))
     except Exception as e:
@@ -294,18 +287,17 @@ async def delete_user(
         if not deleted:
             return APIResponse.fail(f"Usuario con id={user_id} no encontrado")
 
-        # Log user deletion
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="auth_user_deleted",
-            details=json.dumps({
+            severity="high",
+            details={
                 "deleted_user": target_username,
                 "deleted_user_id": user_id,
-            }),
+            },
             performed_by=current_user.username,
             comment=f"Usuario eliminado: {target_username}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         return APIResponse.ok({"deleted": True, "user_id": user_id})
     except Exception as e:

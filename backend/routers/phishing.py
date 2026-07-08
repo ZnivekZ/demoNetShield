@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from database import get_db
-from models.action_log import ActionLog
+from services.audit_service import log_action
 from models.sinkhole_entry import SinkholeEntry
 from schemas.common import APIResponse
 from schemas.phishing import (
@@ -327,14 +327,13 @@ async def sinkhole_domain(
         )
         db.add(entry)
 
-        # Log the action
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="sinkhole_add",
-            details=json.dumps({"domain": request.domain, "reason": request.reason}),
+            severity="critical",
+            details={"domain": request.domain, "reason": request.reason},
             comment=f"Sinkholed domain: {request.domain}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_domain_sinkholed", domain=request.domain)
         return APIResponse.ok(result)
@@ -364,14 +363,13 @@ async def remove_sinkhole(
         if entry:
             await db.delete(entry)
 
-        # Log the action
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="sinkhole_remove",
-            details=json.dumps({"domain": domain}),
+            severity="medium",
+            details={"domain": domain},
             comment=f"Removed sinkhole: {domain}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_sinkhole_removed", domain=domain)
         return APIResponse.ok(result)
@@ -439,15 +437,14 @@ async def block_phishing_ip(
             comment="Phishing source blocked via NetShield",
         )
 
-        # Log the action
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="phishing_block",
+            severity="critical",
             target_ip=request.ip,
-            details=json.dumps({"duration_hours": request.duration_hours}),
+            details={"duration_hours": request.duration_hours},
             comment=f"Blocked phishing source IP: {request.ip}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_phishing_ip_blocked", ip=request.ip)
         return APIResponse.ok(result)

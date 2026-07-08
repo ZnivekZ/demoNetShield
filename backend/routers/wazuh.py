@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models.action_log import ActionLog
+from services.audit_service import log_action
 from schemas.common import APIResponse
 from schemas.wazuh import ActiveResponseRequest
 from services.wazuh_service import WazuhService, get_wazuh_service
@@ -103,19 +103,17 @@ async def send_active_response(
             args=request.args,
         )
 
-        # Log the action
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="active_response",
-            target_ip=None,
-            details=json.dumps({
+            severity="critical",
+            details={
                 "agent_id": request.agent_id,
                 "command": request.command,
                 "args": request.args,
-            }),
+            },
             comment=f"Active response: {request.command} on agent {request.agent_id}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info(
             "api_active_response_sent",

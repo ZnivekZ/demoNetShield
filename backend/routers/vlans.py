@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from database import get_db
 from schemas.common import APIResponse
 from schemas.vlan import VlanCreate, VlanUpdate
+from services.audit_service import log_action
 from services.mikrotik_service import MikroTikService, get_mikrotik_service
 from services.wazuh_service import WazuhService, get_wazuh_service
 
@@ -43,6 +46,7 @@ async def get_vlans(
 async def create_vlan(
     request: VlanCreate,
     service: MikroTikService = Depends(get_mt_service),
+    db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """Create a new VLAN interface on the MikroTik CHR."""
     try:
@@ -52,11 +56,14 @@ async def create_vlan(
             interface=request.interface,
             comment=request.comment,
         )
-        logger.info(
-            "api_vlan_created",
-            vlan_id=request.vlan_id,
-            name=request.name,
+        await log_action(
+            db,
+            action_type="vlan_create",
+            severity="medium",
+            details={"vlan_id": request.vlan_id, "name": request.name, "interface": request.interface},
+            comment=f"VLAN {request.vlan_id} creada: {request.name}",
         )
+        logger.info("api_vlan_created", vlan_id=request.vlan_id, name=request.name)
         return APIResponse.ok(data)
     except Exception as e:
         logger.error("api_create_vlan_failed", vlan_id=request.vlan_id, error=str(e))
@@ -68,6 +75,7 @@ async def update_vlan(
     vlan_id: str,
     request: VlanUpdate,
     service: MikroTikService = Depends(get_mt_service),
+    db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """
     Update a VLAN's name or comment.
@@ -78,6 +86,13 @@ async def update_vlan(
             vlan_ros_id=vlan_id,
             name=request.name,
             comment=request.comment,
+        )
+        await log_action(
+            db,
+            action_type="vlan_update",
+            severity="low",
+            details={"ros_id": vlan_id, "name": request.name, "comment": request.comment},
+            comment=f"VLAN {vlan_id} actualizada",
         )
         logger.info("api_vlan_updated", ros_id=vlan_id)
         return APIResponse.ok(data)
@@ -90,6 +105,7 @@ async def update_vlan(
 async def delete_vlan(
     vlan_id: str,
     service: MikroTikService = Depends(get_mt_service),
+    db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """
     Delete a VLAN interface from the MikroTik CHR.
@@ -97,6 +113,13 @@ async def delete_vlan(
     """
     try:
         data = await service.delete_vlan(vlan_ros_id=vlan_id)
+        await log_action(
+            db,
+            action_type="vlan_delete",
+            severity="high",
+            details={"ros_id": vlan_id},
+            comment=f"VLAN {vlan_id} eliminada",
+        )
         logger.info("api_vlan_deleted", ros_id=vlan_id)
         return APIResponse.ok(data)
     except Exception as e:

@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from database import get_db
 from schemas.common import APIResponse
 from schemas.cli import CLIMikrotikRequest, CLIWazuhAgentRequest
+from services.audit_service import log_action
 from services.mikrotik_service import MikroTikService, get_mikrotik_service
 from services.wazuh_service import WazuhService, get_wazuh_service
 
@@ -33,6 +36,7 @@ def get_wz_service() -> WazuhService:
 async def execute_mikrotik_command(
     request: CLIMikrotikRequest,
     mikrotik: MikroTikService = Depends(get_mt_service),
+    db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """
     [MikroTik API] Execute a read-only command on the MikroTik router.
@@ -41,6 +45,13 @@ async def execute_mikrotik_command(
     """
     try:
         result = await mikrotik.execute_readonly_command(request.command)
+        await log_action(
+            db,
+            action_type="cli_mikrotik_exec",
+            severity="info",
+            details={"command": request.command, "result_count": len(result)},
+            comment=f"CLI MikroTik: {request.command[:80]}",
+        )
         logger.info("api_cli_mikrotik_executed", command=request.command)
         return APIResponse.ok({
             "command": request.command,
@@ -60,6 +71,7 @@ async def execute_mikrotik_command(
 async def execute_wazuh_agent_action(
     request: CLIWazuhAgentRequest,
     wazuh: WazuhService = Depends(get_wz_service),
+    db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """
     [Wazuh API] Execute an action on a Wazuh agent.
@@ -76,6 +88,13 @@ async def execute_wazuh_agent_action(
             result = await wazuh.send_active_response(
                 agent_id=request.agent_id,
                 command="restart-wazuh0",
+            )
+            await log_action(
+                db,
+                action_type="cli_wazuh_restart",
+                severity="high",
+                details={"agent_id": request.agent_id},
+                comment=f"Wazuh agent reiniciado: {request.agent_id}",
             )
             logger.info("api_cli_wazuh_restart", agent_id=request.agent_id)
             return APIResponse.ok({

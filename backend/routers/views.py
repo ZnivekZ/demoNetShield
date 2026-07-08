@@ -25,6 +25,7 @@ from database import get_db
 from models.custom_view import CustomView
 from schemas.common import APIResponse
 from schemas.views import CustomViewCreate, CustomViewUpdate
+from services.audit_service import log_action
 
 logger = structlog.get_logger(__name__)
 
@@ -824,6 +825,13 @@ async def create_view(
         db.add(new_view)
         await db.flush()
         await db.refresh(new_view)
+        await log_action(
+            db,
+            action_type="view_created",
+            severity="low",
+            details={"view_id": new_view.id, "name": new_view.name},
+            comment=f"Vista creada: {new_view.name}",
+        )
         logger.info("view_created", view_id=new_view.id, name=new_view.name)
         return APIResponse.ok(new_view.to_dict())
     except Exception as e:
@@ -880,6 +888,13 @@ async def update_view(
 
         await db.flush()
         await db.refresh(view)
+        await log_action(
+            db,
+            action_type="view_updated",
+            severity="low",
+            details={"view_id": view_id, "name": view.name},
+            comment=f"Vista actualizada: {view.name}",
+        )
         logger.info("view_updated", view_id=view_id)
         return APIResponse.ok(view.to_dict())
     except Exception as e:
@@ -902,6 +917,13 @@ async def delete_view(
             return APIResponse.fail(f"Vista '{view_id}' no encontrada")
         await db.delete(view)
         await db.flush()
+        await log_action(
+            db,
+            action_type="view_deleted",
+            severity="low",
+            details={"view_id": view_id, "name": view.name},
+            comment=f"Vista eliminada: {view.name}",
+        )
         logger.info("view_deleted", view_id=view_id)
         return APIResponse.ok({"deleted": view_id})
     except Exception as e:
@@ -932,6 +954,13 @@ async def set_default_view(
         view.is_default = True
         await db.flush()
         await db.refresh(view)
+        await log_action(
+            db,
+            action_type="view_set_default",
+            severity="low",
+            details={"view_id": view_id, "name": view.name},
+            comment=f"Vista marcada como default: {view.name}",
+        )
         logger.info("view_set_default", view_id=view_id)
         return APIResponse.ok(view.to_dict())
     except Exception as e:

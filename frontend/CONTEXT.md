@@ -5,17 +5,19 @@
 ```
 frontend/src/
 ├── main.tsx                           # Entry point, monta App en #root
-├── App.tsx                            # QueryClientProvider + AuthProvider + BrowserRouter + Routes (25 rutas)
+├── App.tsx                            # QueryClientProvider + AuthProvider + BrowserRouter + Routes (26 rutas)
 ├── index.css                          # Design system completo (TailwindCSS v4 + clases custom, 121KB)
-├── types.ts                           # Tipos TypeScript (~39KB, espejo de schemas Pydantic + Auth types)
+├── types.ts                           # Tipos TypeScript (~39KB, espejo de schemas Pydantic + Auth types + ActionLogEntry)
 │
 ├── services/
-│   └── api.ts                         # Cliente Axios centralizado (~37KB, 18+ namespaces)
-│                                      # Interceptores JWT: request inyecta Bearer token, response maneja 401
-│                                      # Namespaces: mikrotikApi, wazuhApi, networkApi, reportsApi,
-│                                      # securityApi, vlansApi, phishingApi, portalApi, glpiApi,
-│                                      # crowdsecApi, geoipApi, suricataApi, telegramApi,
-│                                      # viewsApi, widgetsApi, systemApi, actionsApi, dhcpApi, authApi
+│   ├── api.ts                         # Cliente Axios centralizado (~37KB, 19+ namespaces)
+│   │                                  # Interceptores JWT: request inyecta Bearer token, response maneja 401
+│   │                                  # Namespaces: mikrotikApi, wazuhApi, networkApi, reportsApi,
+│   │                                  # securityApi, vlansApi, phishingApi, portalApi, glpiApi,
+│   │                                  # crowdsecApi, geoipApi, suricataApi, telegramApi,
+│   │                                  # viewsApi, widgetsApi, systemApi, actionsApi, dhcpApi, authApi,
+│   │                                  # auditApi
+│   └── apiResponse.ts                 # Utilidades de respuesta API: requireApiSuccess<T>(), getApiErrorMessage()
 │
 ├── config/
 │   └── themes.ts                      # 6 temas disponibles (ThemeConfig[], ThemeId, font scale options)
@@ -67,6 +69,7 @@ frontend/src/
 │   ├── useDhcp.ts                    # DHCP: 7 read + 10 mutation + 5 Fase 2 hooks
 │   ├── useAuth.ts                    # Estado de autenticación: login, logout, validar token al montar
 │   ├── useUsers.ts                   # CRUD de usuarios dashboard con TanStack Query ['auth-users']
+│   ├── useAuditHistory.ts            # Historial de auditoría de acciones con filtros y paginación
 │   │
 │   └── widgets/                       # Hooks de datos para widgets del catálogo
 │       ├── visual/index.ts            # 11 hooks: ThreatGauge, ActivityHeatmap, NetworkPulse,
@@ -84,14 +87,15 @@ frontend/src/
 │                                      #   QuarantineTracker, SinkholeEffectiveness, DhcpDiscoveryWidget
 │
 └── components/
-    ├── Layout.tsx                      # Sidebar glassmorphic 7 grupos + topbar (5 status dots) +
-    │                                   # GlobalSearch + MockModeBadge + NotificationPanel + SettingsDrawer
+    ├── Layout.tsx                      # Sidebar glassmorphic 7 grupos + topbar (MockModeBadge) +
+    │                                   # GlobalSearch + NotificationPanel + SettingsDrawer
+    │                                   # (Los 5 status dots de servicios fueron movidos a SystemHealth)
     │
     ├── common/                         # 6 componentes compartidos
     │   ├── MockModeBadge.tsx           # Badge amarillo en topbar cuando hay servicios en mock
     │   ├── GlobalSearch.tsx            # Búsqueda global de IPs y hosts
     │   ├── ConfirmModal.tsx            # Modal de confirmación genérico (acciones destructivas)
-    │   ├── SettingsDrawer.tsx          # Panel lateral config: tema + fuente + acceso gestión usuarios
+    │   ├── SettingsDrawer.tsx          # Panel lateral config: tema + fuente + gestión usuarios + historial actividad
     │   ├── ThemeCard.tsx               # Card preview de tema (swatches + label)
     │   └── FontSizeSlider.tsx          # Slider tamaño de fuente
     │
@@ -100,9 +104,11 @@ frontend/src/
     │   ├── ProtectedRoute.tsx          # Guard de rutas: redirige a /login si no autenticado
     │   └── LoginPage.tsx               # Pantalla de login (/login) — glassmorphism, shake on error
     │
-    ├── admin/                          # 2 componentes — Gestión de operadores del dashboard
+    ├── admin/                          # 3 componentes — Gestión de operadores del dashboard
     │   ├── UsersManagementPage.tsx     # /admin/users: tabla CRUD de usuarios con toggle is_active
-    │   └── UserFormModal.tsx           # Modal crear/editar usuario (username inmutable en edición)
+    │   ├── UserFormModal.tsx           # Modal crear/editar usuario (username inmutable en edición)
+    │   └── AuditHistoryPage.tsx        # /admin/audit: historial completo de acciones con filtros por
+    │                                   # categoría (14 tipos), operador y búsqueda libre. Paginación 50/pág.
     │
     │
     ├── security/                       # 4 componentes
@@ -282,7 +288,7 @@ frontend/src/
 
 ## Sistema de navegación
 
-### Rutas reales en `App.tsx` (23 rutas)
+### Rutas reales en `App.tsx` (24 rutas)
 
 | Ruta | Componente | Grupo |
 |------|-----------|-------|
@@ -308,6 +314,7 @@ frontend/src/
 | `/views/:id` | `ViewDetailPage` | Mis Vistas |
 | `/views/:id/edit` | `ViewBuilderPage` | Mis Vistas |
 | `/vlans` | → `Navigate` to `/network` | Legacy redirect |
+| `/admin/audit` | `AuditHistoryPage` | Admin |
 
 ### Sidebar (`Layout.tsx`)
 
@@ -415,7 +422,7 @@ const api = axios.create({
 
 ### Namespaces disponibles
 
-`mikrotikApi`, `wazuhApi`, `networkApi`, `reportsApi`, `securityApi`, `vlansApi`, `phishingApi`, `portalApi`, `glpiApi`, `crowdsecApi`, `geoipApi`, `suricataApi`, `telegramApi`, `viewsApi`, `widgetsApi`, `systemApi`, `actionsApi`, `dhcpApi`.
+`mikrotikApi`, `wazuhApi`, `networkApi`, `reportsApi`, `securityApi`, `vlansApi`, `phishingApi`, `portalApi`, `glpiApi`, `crowdsecApi`, `geoipApi`, `suricataApi`, `telegramApi`, `viewsApi`, `widgetsApi`, `systemApi`, `actionsApi`, `dhcpApi`, `authApi`, `auditApi`.
 
 ### Cómo hacer llamadas
 
@@ -510,6 +517,7 @@ const queryClient = new QueryClient({
 | `['dhcp', 'usage']` | `useDhcpSubnetUsage` | Uso de subredes |
 | `['dhcp', 'alerts']` | `useDhcpRogueAlerts` | Alertas rogue |
 | `['dhcp', 'options']` | `useDhcpOptions` | Opciones DHCP |
+| `['audit-history', limit]` | `useAuditHistory` | Historial de auditoría |
 
 ### Cómo agregar una query nueva
 
@@ -673,9 +681,9 @@ Archivo de ~39KB con ~1600 líneas. Espejo de los schemas Pydantic del backend. 
 5. **Ruta** en `App.tsx`: `<Route path="/mi-ruta" element={<MiPage />} />`
 6. **Sidebar** en `Layout.tsx`: Agregar al array `navGroups`
 
-Última actualización: 2026-06-21
-Basado en análisis de: 75+ archivos frontend
-Versión del proyecto: 2.8
+Última actualización: 2026-06-28
+Basado en análisis de: 80+ archivos frontend
+Versión del proyecto: 2.9
 
 ### Cambios Fase 1 (2026-06-16)
 - `types.ts` — Nuevos tipos: `NatRule`, `RouteEntry`, `IPAddress`, `BridgePort`, `QueueEntry`, `QueueCreate`, `QueueUpdate`.
@@ -705,4 +713,15 @@ Versión del proyecto: 2.8
 - `hooks/useGlpiAssets.ts` — Nuevas mutations: `useAssignGlpiAsset()`, `useDeleteGlpiAsset()`.
 - `services/api.ts` — `glpiApi`: `deleteAsset()`, `assignAsset()`, `getUser()`, `createUser()`, `updateUser()`, `deleteUser()`.
 - `types.ts` — Nuevos tipos: `GlpiUserCreate`, `GlpiUserUpdate`, `GlpiAssignmentRequest`. Campos nuevos en `GlpiUser`: `phone`, `location`, `title`.
+
+### Cambios Auditoría + Robustez (2026-06-28)
+- `components/admin/AuditHistoryPage.tsx` (nuevo) — Página `/admin/audit`. Muestra historial completo de `action_logs`. Filtros: 14 categorías de acción, dropdown de operadores (único por entradas cargadas), búsqueda libre en tipo/IP/detalles/comentario/operador. Paginación "Cargar más" de 50 en 50.
+- `hooks/useAuditHistory.ts` (nuevo) — Consulta `GET /api/actions/history` con TanStack Query `['audit-history', limit]`. Filtrado en cliente. Expone: `entries`, `totalFetched`, `isLoading`, `isError`, `refetch`, `filters`, `setFilters`, `resetFilters`, `operators`, `loadMore`, `hasMore`.
+- `services/api.ts` — Nuevo namespace `auditApi`: `getHistory({ limit?, action_type?, performed_by? })`.
+- `services/apiResponse.ts` (nuevo) — `requireApiSuccess<T>(response, fallback?)`: lanza Error si `!success` o `data == null`. `getApiErrorMessage(error, fallback?)`: extrae mensaje de error de respuesta Axios o Error nativo.
+- `types.ts` — Nuevo tipo `ActionLogEntry`: `{ id, action_type, target_ip, details, performed_by, comment, created_at }`.
+- `App.tsx` — Nueva ruta `<Route path="/admin/audit" element={<AuditHistoryPage />} />`.
+- `components/common/SettingsDrawer.tsx` — Botón "Historial de actividad" (icono `History`) en sección Administración, navega a `/admin/audit`.
+- `components/Layout.tsx` — Eliminados los 5 status dots del topbar y sus queries (MikroTik, Wazuh, CrowdSec, Suricata, GLPI). El topbar ahora solo muestra `MockModeBadge`, `NotificationPanel` y `SettingsDrawer`.
+- `components/system/SystemHealth.tsx` — Refactorización defensiva: variables derivadas con `?? []` y `?? null` para manejar estructuras de datos opcionales. Nuevo sub-componente `IntegrationStatusCard` con status dot, label descriptivo y botón de reintento. Funciones helpers `integrationStatusClass()` e `integrationStatusText()`.
 

@@ -18,14 +18,12 @@ Reglas:
 
 from __future__ import annotations
 
-import json
-
 import structlog
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models.action_log import ActionLog
+from services.audit_service import log_action
 from schemas.common import APIResponse
 from schemas.suricata import (
     AlertFilterParams,
@@ -105,13 +103,13 @@ async def reload_rules(
     """
     try:
         result = await sur.reload_rules()
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="suricata_reload_rules",
-            target_ip="suricata_engine",
-            details=json.dumps(result) if isinstance(result, dict) else str(result),
+            severity="high",
+            details=result if isinstance(result, dict) else {"output": str(result)},
+            comment="Recarga de reglas Suricata",
         )
-        db.add(log_entry)
-        await db.flush()
         return APIResponse.ok(result)
     except Exception as exc:
         logger.error("suricata_reload_rules_error", error=str(exc))
@@ -363,13 +361,13 @@ async def toggle_rule(
     """
     try:
         result = await sur.toggle_rule(sid=sid, enabled=body.enabled)
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="suricata_rule_toggle",
-            target_ip=f"sid:{sid}",
-            details=json.dumps({"sid": sid, "enabled": body.enabled}),
+            severity="high",
+            details={"sid": sid, "enabled": body.enabled},
+            comment=f"Regla SID {sid} {'habilitada' if body.enabled else 'deshabilitada'}",
         )
-        db.add(log_entry)
-        await db.flush()
         return APIResponse.ok(result)
     except Exception as exc:
         logger.error("suricata_rule_toggle_error", sid=sid, error=str(exc))
@@ -388,13 +386,13 @@ async def update_rules(
     """
     try:
         result = await sur.update_rules()
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="suricata_update_rules",
-            target_ip="suricata_rulesets",
-            details=json.dumps(result) if isinstance(result, dict) else str(result),
+            severity="high",
+            details=result if isinstance(result, dict) else {"output": str(result)},
+            comment="Actualización de rulesets Suricata",
         )
-        db.add(log_entry)
-        await db.flush()
         return APIResponse.ok(result)
     except Exception as exc:
         logger.error("suricata_update_rules_error", error=str(exc))
@@ -461,17 +459,18 @@ async def trigger_autoresponse(
             duration=body.duration,
             reason=body.reason,
         )
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="suricata_autoresponse_trigger",
+            severity="critical",
             target_ip=body.ip,
-            details=json.dumps({
+            details={
                 "trigger_alert_id": body.trigger_alert_id,
                 "duration": body.duration,
                 "actions_taken": result.get("actions_taken", []),
-            }),
+            },
+            comment=f"Auto-response activado: {body.ip} — {body.reason}",
         )
-        db.add(log_entry)
-        await db.flush()
         return APIResponse.ok(result)
     except ValueError as exc:
         return APIResponse.fail(str(exc))
@@ -503,13 +502,13 @@ async def update_autoresponse_config(
     """Actualizar configuración del circuito de respuesta automática."""
     try:
         updated = await sur.update_autoresponse_config(body.model_dump())
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="suricata_autoresponse_config_update",
-            target_ip="suricata_autoresponse",
-            details=json.dumps(body.model_dump(exclude_none=True)),
+            severity="high",
+            details=body.model_dump(exclude_none=True),
+            comment="Configuración de auto-response actualizada",
         )
-        db.add(log_entry)
-        await db.flush()
         return APIResponse.ok(updated)
     except Exception as exc:
         logger.error("suricata_autoresponse_config_update_error", error=str(exc))

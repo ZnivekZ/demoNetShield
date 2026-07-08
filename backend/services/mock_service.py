@@ -104,7 +104,7 @@ class MockService:
             "mikrotik": settings.should_mock_mikrotik,
             "wazuh": settings.should_mock_wazuh,
             "glpi": settings.should_mock_glpi,
-            "anthropic": settings.should_mock_anthropic,
+            "ai": settings.should_mock_ai,
             "crowdsec": settings.should_mock_crowdsec,
             "geoip": settings.should_mock_geoip,
             "suricata": settings.should_mock_suricata,

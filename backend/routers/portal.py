@@ -37,7 +37,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models.action_log import ActionLog
+from services.audit_service import log_action
 from schemas.common import APIResponse
 from schemas.portal import (
     PortalUserCreate,
@@ -82,15 +82,13 @@ async def setup_hotspot(
         from scripts.setup_hotspot import run_hotspot_setup
         result = await run_hotspot_setup()
 
-        # Log the setup action
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="portal_setup",
-            target_ip=None,
-            details=json.dumps(result),
+            severity="high",
+            details=result,
             comment="Hotspot setup executed from dashboard",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_portal_setup", success=result["success"])
         return APIResponse.ok(result)
@@ -240,14 +238,13 @@ async def create_user(
     try:
         result = await service.create_user(request.model_dump())
 
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="portal_user_create",
-            target_ip=None,
-            details=json.dumps({"username": request.name, "profile": request.profile}),
+            severity="medium",
+            details={"username": request.name, "profile": request.profile},
             comment=f"Portal user created: {request.name}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_portal_user_created", name=request.name)
         return APIResponse.ok(result)
@@ -274,14 +271,13 @@ async def update_user(
         data = {k: v for k, v in request.model_dump().items() if v is not None}
         result = await service.update_user(username, data)
 
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="portal_user_update",
-            target_ip=None,
-            details=json.dumps({"username": username, "fields": list(data.keys())}),
+            severity="medium",
+            details={"username": username, "fields": list(data.keys())},
             comment=f"Portal user updated: {username}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_portal_user_updated", username=username)
         return APIResponse.ok(result)
@@ -308,14 +304,13 @@ async def delete_user(
     try:
         result = await service.delete_user(username)
 
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="portal_user_delete",
-            target_ip=None,
-            details=json.dumps({"username": username}),
+            severity="medium",
+            details={"username": username},
             comment=f"Portal user deleted: {username}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_portal_user_deleted", username=username)
         return APIResponse.ok(result)
@@ -342,14 +337,13 @@ async def disconnect_user(
     try:
         result = await service.disconnect_user(username)
 
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="portal_user_disconnect",
-            target_ip=None,
-            details=json.dumps({"username": username, "sessions": result.get("sessions_disconnected", 0)}),
+            severity="medium",
+            details={"username": username, "sessions": result.get("sessions_disconnected", 0)},
             comment=f"Portal user force-disconnected: {username}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_portal_user_disconnected", username=username)
         return APIResponse.ok(result)
@@ -375,18 +369,17 @@ async def bulk_create_users(
         users_data = [u.model_dump() for u in request.users]
         result = await service.bulk_create_users(users_data)
 
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="portal_user_bulk_create",
-            target_ip=None,
-            details=json.dumps({
+            severity="medium",
+            details={
                 "total": result["total"],
                 "success": result["success_count"],
                 "failed": result["failed_count"],
-            }),
+            },
             comment=f"Bulk portal user import: {result['success_count']}/{result['total']} created",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_portal_bulk_create_completed", total=result["total"], success=result["success_count"])
         return APIResponse.ok(result)
@@ -501,18 +494,17 @@ async def update_unregistered_speed(
             request.rate_limit_down,
         )
 
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="portal_speed_update",
-            target_ip=None,
-            details=json.dumps({
+            severity="low",
+            details={
                 "profile": "unregistered",
                 "rate_limit_up": request.rate_limit_up,
                 "rate_limit_down": request.rate_limit_down,
-            }),
+            },
             comment=f"Unregistered speed updated: {request.rate_limit_up}/{request.rate_limit_down}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_portal_unregistered_speed_updated", up=request.rate_limit_up, down=request.rate_limit_down)
         return APIResponse.ok(result)
@@ -545,20 +537,19 @@ async def update_schedule(
             scope=request.scope,
         )
 
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="portal_schedule_update",
-            target_ip=None,
-            details=json.dumps({
+            severity="low",
+            details={
                 "enabled": request.enabled,
                 "hour_from": request.allowed_hours.hour_from,
                 "hour_to": request.allowed_hours.hour_to,
                 "blocked_days": request.blocked_days,
                 "scope": request.scope,
-            }),
+            },
             comment=f"Hotspot schedule {'enabled' if request.enabled else 'disabled'} (scope: {request.scope})",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_portal_schedule_updated", enabled=request.enabled, scope=request.scope)
         return APIResponse.ok(result)

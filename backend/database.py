@@ -37,6 +37,20 @@ engine = create_async_engine(
     pool_pre_ping=True,
 )
 
+# ── SQLite WAL mode ───────────────────────────────────────────────
+# WAL (Write-Ahead Logging) allows concurrent reads without blocking writes.
+# Only applies to SQLite; no-op for PostgreSQL.
+if settings.database_url.startswith("sqlite"):
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, connection_record):  # noqa: ARG001
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")  # Safer than FULL, faster than default
+        cursor.close()
+
+
 # ── Session Factory ───────────────────────────────────────────────
 async_session_factory = async_sessionmaker(
     engine,
@@ -78,3 +92,17 @@ async def init_db() -> None:
 async def close_db() -> None:
     """Dispose engine connections. Called on application shutdown."""
     await engine.dispose()
+
+
+# ── Model Registration ────────────────────────────────────────────
+# Import all models so SQLAlchemy includes them in metadata.create_all()
+def _register_models() -> None:  # noqa: F401
+    from models import action_log, ip_label, user  # noqa: F401
+    from models import telegram  # noqa: F401
+    try:
+        from models import saved_report  # noqa: F401
+    except ImportError:
+        pass
+
+
+_register_models()

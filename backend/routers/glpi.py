@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models.action_log import ActionLog
+from services.audit_service import log_action
 from models.quarantine_log import QuarantineLog
 from schemas.common import APIResponse
 from schemas.glpi import (
@@ -254,13 +254,13 @@ async def create_asset(
     """[GLPI API] Register a new computer in GLPI inventory."""
     try:
         result = await glpi.create_computer(request.model_dump())
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_asset_created",
-            details=json.dumps({"asset_name": request.name}),
+            severity="medium",
+            details={"asset_name": request.name},
             comment=f"Activo GLPI creado: {request.name}",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_glpi_asset_created", name=request.name)
         return APIResponse.ok(result)
     except Exception as e:
@@ -278,13 +278,13 @@ async def update_asset(
     """[GLPI API] Update asset data in GLPI."""
     try:
         result = await glpi.update_computer(asset_id, request.model_dump(exclude_none=True))
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_asset_updated",
-            details=json.dumps({"asset_id": asset_id, **request.model_dump(exclude_none=True)}),
+            severity="medium",
+            details={"asset_id": asset_id, **request.model_dump(exclude_none=True)},
             comment=f"Activo GLPI #{asset_id} actualizado",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_glpi_asset_updated", asset_id=asset_id)
         return APIResponse.ok(result)
     except Exception as e:
@@ -301,13 +301,13 @@ async def delete_asset(
     """[GLPI API] Delete a GLPI asset."""
     try:
         result = await glpi.delete_computer(asset_id)
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_asset_deleted",
-            details=json.dumps({"asset_id": asset_id}),
+            severity="high",
+            details={"asset_id": asset_id},
             comment=f"Activo GLPI #{asset_id} eliminado",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_glpi_asset_deleted", asset_id=asset_id)
         return APIResponse.ok(result)
     except Exception as e:
@@ -325,13 +325,13 @@ async def assign_asset(
     """[GLPI API] Assign or unassign a GLPI asset to a user."""
     try:
         result = await glpi.assign_asset(asset_id, request.user_id)
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_asset_assigned",
-            details=json.dumps({"asset_id": asset_id, "user_id": request.user_id}),
+            severity="medium",
+            details={"asset_id": asset_id, "user_id": request.user_id},
             comment=f"Activo GLPI #{asset_id} asignado a usuario #{request.user_id}",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_glpi_asset_assigned", asset_id=asset_id, user_id=request.user_id)
         return APIResponse.ok(result)
     except Exception as e:
@@ -356,18 +356,18 @@ async def quarantine_asset(
             mikrotik_block_id=request.mikrotik_block_id,
         )
         db.add(quarantine_log)
-        action_log = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_quarantine",
-            details=json.dumps({
+            severity="critical",
+            details={
                 "asset_id": asset_id, "reason": request.reason,
                 "ticket_id": result.get("ticket_id"),
                 "wazuh_alert_id": request.wazuh_alert_id,
                 "mikrotik_block_id": request.mikrotik_block_id,
-            }),
+            },
             comment=f"Cuarentena GLPI: activo #{asset_id} — {request.reason[:100]}",
         )
-        db.add(action_log)
-        await db.flush()
         logger.info("api_glpi_asset_quarantined", asset_id=asset_id, reason=request.reason)
         return APIResponse.ok(result)
     except Exception as e:
@@ -390,13 +390,13 @@ async def unquarantine_asset(
             .where(QuarantineLog.asset_id_glpi == asset_id, QuarantineLog.resolved_at.is_(None))
             .values(resolved_at=datetime.now(timezone.utc))
         )
-        action_log = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_unquarantine",
-            details=json.dumps({"asset_id": asset_id}),
+            severity="high",
+            details={"asset_id": asset_id},
             comment=f"Cuarentena GLPI levantada: activo #{asset_id}",
         )
-        db.add(action_log)
-        await db.flush()
         logger.info("api_glpi_asset_unquarantined", asset_id=asset_id)
         return APIResponse.ok(result)
     except Exception as e:
@@ -437,13 +437,13 @@ async def create_ticket(
     """[GLPI API] Create a new incident ticket."""
     try:
         result = await glpi.create_ticket(request.model_dump())
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_ticket_created",
-            details=json.dumps({"ticket_title": request.title, "asset_id": request.asset_id, "priority": request.priority}),
+            severity="medium",
+            details={"ticket_title": request.title, "asset_id": request.asset_id, "priority": request.priority},
             comment=f"Ticket GLPI creado: {request.title[:80]}",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_glpi_ticket_created", title=request.title)
         return APIResponse.ok(result)
     except Exception as e:
@@ -461,13 +461,13 @@ async def update_ticket_status(
     """[GLPI API] Update ticket status (Kanban drag-and-drop)."""
     try:
         result = await glpi.update_ticket_status(ticket_id, request.status)
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_ticket_status_updated",
-            details=json.dumps({"ticket_id": ticket_id, "status": request.status}),
+            severity="low",
+            details={"ticket_id": ticket_id, "status": request.status},
             comment=f"Ticket GLPI #{ticket_id} estado actualizado a {request.status}",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_glpi_ticket_status_updated", ticket_id=ticket_id)
         return APIResponse.ok(result)
     except Exception as e:
@@ -518,13 +518,13 @@ async def create_network_maintenance_ticket(
         }
         result = await glpi.create_ticket(ticket_data)
 
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_maintenance_ticket",
-            details=json.dumps({"interface": request.interface_name, "error_count": request.error_count, "error_type": request.error_type, "ticket_id": result.get("id")}),
+            severity="medium",
+            details={"interface": request.interface_name, "error_count": request.error_count, "error_type": request.error_type, "ticket_id": result.get("id")},
             comment=f"Ticket mantenimiento red: {request.interface_name}",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_glpi_maintenance_ticket_created", interface=request.interface_name, ticket_id=result.get("id"))
         return APIResponse.ok(result)
     except Exception as e:
@@ -587,13 +587,13 @@ async def create_user(
     """[GLPI API] Create a new GLPI user."""
     try:
         result = await glpi.create_user(request.model_dump())
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_user_created",
-            details=json.dumps({"username": request.name, "department": request.department}),
+            severity="medium",
+            details={"username": request.name, "department": request.department},
             comment=f"Usuario GLPI creado: {request.name}",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_glpi_user_created", name=request.name)
         return APIResponse.ok(result)
     except Exception as e:
@@ -611,13 +611,13 @@ async def update_user(
     """[GLPI API] Update a GLPI user."""
     try:
         result = await glpi.update_user(user_id, request.model_dump(exclude_none=True))
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_user_updated",
-            details=json.dumps({"user_id": user_id, **request.model_dump(exclude_none=True)}),
+            severity="medium",
+            details={"user_id": user_id, **request.model_dump(exclude_none=True)},
             comment=f"Usuario GLPI #{user_id} actualizado",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_glpi_user_updated", user_id=user_id)
         return APIResponse.ok(result)
     except Exception as e:
@@ -634,13 +634,13 @@ async def delete_user(
     """[GLPI API] Delete a GLPI user."""
     try:
         result = await glpi.delete_user(user_id)
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="glpi_user_deleted",
-            details=json.dumps({"user_id": user_id}),
+            severity="high",
+            details={"user_id": user_id},
             comment=f"Usuario GLPI #{user_id} eliminado",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_glpi_user_deleted", user_id=user_id)
         return APIResponse.ok(result)
     except Exception as e:

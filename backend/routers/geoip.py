@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models.action_log import ActionLog
+from services.audit_service import log_action
 from schemas.common import APIResponse
 from schemas.geoip import (
     GeoIPResult,
@@ -196,13 +196,14 @@ async def apply_geo_block_suggestion(
             suggestion_id=suggestion_id,
             duration=body.duration,
         )
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="geo_block_suggestion_applied",
-            target_ip=suggestion_id,
-            details=f"Mock: duracion={body.duration}",
+            severity="medium",
+            target_ip=suggestion_id if len(suggestion_id) <= 45 else None,
+            details={"suggestion_id": suggestion_id, "duration": body.duration, "mock": True},
+            comment=f"Sugerencia geo-block aplicada: {suggestion_id}",
         )
-        db.add(log_entry)
-        await db.flush()
         return APIResponse.ok({
             "suggestion_id": suggestion_id,
             "duration": body.duration,

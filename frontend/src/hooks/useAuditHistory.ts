@@ -4,87 +4,114 @@
  * Fuente de datos: GET /api/actions/history
  * Almacenamiento: tabla action_logs (SQLite, modelo ActionLog)
  *
- * Soporta filtros opcionales por action_type y performed_by.
- * Los filtros se aplican en el cliente para evitar modificar el endpoint existente.
+ * Soporta filtros server-side: action_type, severity, performed_by, search,
+ * date_from, date_to, target_ip, paginación real y debounce en búsqueda.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { auditApi } from '../services/api';
-import type { ActionLogEntry } from '../types';
+import type { ActionLogEntry, ActionSeverity, AuditPaginationMeta } from '../types';
 
 export interface AuditFilters {
-  action_type: string;   // '' = todos
-  performed_by: string;  // '' = todos
-  search: string;        // búsqueda libre en details/comment
+  action_type: string;    // '' = todos
+  severity: string;       // '' = todos | 'critical' | 'high' | 'medium' | 'low' | 'info'
+  performed_by: string;   // '' = todos
+  search: string;         // búsqueda libre server-side
+  date_from: string;      // ISO date string '' = sin límite
+  date_to: string;        // ISO date string '' = sin límite
+  target_ip: string;      // '' = todos
 }
 
 const DEFAULT_FILTERS: AuditFilters = {
   action_type: '',
+  severity: '',
   performed_by: '',
   search: '',
+  date_from: '',
+  date_to: '',
+  target_ip: '',
 };
 
 const PAGE_SIZE = 50;
 
 export function useAuditHistory() {
-  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(PAGE_SIZE);
   const [filters, setFilters] = useState<AuditFilters>(DEFAULT_FILTERS);
 
+  // Debounce search with a ref timer
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  const handleFiltersChange = useCallback((newFilters: Partial<AuditFilters>) => {
+    setFilters(prev => {
+      const merged = { ...prev, ...newFilters };
+      // Debounce only the search field
+      if ('search' in newFilters) {
+        if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        searchDebounceRef.current = setTimeout(() => {
+          setDebouncedSearch(merged.search);
+        }, 400);
+      }
+      return merged;
+    });
+    // Reset to page 1 when filters change
+    setPage(1);
+  }, []);
+
+  // Build clean params (omit empty strings)
+  const params = {
+    page,
+    page_size: pageSize,
+    ...(filters.action_type && { action_type: filters.action_type }),
+    ...(filters.severity && { severity: filters.severity }),
+    ...(filters.performed_by && { performed_by: filters.performed_by }),
+    ...(debouncedSearch && { search: debouncedSearch }),
+    ...(filters.date_from && { date_from: filters.date_from }),
+    ...(filters.date_to && { date_to: filters.date_to }),
+    ...(filters.target_ip && { target_ip: filters.target_ip }),
+  };
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['audit-history', limit],
-    queryFn: () => auditApi.getHistory({ limit }),
-    staleTime: 0, // siempre refetch al montar
+    queryKey: ['audit-history', params],
+    queryFn: () => auditApi.getHistory(params),
+    staleTime: 0,
     refetchOnWindowFocus: false,
   });
 
-  const allEntries: ActionLogEntry[] = data?.data ?? [];
+  const entries: ActionLogEntry[] = data?.data?.items ?? [];
+  const pagination: AuditPaginationMeta = data?.data?.pagination ?? {
+    page: 1,
+    page_size: PAGE_SIZE,
+    total: 0,
+    total_pages: 1,
+    has_next: false,
+    has_prev: false,
+  };
 
-  // Filtrado en cliente (el endpoint existente solo soporta limit)
-  const filtered = useMemo(() => {
-    return allEntries.filter(entry => {
-      if (filters.action_type && !entry.action_type.startsWith(filters.action_type)) {
-        return false;
-      }
-      if (filters.performed_by && entry.performed_by !== filters.performed_by) {
-        return false;
-      }
-      if (filters.search) {
-        const q = filters.search.toLowerCase();
-        const inType = entry.action_type.toLowerCase().includes(q);
-        const inComment = entry.comment?.toLowerCase().includes(q) ?? false;
-        const inDetails = JSON.stringify(entry.details ?? {}).toLowerCase().includes(q);
-        const inIp = entry.target_ip?.toLowerCase().includes(q) ?? false;
-        const inBy = entry.performed_by.toLowerCase().includes(q);
-        if (!inType && !inComment && !inDetails && !inIp && !inBy) return false;
-      }
-      return true;
-    });
-  }, [allEntries, filters]);
+  const goToPage = (p: number) => setPage(p);
+  const nextPage = () => pagination.has_next && setPage(p => p + 1);
+  const prevPage = () => pagination.has_prev && setPage(p => p - 1);
 
-  // Lista única de operadores para el dropdown
-  const operators = useMemo(() => {
-    const set = new Set(allEntries.map(e => e.performed_by));
-    return Array.from(set).sort();
-  }, [allEntries]);
-
-  const loadMore = () => setLimit(prev => prev + PAGE_SIZE);
-
-  const resetFilters = () => setFilters(DEFAULT_FILTERS);
-
-  const hasMore = allEntries.length === limit;
+  const resetFilters = useCallback(() => {
+    setFilters(DEFAULT_FILTERS);
+    setDebouncedSearch('');
+    setPage(1);
+  }, []);
 
   return {
-    entries: filtered,
-    totalFetched: allEntries.length,
+    entries,
+    pagination,
     isLoading,
     isError,
     refetch,
     filters,
-    setFilters,
+    setFilters: handleFiltersChange,
     resetFilters,
-    operators,
-    loadMore,
-    hasMore,
+    page,
+    goToPage,
+    nextPage,
+    prevPage,
   };
 }

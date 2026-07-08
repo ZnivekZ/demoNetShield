@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
+from services.audit_service import log_action
 from models.ip_group import IPGroup, IPGroupMember
 from models.ip_label import IPLabel
 from schemas.common import APIResponse
@@ -68,6 +69,14 @@ async def create_label(
             await db.refresh(new_label)
             label_data = IPLabelResponse.model_validate(new_label)
 
+        await log_action(
+            db,
+            action_type="network_label_upsert",
+            severity="low",
+            target_ip=request.ip_address,
+            details={"label": request.label, "updated": existing is not None},
+            comment=f"IP label {'updated' if existing else 'created'}: {request.ip_address} → {request.label}",
+        )
         logger.info(
             "label_assigned",
             ip=request.ip_address,
@@ -107,6 +116,14 @@ async def delete_label(
             return APIResponse.fail(f"Label {label_id} not found")
         await db.delete(label)
         await db.flush()
+        await log_action(
+            db,
+            action_type="network_label_delete",
+            severity="low",
+            target_ip=label.ip_address,
+            details={"label_id": label_id, "label": label.label},
+            comment=f"IP label deleted: {label.ip_address}",
+        )
         return APIResponse.ok({"deleted": label_id})
     except Exception as e:
         logger.error("delete_label_failed", error=str(e))
@@ -133,6 +150,13 @@ async def create_group(
         await db.flush()
         await db.refresh(new_group)
         group_data = IPGroupResponse.model_validate(new_group)
+        await log_action(
+            db,
+            action_type="network_group_created",
+            severity="low",
+            details={"name": request.name, "group_id": new_group.id},
+            comment=f"IP group created: {request.name}",
+        )
         logger.info("group_created", name=request.name)
         return APIResponse.ok(group_data.model_dump())
     except Exception as e:
@@ -234,6 +258,13 @@ async def delete_group(
             return APIResponse.fail(f"Group {group_id} not found")
         await db.delete(group)
         await db.flush()
+        await log_action(
+            db,
+            action_type="network_group_deleted",
+            severity="low",
+            details={"group_id": group_id, "name": group.name},
+            comment=f"IP group deleted: {group.name}",
+        )
         return APIResponse.ok({"deleted": group_id})
     except Exception as e:
         logger.error("delete_group_failed", error=str(e))

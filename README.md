@@ -33,7 +33,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 - **💬 Telegram Bot** — Canal de notificaciones bidireccional: alertas outbound automáticas + consultas en lenguaje natural respondidas por Claude AI (inbound)
 - **🖧 Administración DHCP** — Gestión completa de DHCP MikroTik: servidores, leases, pools, redes, alertas rogue, opciones custom, correlación GLPI y discovery de dispositivos
 - **📊 Vistas Personalizadas** — Sistema de dashboards configurables por el usuario con catálogo de **59 widgets** especializados organizados en 4 categorías
-- **🔑 Autenticación JWT** — Login seguro con tokens JWT, bcrypt para contraseñas, gestión de usuarios del dashboard desde el panel de control
+- **🔑 Autenticación JWT** — Login seguro con tokens JWT, bcrypt para contraseñas, gestión de usuarios del dashboard desde el panel de control, registro de auditoría de acciones (login OK/fail, logout, CRUD usuarios) en `action_logs`
 
 > **Fase actual:** Laboratorio de pruebas. Diseñado para escalar a entornos reales con 1000+ usuarios concurrentes sin reescribir la arquitectura.
 
@@ -64,6 +64,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 | **Vista Detail** | `/views/:id` | Dashboard personalizado con widgets en grid |
 | **View Builder** | `/views/:id/edit` | Editor de vistas con catálogo tabulado de **59 widgets** |
 | **Gestión de usuarios** | `/admin/users` | CRUD de operadores del dashboard (acceso desde ⚙️ topbar) |
+| **Historial de actividad** | `/admin/audit` | Auditoría completa de acciones: filtro por categoría, operador y búsqueda libre (acceso desde ⚙️ topbar) |
 | **Login** | `/login` | Autenticación JWT — única ruta pública |
 
 ---
@@ -416,12 +417,13 @@ netShield2/
 │
 ├── frontend/
 │   └── src/
-│       ├── App.tsx              # Rutas SPA (23 vistas + redirect + fallback) + AuthProvider
+│       ├── App.tsx              # Rutas SPA (24 vistas + redirect + fallback) + AuthProvider
 │       ├── types.ts             # Tipos TypeScript compartidos (~1700 líneas)
 │       ├── index.css            # Design system y tokens @theme
 │       ├── services/
-│       │   └── api.ts           # Cliente API centralizado (18+ namespaces + interceptores JWT)
-│       ├── hooks/               # 42+ custom hooks (TanStack Query + WebSocket)
+│       │   ├── api.ts           # Cliente API centralizado (19+ namespaces + interceptores JWT)
+│       │   └── apiResponse.ts   # Utilidades: requireApiSuccess(), getApiErrorMessage()
+│       ├── hooks/               # 43+ custom hooks (TanStack Query + WebSocket)
 │       │   ├── useWebSocket.ts              # Hook base WebSocket con reconexión
 │       │   ├── useTheme.ts                  # Hook de theming (light/dark/system)
 │       │   ├── useAuth.ts                   # Estado de autenticación JWT (login/logout/validate)
@@ -449,7 +451,7 @@ netShield2/
 │       └── components/          # Componentes por dominio
 │           ├── Layout.tsx               # Sidebar glassmorphic + topbar (status dots + theming + logout)
 │           ├── auth/                    # LoginPage · AuthContext · ProtectedRoute
-│           ├── admin/                   # UsersManagementPage · UserFormModal
+│           ├── admin/                   # UsersManagementPage · UserFormModal · AuditHistoryPage
 │           ├── common/                  # Componentes compartidos
 │           ├── dashboard/               # Dashboard principal
 │           ├── security/                # QuickView + ConfigView
@@ -519,6 +521,7 @@ netShield2/
 - **Catálogo de widgets server-driven** — El backend define el catálogo completo de widgets con schema de configuración por tipo (`/api/views/widgets/catalog`). El frontend lo consume dinámicamente para renderizar el catálogo tabulado sin hardcodear tipos.
 - **DHCP sin servicio propio** — Las operaciones DHCP se implementan como métodos del `MikroTikService` existente (20 métodos) porque todas son llamadas a la API RouterOS. El router `dhcp.py` consume directamente `get_mikrotik_service()`. Los endpoints Fase 2 (correlación GLPI, discovery, enriquecimiento Wazuh) usan lazy imports cross-service.
 - **WidgetRenderer desacoplado** — Un único componente mapea cada `widget.type` a su componente React y les pasa `config`. Agregar un widget nuevo solo requiere: (1) registrar en el catálogo del backend, (2) crear el componente React, (3) añadir el `case` en `WidgetRenderer`.
+- **Status dots movidos a SystemHealth** — Los 5 indicadores de conectividad (MikroTik, Wazuh, CrowdSec, Suricata, GLPI) se eliminaron del topbar del Layout para reducir queries permanentes en todas las vistas. Ahora viven en `SystemHealth.tsx` con un componente `IntegrationStatusCard` reutilizable y botón de reintento.
 
 ---
 
@@ -703,6 +706,9 @@ POST /api/security/*                    — Auto-block, geo-block, cuarentena
 
 > La carpeta `/postman/` incluye una colección con **120+ requests** y 3 entornos preconfigurados (mock, local real, lab).
 
+# Audit
+GET  /api/actions/history              — Historial paginado de acciones (ActionLog)
+
 ---
 
 ## 🔒 Consideraciones de seguridad
@@ -751,6 +757,6 @@ postman/NetShield.postman_collection.json
 
 **Hecho con ❤️ para monitoreo de redes**
 
-*NetShield Dashboard — v2.8*
+*NetShield Dashboard — v2.9*
 
 </div>

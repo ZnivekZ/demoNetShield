@@ -192,7 +192,7 @@ class AuthService:
         """
         async with async_session_factory() as session:
             result = await session.execute(select(User))
-            existing = result.scalar_one_or_none()
+            existing = result.scalars().first()
             if existing:
                 logger.info("auth_admin_check", status="users_exist", count=">=1")
                 return

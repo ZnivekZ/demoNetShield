@@ -524,12 +524,12 @@ async def get_world_threat_map(
 @router.post("/generate-view-report")
 async def generate_view_report(request: GenerateViewReportRequest) -> APIResponse:
     """
-    [Anthropic API] [Multi] Genera un reporte IA desde los widgets activos en una vista.
+    [OpenRouter AI] [Multi] Genera un reporte IA desde los widgets activos en una vista.
 
     Flujo:
       1. Para cada widget_id, consulta sus datos usando los mismos endpoints del frontend
       2. Consolida todos los datos como contexto estructurado
-      3. [Anthropic API] Llama a Claude con ese contexto y el system prompt de audiencia
+      3. [OpenRouter AI] Llama al modelo con ese contexto y el system prompt de audiencia
       4. Si output=pdf: genera PDF con WeasyPrint y lo devuelve como descarga
       5. Si output=telegram: envía al canal configurado
       6. Si output=both: genera PDF y envía por Telegram
@@ -540,7 +540,7 @@ async def generate_view_report(request: GenerateViewReportRequest) -> APIRespons
     settings = get_settings()
 
     try:
-        if settings.should_mock_anthropic:
+        if settings.should_mock_ai:
             from services.mock_data import MockData
             await asyncio.sleep(2.5)  # Simular latencia de IA
             result = MockData.widgets.view_report_mock(

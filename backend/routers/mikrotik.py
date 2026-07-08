@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models.action_log import ActionLog
+from services.audit_service import log_action
 from schemas.common import APIResponse
 from schemas.mikrotik import BlockIPRequest, UnblockIPRequest
 from services.mikrotik_service import MikroTikService, get_mikrotik_service
@@ -105,19 +105,18 @@ async def block_ip(
     try:
         result = await service.block_ip(request.ip, request.comment)
 
-        # Log the action
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="block",
+            severity="critical",
             target_ip=request.ip,
-            details=json.dumps({
+            details={
                 "comment": request.comment,
                 "duration": request.duration,
                 "rule_id": result.get("rule_id"),
-            }),
+            },
             comment=request.comment,
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_ip_blocked", ip=request.ip, comment=request.comment)
         return APIResponse.ok(result)
@@ -139,15 +138,14 @@ async def unblock_ip(
     try:
         result = await service.unblock_ip(request.ip)
 
-        # Log the action
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="unblock",
+            severity="high",
             target_ip=request.ip,
-            details=json.dumps({"rules_removed": result.get("rules_removed", [])}),
-            comment=f"Unblocked via dashboard",
+            details={"rules_removed": result.get("rules_removed", [])},
+            comment="Unblocked via dashboard",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_ip_unblocked", ip=request.ip)
         return APIResponse.ok(result)

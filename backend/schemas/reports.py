@@ -20,8 +20,9 @@ class ReportGenerateRequest(BaseModel):
     prompt: str
     audience: str = "technical"  # executive | technical | operational
     attached_documents: list[str] = []  # base64-encoded PDFs or plain text
-    data_sources: list[str] = []  # wazuh_alerts, mikrotik_connections, firewall_rules
+    data_sources: list[str] = []  # wazuh_alerts, mikrotik_connections, firewall_rules, etc.
     date_range: DateRange | None = None
+    comparison_range: DateRange | None = None  # Second period for temporal comparison
 
 
 class ReportDraft(BaseModel):

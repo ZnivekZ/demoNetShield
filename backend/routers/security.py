@@ -8,14 +8,12 @@ All destructive actions MUST be confirmed by the user via ConfirmModal on fronte
 
 from __future__ import annotations
 
-import json
-
 import structlog
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models.action_log import ActionLog
+from services.audit_service import log_action
 from schemas.common import APIResponse
 from schemas.security import (
     GeoBlockRequest,
@@ -57,20 +55,19 @@ async def block_ip(
             comment=f"NetShield: {request.reason}",
         )
 
-        # Log the action
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="security_block",
+            severity="critical",
             target_ip=request.ip,
-            details=json.dumps({
+            details={
                 "reason": request.reason,
                 "duration_hours": request.duration_hours,
                 "source": request.source,
                 "list": "Blacklist_Automatica",
-            }),
+            },
             comment=f"Security block: {request.reason}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_security_ip_blocked", ip=request.ip, source=request.source)
         return APIResponse.ok(result)
@@ -103,20 +100,19 @@ async def auto_block(
             comment=f"Auto-block: {request.reason}",
         )
 
-        # Log the action with auto source
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="auto_block",
+            severity="critical",
             target_ip=request.ip,
-            details=json.dumps({
+            details={
                 "reason": request.reason,
                 "source": "auto",
                 "trigger": "high_severity_alert",
                 "list": "Blacklist_Automatica",
-            }),
+            },
             comment=f"Auto-blocked: {request.reason}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info("api_auto_block_executed", ip=request.ip)
         return APIResponse.ok(result)
@@ -166,20 +162,19 @@ async def quarantine_agent(
             vlan_id=request.vlan_quarantine_id,
         )
 
-        # Log the action
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="quarantine",
+            severity="critical",
             target_ip=agent_ip,
-            details=json.dumps({
+            details={
                 "agent_id": request.agent_id,
                 "agent_name": target_agent.get("name", ""),
                 "vlan_id": request.vlan_quarantine_id,
                 "executed": result.get("executed", False),
-            }),
+            },
             comment=f"Quarantine requested for agent {request.agent_id}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info(
             "api_quarantine_requested",
@@ -241,19 +236,18 @@ async def geo_block(
                 )
                 added.append({"range": ip_range, "error": str(range_err)})
 
-        # Log the action
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="geo_block",
-            details=json.dumps({
+            severity="critical",
+            details={
                 "country_code": request.country_code,
                 "ip_ranges": request.ip_ranges,
                 "duration_hours": request.duration_hours,
                 "added_count": len([a for a in added if "result" in a]),
-            }),
+            },
             comment=f"Geo-block: {request.country_code} ({len(request.ip_ranges)} ranges)",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info(
             "api_geo_block_executed",

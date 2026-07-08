@@ -136,6 +136,7 @@ export interface IPGroup {
   members: IPGroupMember[];
 }
 
+
 /* ── Report Types ───────────────────────────────────────────── */
 
 export interface ReportDraft {
@@ -144,9 +145,70 @@ export interface ReportDraft {
   summary: string;
   data_sources_used: string[];
   tokens_used: number;
+  model_used?: string;
+  saved_report_id?: number | null;
+}
+
+export interface SavedReport {
+  id: number;
+  title: string;
+  prompt: string;
+  audience: string;
+  model_used: string;
+  data_sources: string[];
+  tokens_used: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  html_content?: string; // Only in GET /saved/{id}
+}
+
+export interface SavedReportPagination {
+  items: SavedReport[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+    has_next: boolean;
+    has_prev: boolean;
+  };
+}
+
+export interface ReportSchedule {
+  id: number;
+  name: string;
+  enabled: boolean;
+  cron_expression: string;
+  template_id: string | null;
+  prompt: string;
+  audience: string;
+  data_sources: string[];
+  model: string;
+  output: string;
+  last_run_at: string | null;
+  created_at: string;
+}
+
+export interface ReportTemplate {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  audience: string;
+  data_sources: string[];
+  prompt: string;
+}
+
+export interface AIModel {
+  id: string;
+  name: string;
+  description: string;
 }
 
 /* ── Action Log Types ───────────────────────────────────────── */
+
+export type ActionSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
 export interface ActionLogEntry {
   id: number;
@@ -156,6 +218,22 @@ export interface ActionLogEntry {
   performed_by: string;
   comment: string | null;
   created_at: string;
+  severity: ActionSeverity;
+}
+
+export interface AuditPaginationMeta {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
+export interface AuditHistoryResponse {
+  items: ActionLogEntry[];
+  pagination: AuditPaginationMeta;
+  filters_applied: Record<string, unknown>;
 }
 
 /* ── WebSocket Types ────────────────────────────────────────── */
@@ -1038,7 +1116,7 @@ export interface MockServiceStatus {
   mikrotik: boolean;
   wazuh: boolean;
   glpi: boolean;
-  anthropic: boolean;
+  ai: boolean;
   crowdsec: boolean;
   geoip: boolean;
   suricata: boolean;
@@ -2083,12 +2161,6 @@ export interface UserUpdate {
 
 /* ── Audit / Action Log ──────────────────────────────────────────────── */
 
-export interface ActionLogEntry {
-  id: number;
-  action_type: string;
-  target_ip: string | null;
-  details: Record<string, unknown> | null;
-  performed_by: string;
-  comment: string | null;
-  created_at: string;
-}
+// Note: canonical definition is near line 149. This re-export keeps backward compat.
+export type { ActionSeverity, ActionLogEntry, AuditPaginationMeta, AuditHistoryResponse };
+

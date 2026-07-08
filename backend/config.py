@@ -8,7 +8,7 @@ Mock Mode:
   MOCK_MIKROTIK=true   → solo MikroTik en mock
   MOCK_WAZUH=true      → solo Wazuh en mock
   MOCK_GLPI=true       → solo GLPI en mock
-  MOCK_ANTHROPIC=true  → solo Anthropic en mock
+  MOCK_AI=true         → solo OpenRouter AI en mock
   MOCK_GEOIP=true      → solo GeoIP en mock (true por defecto hasta descargar DB)
   MOCK_SURICATA=true   → solo Suricata en mock (true por defecto hasta instalación)
   MOCK_TELEGRAM=true   → solo Telegram en mock (true por defecto hasta configurar bot)
@@ -53,8 +53,9 @@ class Settings(BaseSettings):
     wazuh_user: str = "wazuh"
     wazuh_password: str = ""
 
-    # ── Anthropic Claude ─────────────────────────────────────────
-    anthropic_api_key: str = ""
+    # ── OpenRouter AI (modelos gratuitos vía proxy OpenAI-compatible) ──────
+    openrouter_api_key: str = ""
+    openrouter_model: str = "openrouter/auto"  # modelo gratuito por defecto
 
     # ── Database ─────────────────────────────────────────────────
     database_url: str = "sqlite+aiosqlite:///./netshield.db"
@@ -128,6 +129,20 @@ class Settings(BaseSettings):
     default_admin_user: str = "admin"
     default_admin_password: str = "admin"
 
+    # ── Audit / Action Log ─────────────────────────────────────
+    # Nivel mínimo de severidad para registrar acciones.
+    # Jerarquía: critical > high > medium > low > info
+    # Opciones: "critical" | "high" | "medium" | "low" | "info"
+    # Default "info" = registrar absolutamente todo.
+    # Ejemplo: "medium" → solo registra medium, high y critical.
+    audit_min_severity: str = "info"
+
+    # Prefijos de action_type a EXCLUIR del registro, separados por coma.
+    # Útil para silenciar categorías de bajo interés.
+    # Ejemplo: "network_label_,view_,cli_" → no registra esas acciones.
+    # Default vacío = no excluir nada.
+    audit_disabled_actions: str = ""
+
     # ── Mock Mode ─────────────────────────────────────────────
     # Global toggle — activa mock para TODOS los servicios
     mock_all: bool = False
@@ -135,7 +150,7 @@ class Settings(BaseSettings):
     mock_mikrotik: bool = False
     mock_wazuh: bool = False
     mock_glpi: bool = False
-    mock_anthropic: bool = False
+    mock_ai: bool = False
     mock_crowdsec: bool = False
     # mock_suricata está definida arriba (True por defecto hasta instalación)
     # mock_telegram está definida arriba (True por defecto hasta configurar bot)
@@ -201,7 +216,7 @@ class Settings(BaseSettings):
             os.environ.get(var) is not None
             for var in (
                 "MOCK_ALL", "MOCK_MIKROTIK", "MOCK_WAZUH", "MOCK_GLPI",
-                "MOCK_ANTHROPIC", "MOCK_CROWDSEC", "MOCK_GEOIP", "MOCK_SURICATA",
+                "MOCK_AI", "MOCK_CROWDSEC", "MOCK_GEOIP", "MOCK_SURICATA",
                 "MOCK_TELEGRAM",
             )
         )
@@ -234,9 +249,9 @@ class Settings(BaseSettings):
         return self._effective_mock_all or self.mock_glpi
 
     @property
-    def should_mock_anthropic(self) -> bool:
-        """True si Anthropic debe usar datos mock."""
-        return self._effective_mock_all or self.mock_anthropic
+    def should_mock_ai(self) -> bool:
+        """True si OpenRouter AI debe usar datos mock."""
+        return self._effective_mock_all or self.mock_ai
 
     @property
     def should_mock_crowdsec(self) -> bool:

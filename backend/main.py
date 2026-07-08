@@ -45,6 +45,7 @@ from services.geoip_service import GeoIPService
 from services.suricata_service import get_suricata_service
 from services.telegram_service import get_telegram_service
 from services.telegram_scheduler import get_telegram_scheduler
+from services.report_scheduler import get_report_scheduler
 from services.glpi_collector import get_glpi_collector
 
 # ── Structured Logging Setup ─────────────────────────────────────
@@ -125,6 +126,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("glpi_collector_start_failed", error=str(e))
 
+    # Start Report Scheduler (automated AI report generation)
+    try:
+        report_scheduler = get_report_scheduler()
+        await report_scheduler.start()
+    except Exception as e:
+        logger.warning("report_scheduler_start_failed", error=str(e))
+
     yield
 
     # Shutdown
@@ -157,6 +165,11 @@ async def lifespan(app: FastAPI):
     try:
         glpi_collector = get_glpi_collector()
         await glpi_collector.stop()
+    except Exception:
+        pass
+    try:
+        report_scheduler = get_report_scheduler()
+        await report_scheduler.stop()
     except Exception:
         pass
     try:
@@ -305,32 +318,169 @@ async def get_mock_status():
 # ── Action Log History ────────────────────────────────────────────
 
 @app.get("/api/actions/history")
-async def get_action_history(limit: int = 50):
-    """Get all action logs for the audit trail."""
-    from sqlalchemy import select
+async def get_action_history(
+    # Parámetros de paginación estilo frontend (page/page_size)
+    page: int = 1,
+    page_size: int = 50,
+    # Parámetros legacy mantenidos por retrocompatibilidad
+    limit: int | None = None,
+    offset: int | None = None,
+    # Filtros
+    severity: str | None = None,
+    action_type: str | None = None,
+    performed_by: str | None = None,
+    search: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    target_ip: str | None = None,
+):
+    """
+    Historial de auditoría con filtros server-side y paginación real.
+
+    Params (paginación):
+        page         — Número de página 1-based (default 1)
+        page_size    — Registros por página (default 50)
+        limit/offset — Parámetros legacy (se ignoran si se usa page/page_size)
+
+    Params (filtros):
+        severity     — Filtrar por nivel exacto: critical|high|medium|low|info
+        action_type  — Filtrar por prefijo de action_type (ej: "auth_")
+        performed_by — Filtrar por operador exacto
+        target_ip    — Filtrar por IP objetivo exacta
+        search       — Búsqueda libre en target_ip, comment, details y action_type
+        date_from    — ISO datetime inicio del rango (ej: "2026-06-01T00:00:00")
+        date_to      — ISO datetime fin del rango (ej: "2026-06-28T23:59:59")
+    """
+    from datetime import datetime as dt
+    from sqlalchemy import func as sqlfunc, select
     from database import async_session_factory
     from models.action_log import ActionLog
 
+    # Calcular offset a partir de page/page_size
+    effective_page_size = limit if limit is not None else page_size
+    effective_offset = offset if offset is not None else (page - 1) * effective_page_size
+
     try:
         async with async_session_factory() as session:
+            # ── Construir query base ───────────────────────────────────────
+            base_q = select(ActionLog)
+            count_q = select(sqlfunc.count(ActionLog.id))
+
+            # ── Aplicar filtros ────────────────────────────────────────────
+            conditions = []
+
+            if severity:
+                conditions.append(ActionLog.severity == severity)
+
+            if action_type:
+                conditions.append(ActionLog.action_type.startswith(action_type))
+
+            if performed_by:
+                conditions.append(ActionLog.performed_by == performed_by)
+
+            if target_ip:
+                conditions.append(ActionLog.target_ip == target_ip)
+
+            if search:
+                pattern = f"%{search}%"
+                from sqlalchemy import or_
+                conditions.append(or_(
+                    ActionLog.target_ip.ilike(pattern),
+                    ActionLog.comment.ilike(pattern),
+                    ActionLog.details.ilike(pattern),
+                    ActionLog.action_type.ilike(pattern),
+                    ActionLog.performed_by.ilike(pattern),
+                ))
+
+            if date_from:
+                try:
+                    dt_from = dt.fromisoformat(date_from)
+                    conditions.append(ActionLog.created_at >= dt_from)
+                except ValueError:
+                    pass
+
+            if date_to:
+                try:
+                    dt_to = dt.fromisoformat(date_to)
+                    conditions.append(ActionLog.created_at <= dt_to)
+                except ValueError:
+                    pass
+
+            if conditions:
+                from sqlalchemy import and_
+                base_q = base_q.where(and_(*conditions))
+                count_q = count_q.where(and_(*conditions))
+
+            # ── Conteo total (para metadata de paginación) ─────────────────
+            total_result = await session.execute(count_q)
+            total = total_result.scalar_one()
+
+            # ── Página actual ──────────────────────────────────────────────
             result = await session.execute(
-                select(ActionLog)
+                base_q
                 .order_by(ActionLog.created_at.desc())
-                .limit(limit)
+                .offset(effective_offset)
+                .limit(effective_page_size)
             )
             logs = result.scalars().all()
-            data = []
-            for log in logs:
-                data.append({
+
+            items = [
+                {
                     "id": log.id,
                     "action_type": log.action_type,
+                    "severity": log.severity,
                     "target_ip": log.target_ip,
                     "details": json.loads(log.details) if log.details else None,
                     "performed_by": log.performed_by,
                     "comment": log.comment,
                     "created_at": log.created_at.isoformat(),
-                })
-            return {"success": True, "data": data, "error": None}
+                }
+                for log in logs
+            ]
+
+            # ── Metadata de paginación en el formato que espera el frontend ─
+            total_pages = max(1, (total + effective_page_size - 1) // effective_page_size)
+            current_page = (effective_offset // effective_page_size) + 1
+
+            return {
+                "success": True,
+                "data": {
+                    "items": items,
+                    "pagination": {
+                        "page": current_page,
+                        "page_size": effective_page_size,
+                        "total": total,
+                        "total_pages": total_pages,
+                        "has_next": current_page < total_pages,
+                        "has_prev": current_page > 1,
+                    },
+                    "filters_applied": {
+                        "severity": severity,
+                        "action_type": action_type,
+                        "performed_by": performed_by,
+                        "search": search,
+                        "target_ip": target_ip,
+                        "date_from": date_from,
+                        "date_to": date_to,
+                    },
+                },
+                "error": None,
+            }
+
+    except Exception as e:
+        logger.error("api_action_history_error", error=str(e))
+        return {"success": False, "data": None, "error": str(e)}
+
+
+@app.get("/api/audit/config")
+async def get_audit_config():
+    """
+    Retorna la configuración actual del sistema de auditoría (read-only).
+    Los cambios se hacen en .env y requieren reinicio del backend.
+    """
+    from services.audit_service import get_audit_config_info
+    try:
+        return {"success": True, "data": get_audit_config_info(), "error": None}
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 

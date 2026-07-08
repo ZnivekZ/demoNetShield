@@ -318,7 +318,7 @@ class TelegramService:
 
     async def answer_query(self, query: str, chat_id: str) -> str:
         """Answer a query using the AI service and send the response."""
-        if self._settings.should_mock_telegram or self._settings.should_mock_anthropic:
+        if self._settings.should_mock_telegram or self._settings.should_mock_ai:
             from services.mock_data import MockData
             response = MockData.telegram.bot_query_response(query)
             await self.send_message(chat_id=chat_id, text=response, message_type="bot_response")

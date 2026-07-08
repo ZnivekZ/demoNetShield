@@ -1,13 +1,15 @@
 """
-AI Service - Claude API integration with function calling for report generation.
+AI Service - OpenRouter integration with function calling for report generation.
 
 Design decisions:
-- Uses Anthropic Python SDK with function calling (tool_use)
-- Functions exposed to Claude: get_wazuh_alerts, get_mikrotik_connections,
-  get_firewall_rules, get_arp_table to fetch live data during generation
+- Uses OpenAI Python SDK configured to point to OpenRouter (base_url override)
+- OpenRouter exposes an OpenAI-compatible API, supporting tool calling
+- Default model: openrouter/auto (free tier, auto-selects best available free model)
+- Model is fixed to openrouter/auto — selection is not exposed to users
+- Functions exposed to AI cover all backend services: MikroTik, Wazuh, CrowdSec,
+  Suricata, GLPI, and system health aggregation
 - Audience parameter adjusts system prompt for tone/depth
 - HTML output ready for TipTap editor and WeasyPrint PDF export
-- Streaming support for long reports to show progress
 """
 
 from __future__ import annotations
@@ -15,8 +17,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import anthropic
 import structlog
+from openai import OpenAI
 
 from config import get_settings
 from services.mikrotik_service import get_mikrotik_service
@@ -24,62 +26,372 @@ from services.wazuh_service import get_wazuh_service
 
 logger = structlog.get_logger(__name__)
 
-# ── Tool definitions for Claude function calling ──────────────────
+# ── Report Templates ──────────────────────────────────────────────
+
+REPORT_TEMPLATES = [
+    {
+        "id": "weekly_security",
+        "name": "Reporte Semanal de Seguridad",
+        "description": "Resumen ejecutivo de alertas críticas, tendencias y recomendaciones de la semana",
+        "icon": "📊",
+        "audience": "executive",
+        "data_sources": ["wazuh_alerts", "crowdsec_decisions", "system_health"],
+        "prompt": "Genera un reporte ejecutivo semanal de seguridad. Incluye: resumen de alertas críticas detectadas, tendencias de amenazas, IPs bloqueadas más relevantes, estado general de la infraestructura, y recomendaciones priorizadas para la próxima semana.",
+    },
+    {
+        "id": "firewall_audit",
+        "name": "Auditoría de Firewall",
+        "description": "Análisis de reglas activas, puertos expuestos y anomalías de tráfico detectadas",
+        "icon": "🛡️",
+        "audience": "technical",
+        "data_sources": ["firewall_rules", "arp_table", "mikrotik_connections", "mikrotik_nat", "mikrotik_address_lists"],
+        "prompt": "Realiza una auditoría técnica completa del firewall. Analiza: reglas activas (indicando cuáles son redundantes u obsoletas), reglas NAT, listas de direcciones bloqueadas/permitidas, conexiones activas sospechosas, tabla ARP (dispositivos no reconocidos), y propone mejoras de configuración con comandos específicos.",
+    },
+    {
+        "id": "incident_analysis",
+        "name": "Análisis de Incidente",
+        "description": "Reporte post-incidente: cronología, IOCs, impacto y plan de remediación",
+        "icon": "🚨",
+        "audience": "technical",
+        "data_sources": ["wazuh_critical", "crowdsec_alerts", "suricata_alerts", "wazuh_mitre"],
+        "prompt": "Genera un reporte de análisis post-incidente de seguridad. Incluye: cronología detallada de eventos, indicadores de compromiso (IOCs) identificados, técnicas MITRE ATT&CK relevantes, alcance e impacto del incidente, acciones de contención realizadas, y plan de remediación paso a paso.",
+    },
+    {
+        "id": "infrastructure_status",
+        "name": "Estado de Infraestructura",
+        "description": "Salud de servicios, métricas de rendimiento e inventario de activos",
+        "icon": "💻",
+        "audience": "operational",
+        "data_sources": ["system_health", "mikrotik_health", "mikrotik_interfaces", "glpi_inventory", "glpi_stats"],
+        "prompt": "Genera un reporte operacional del estado actual de la infraestructura. Incluye: métricas de salud de todos los servicios (CPU, RAM, uptime), estado de interfaces de red, inventario de activos según GLPI, estadísticas de activos, servicios con problemas o degradados, y checklist de tareas de mantenimiento recomendadas.",
+    },
+    {
+        "id": "compliance_report",
+        "name": "Reporte de Cumplimiento",
+        "description": "Controles de seguridad activos, brechas identificadas y plan de remediación",
+        "icon": "📋",
+        "audience": "executive",
+        "data_sources": ["wazuh_alerts", "firewall_rules", "glpi_inventory", "glpi_tickets"],
+        "prompt": "Genera un reporte de cumplimiento de seguridad. Evalúa: controles de seguridad activos y su efectividad, brechas de cumplimiento identificadas, vulnerabilidades conocidas en el inventario de activos, tickets de soporte abiertos relacionados con seguridad, nivel de riesgo global (Crítico/Alto/Medio/Bajo), y plan de remediación con responsables y plazos sugeridos.",
+    },
+]
+
+# ── Tool definitions (OpenAI format for tool calling) ─────────────
+# Each tool maps to an existing service method in the backend.
 
 TOOLS = [
+    # ── MikroTik ──────────────────────────────────────────────────
     {
-        "name": "get_wazuh_alerts",
-        "description": "Fetch recent security alerts from Wazuh SIEM. Returns alerts with severity levels, agent info, and descriptions.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum number of alerts to fetch (default: 50)",
-                    "default": 50,
+        "type": "function",
+        "function": {
+            "name": "get_mikrotik_connections",
+            "description": "Fetch active network connections from MikroTik router. Returns source/destination IPs, protocols, connection states and timeouts.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_firewall_rules",
+            "description": "Fetch current firewall filter rules from MikroTik. Returns chain, action, src/dst addresses, and packet/byte counters.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_arp_table",
+            "description": "Fetch the ARP table from MikroTik router. Returns IP-to-MAC address mappings for all devices on the local network.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_mikrotik_interfaces",
+            "description": "Fetch network interface status from MikroTik. Returns each interface name, type, up/down state, TX/RX traffic bytes, MTU, and MAC address.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_mikrotik_vlans",
+            "description": "Fetch VLAN configuration from MikroTik. Returns active VLANs with ID, name, interface, and traffic stats.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_mikrotik_address_lists",
+            "description": "Fetch firewall address lists from MikroTik. Returns IP addresses grouped by list name (e.g., blocked IPs, allowed IPs, custom lists).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "list_name": {
+                        "type": "string",
+                        "description": "Optional: name of a specific address list to fetch. If omitted, returns all lists.",
+                    }
                 },
-                "level_min": {
-                    "type": "integer",
-                    "description": "Minimum alert level to filter (1-15). Higher = more critical.",
-                },
+                "required": [],
             },
-            "required": [],
         },
     },
     {
-        "name": "get_mikrotik_connections",
-        "description": "Fetch active network connections from MikroTik router. Returns source/destination IPs, protocols, and connection states.",
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": [],
+        "type": "function",
+        "function": {
+            "name": "get_mikrotik_dns",
+            "description": "Fetch static DNS records configured on MikroTik. Returns domain-to-IP mappings for locally resolved hostnames.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {
-        "name": "get_firewall_rules",
-        "description": "Fetch current firewall filter rules from MikroTik. Returns chain, action, addresses, and packet/byte counters.",
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": [],
+        "type": "function",
+        "function": {
+            "name": "get_mikrotik_dhcp",
+            "description": "Fetch active DHCP leases from MikroTik. Returns assigned IP addresses with MAC address, hostname, expiry time, and server name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server": {
+                        "type": "string",
+                        "description": "Optional: filter by specific DHCP server name.",
+                    }
+                },
+                "required": [],
+            },
         },
     },
     {
-        "name": "get_arp_table",
-        "description": "Fetch the ARP table from MikroTik router. Returns IP-to-MAC address mappings.",
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": [],
+        "type": "function",
+        "function": {
+            "name": "get_mikrotik_logs",
+            "description": "Fetch recent log entries from MikroTik router. Returns timestamped entries with topic (firewall, dhcp, system) and message.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum log entries to return (default: 50)"},
+                },
+                "required": [],
+            },
         },
     },
     {
-        "name": "get_system_health",
-        "description": "Fetch health status from all systems: MikroTik (CPU/RAM/uptime), Wazuh (agents/alerts count), CrowdSec (active decisions), and Suricata (engine status). Use this for status queries.",
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": [],
+        "type": "function",
+        "function": {
+            "name": "get_mikrotik_health",
+            "description": "Fetch MikroTik system health: CPU usage %, RAM usage %, uptime, temperature, and voltage.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_mikrotik_nat",
+            "description": "Fetch NAT rules from MikroTik. Returns DNAT/SNAT rules with chain, action, src/dst addresses and ports.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    # ── Wazuh ─────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_wazuh_alerts",
+            "description": "Fetch recent security alerts from Wazuh SIEM. Returns alerts with severity level, agent info, rule ID, and description.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of alerts to fetch (default: 50)"},
+                    "level_min": {"type": "integer", "description": "Minimum alert level to filter (1-15). Higher = more critical."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_wazuh_critical_alerts",
+            "description": "Fetch only critical Wazuh alerts (level >= 12). Returns alerts with MITRE ATT&CK technique information.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of critical alerts to return (default: 20)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_wazuh_agents",
+            "description": "Fetch Wazuh agent details. Returns each agent's name, status (active/disconnected), OS, version, IP, and last connection time.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_wazuh_mitre",
+            "description": "Fetch MITRE ATT&CK summary from Wazuh. Returns techniques and tactics detected with alert counts, mapped to the ATT&CK framework.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    # ── CrowdSec ──────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_crowdsec_decisions",
+            "description": "Fetch active CrowdSec decisions (currently blocked IPs/ranges). Returns IP, type, duration, scenario, and origin for each decision.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of decisions to return (default: 100)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_crowdsec_alerts",
+            "description": "Fetch CrowdSec scenario alerts (detected attacks). Returns brute-force attempts, port scans, and other threat scenarios with details.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of alerts to return (default: 50)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_crowdsec_metrics",
+            "description": "Fetch CrowdSec engine metrics: parser performance, bouncer statistics, and scenario execution counts.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    # ── Suricata ──────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_suricata_alerts",
+            "description": "Fetch recent Suricata IDS/IPS alerts. Returns detected threats with signature name, severity, category, and source/destination IPs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of alerts to return (default: 50)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_suricata_flows",
+            "description": "Fetch network flows monitored by Suricata. Returns TCP/UDP flows with source/destination IP:port, bytes transferred, and duration.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of flows to return (default: 100)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_suricata_dns",
+            "description": "Fetch DNS queries captured by Suricata. Returns queried domains, record types (A, AAAA, MX), and DNS responses.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of DNS queries to return (default: 100)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_suricata_http",
+            "description": "Fetch HTTP transactions captured by Suricata. Returns URLs accessed, HTTP methods, response codes, user-agents, and server info.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of HTTP transactions to return (default: 100)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_suricata_tls",
+            "description": "Fetch TLS handshakes captured by Suricata. Returns certificate info, TLS version, SNI (hostname), and cipher suites used in encrypted connections.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of TLS handshakes to return (default: 100)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    # ── GLPI ──────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_glpi_inventory",
+            "description": "Fetch asset inventory from GLPI. Returns computers and devices with model, operating system, status, location, and assigned user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of assets to return (default: 50)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_glpi_stats",
+            "description": "Fetch asset statistics from GLPI. Returns totals by asset type, operational status counts, and location distribution.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_glpi_tickets",
+            "description": "Fetch support tickets from GLPI. Returns open incidents and service requests with priority, status, assigned technician, and creation date.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum number of tickets to return (default: 30)"},
+                    "status": {"type": "integer", "description": "Filter by ticket status (1=new, 2=assigned, 3=planned, 4=pending, 5=solved, 6=closed)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    # ── System ────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_system_health",
+            "description": "Fetch consolidated health status from all systems: MikroTik (CPU/RAM/uptime), Wazuh (agents/alert counts), CrowdSec (active decisions), Suricata (engine status). Use this for overview queries.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
 ]
@@ -128,51 +440,193 @@ Your responses must be:
 - Be helpful and security-focused
 """
 
+# ── Source ID → tool name mapping ────────────────────────────────
+# Used to filter which tools are exposed based on selected data_sources
+
+SOURCE_TO_TOOL: dict[str, str] = {
+    # MikroTik
+    "mikrotik_connections":   "get_mikrotik_connections",
+    "firewall_rules":         "get_firewall_rules",
+    "arp_table":              "get_arp_table",
+    "mikrotik_interfaces":    "get_mikrotik_interfaces",
+    "mikrotik_vlans":         "get_mikrotik_vlans",
+    "mikrotik_address_lists": "get_mikrotik_address_lists",
+    "mikrotik_dns":           "get_mikrotik_dns",
+    "mikrotik_dhcp":          "get_mikrotik_dhcp",
+    "mikrotik_logs":          "get_mikrotik_logs",
+    "mikrotik_health":        "get_mikrotik_health",
+    "mikrotik_nat":           "get_mikrotik_nat",
+    # Wazuh
+    "wazuh_alerts":           "get_wazuh_alerts",
+    "wazuh_critical":         "get_wazuh_critical_alerts",
+    "wazuh_agents":           "get_wazuh_agents",
+    "wazuh_mitre":            "get_wazuh_mitre",
+    # CrowdSec
+    "crowdsec_decisions":     "get_crowdsec_decisions",
+    "crowdsec_alerts":        "get_crowdsec_alerts",
+    "crowdsec_metrics":       "get_crowdsec_metrics",
+    # Suricata
+    "suricata_alerts":        "get_suricata_alerts",
+    "suricata_flows":         "get_suricata_flows",
+    "suricata_dns":           "get_suricata_dns",
+    "suricata_http":          "get_suricata_http",
+    "suricata_tls":           "get_suricata_tls",
+    # GLPI
+    "glpi_inventory":         "get_glpi_inventory",
+    "glpi_stats":             "get_glpi_stats",
+    "glpi_tickets":           "get_glpi_tickets",
+    # System
+    "system_health":          "get_system_health",
+}
+
 
 class AIService:
     """
-    Service for AI-powered report generation using Claude API.
-    Uses function calling to fetch live data during report generation.
+    Service for AI-powered report generation using OpenRouter API.
+    Uses OpenAI-compatible function calling to fetch live data during report generation.
+    Model is fixed to openrouter/auto (free tier) — not exposed to end users.
     """
 
     def __init__(self) -> None:
         self._settings = get_settings()
-        self._client: anthropic.Anthropic | None = None
+        self._client: OpenAI | None = None
 
-    def _get_client(self) -> anthropic.Anthropic:
-        """Lazy-init the Anthropic client."""
+    def _get_client(self) -> OpenAI:
+        """Lazy-init the OpenAI client pointed at OpenRouter."""
         if self._client is None:
-            if not self._settings.anthropic_api_key:
-                raise ValueError("ANTHROPIC_API_KEY is not configured")
-            self._client = anthropic.Anthropic(
-                api_key=self._settings.anthropic_api_key
+            if not self._settings.openrouter_api_key:
+                raise ValueError(
+                    "OPENROUTER_API_KEY is not configured. "
+                    "Get a free key at https://openrouter.ai/keys and add it to backend/.env"
+                )
+            self._client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=self._settings.openrouter_api_key,
+                default_headers={
+                    "HTTP-Referer": "https://netshield.local",
+                    "X-Title": "NetShield Dashboard",
+                },
             )
         return self._client
 
     async def _execute_tool(self, tool_name: str, tool_input: dict) -> Any:
         """
-        Execute a function call requested by Claude.
+        Execute a function call requested by the AI model.
         Routes to the appropriate service method.
         """
-        logger.info("ai_tool_called", tool=tool_name, input=tool_input)
+        logger.info("ai_tool_called", tool=tool_name)
 
-        if tool_name == "get_wazuh_alerts":
-            wazuh = get_wazuh_service()
-            return await wazuh.get_alerts(
+        mt = get_mikrotik_service
+        wazuh = get_wazuh_service
+
+        # ── MikroTik ────────────────────────────────────────────
+        if tool_name == "get_mikrotik_connections":
+            return await mt().get_connections()
+        elif tool_name == "get_firewall_rules":
+            return await mt().get_firewall_rules()
+        elif tool_name == "get_arp_table":
+            return await mt().get_arp_table()
+        elif tool_name == "get_mikrotik_interfaces":
+            return await mt().get_interfaces()
+        elif tool_name == "get_mikrotik_vlans":
+            return await mt().get_vlans()
+        elif tool_name == "get_mikrotik_address_lists":
+            return await mt().get_address_list(tool_input.get("list_name"))
+        elif tool_name == "get_mikrotik_dns":
+            return await mt().get_dns_static()
+        elif tool_name == "get_mikrotik_dhcp":
+            return await mt().get_dhcp_leases(tool_input.get("server"))
+        elif tool_name == "get_mikrotik_logs":
+            return await mt().get_logs(limit=tool_input.get("limit", 50))
+        elif tool_name == "get_mikrotik_health":
+            return await mt().get_system_health()
+        elif tool_name == "get_mikrotik_nat":
+            # NAT rules share the same base API call format
+            try:
+                raw = await mt()._api_call("/ip/firewall/nat", "print")
+                return raw
+            except Exception as e:
+                return {"error": str(e)}
+
+        # ── Wazuh ───────────────────────────────────────────────
+        elif tool_name == "get_wazuh_alerts":
+            return await wazuh().get_alerts(
                 limit=tool_input.get("limit", 50),
                 level_min=tool_input.get("level_min"),
             )
-        elif tool_name == "get_mikrotik_connections":
-            mt = get_mikrotik_service()
-            return await mt.get_connections()
-        elif tool_name == "get_firewall_rules":
-            mt = get_mikrotik_service()
-            return await mt.get_firewall_rules()
-        elif tool_name == "get_arp_table":
-            mt = get_mikrotik_service()
-            return await mt.get_arp_table()
+        elif tool_name == "get_wazuh_critical_alerts":
+            return await wazuh().get_critical_alerts(limit=tool_input.get("limit", 20))
+        elif tool_name == "get_wazuh_agents":
+            return await wazuh().get_agents()
+        elif tool_name == "get_wazuh_mitre":
+            return await wazuh().get_mitre_summary()
+
+        # ── CrowdSec ────────────────────────────────────────────
+        elif tool_name == "get_crowdsec_decisions":
+            from services.crowdsec_service import get_crowdsec_service
+            cs = get_crowdsec_service()
+            decisions = await cs.get_decisions()
+            return {"total": len(decisions), "decisions": decisions[:tool_input.get("limit", 100)]}
+        elif tool_name == "get_crowdsec_alerts":
+            from services.crowdsec_service import get_crowdsec_service
+            cs = get_crowdsec_service()
+            alerts = await cs.get_alerts(limit=tool_input.get("limit", 50))
+            return {"total": len(alerts), "alerts": alerts}
+        elif tool_name == "get_crowdsec_metrics":
+            from services.crowdsec_service import get_crowdsec_service
+            cs = get_crowdsec_service()
+            return await cs.get_metrics()
+
+        # ── Suricata ────────────────────────────────────────────
+        elif tool_name == "get_suricata_alerts":
+            from services.suricata_service import get_suricata_service
+            sur = get_suricata_service()
+            alerts = await sur.get_alerts(limit=tool_input.get("limit", 50))
+            return {"total": len(alerts), "alerts": alerts}
+        elif tool_name == "get_suricata_flows":
+            from services.suricata_service import get_suricata_service
+            sur = get_suricata_service()
+            flows = await sur.get_flows(limit=tool_input.get("limit", 100))
+            return {"total": len(flows), "flows": flows}
+        elif tool_name == "get_suricata_dns":
+            from services.suricata_service import get_suricata_service
+            sur = get_suricata_service()
+            queries = await sur.get_dns_queries(limit=tool_input.get("limit", 100))
+            return {"total": len(queries), "queries": queries}
+        elif tool_name == "get_suricata_http":
+            from services.suricata_service import get_suricata_service
+            sur = get_suricata_service()
+            txns = await sur.get_http_transactions(limit=tool_input.get("limit", 100))
+            return {"total": len(txns), "transactions": txns}
+        elif tool_name == "get_suricata_tls":
+            from services.suricata_service import get_suricata_service
+            sur = get_suricata_service()
+            tls = await sur.get_tls_handshakes(limit=tool_input.get("limit", 100))
+            return {"total": len(tls), "handshakes": tls}
+
+        # ── GLPI ────────────────────────────────────────────────
+        elif tool_name == "get_glpi_inventory":
+            from services.glpi_service import get_glpi_service
+            glpi = get_glpi_service()
+            computers = await glpi.get_computers(limit=tool_input.get("limit", 50))
+            return {"total": len(computers), "assets": computers}
+        elif tool_name == "get_glpi_stats":
+            from services.glpi_service import get_glpi_service
+            glpi = get_glpi_service()
+            return await glpi.get_asset_stats()
+        elif tool_name == "get_glpi_tickets":
+            from services.glpi_service import get_glpi_service
+            glpi = get_glpi_service()
+            tickets = await glpi.get_tickets(
+                limit=tool_input.get("limit", 30),
+                status=tool_input.get("status"),
+            )
+            return {"total": len(tickets), "tickets": tickets}
+
+        # ── System ──────────────────────────────────────────────
         elif tool_name == "get_system_health":
             return await self._get_system_health()
+
         else:
             return {"error": f"Unknown tool: {tool_name}"}
 
@@ -183,161 +637,151 @@ class AIService:
         attached_documents: list[str] | None = None,
         data_sources: list[str] | None = None,
         date_range: dict | None = None,
+        comparison_range: dict | None = None,
     ) -> dict:
         """
-        Generate a security report using Claude with function calling.
+        Generate a security report using OpenRouter (free models, openrouter/auto) with function calling.
 
         The flow:
-        1. Send user prompt + system prompt to Claude with available tools
-        2. Claude may call tools to fetch live data (alerts, connections, etc.)
-        3. Execute tool calls and send results back to Claude
-        4. Claude generates the final HTML report
+        1. Send user prompt + system prompt to the model with available tools
+        2. Model may call tools to fetch live data (alerts, connections, etc.)
+        3. Execute tool calls and send results back to model
+        4. Model generates the final HTML report
 
-        Returns: {html_content, title, summary, data_sources_used, tokens_used}
+        Returns: {html_content, title, summary, data_sources_used, tokens_used, model_used}
         """
-        if self._settings.should_mock_anthropic:
+        if self._settings.should_mock_ai:
             from services.mock_data import MockData
             return MockData.ai.mock_report(prompt=prompt, audience=audience)
 
         client = self._get_client()
+        model = self._settings.openrouter_model  # Fixed: openrouter/auto
         system_prompt = SYSTEM_PROMPTS.get(audience, SYSTEM_PROMPTS["technical"])
 
-        # Build user message with context
-        user_content = f"""Generate a security report based on the following request:
+        # Build user message
+        user_content = f"Generate a security report based on the following request:\n\n{prompt}\n"
 
-{prompt}
-
-"""
         if attached_documents:
             user_content += "\n\nAttached reference documents:\n"
             for i, doc in enumerate(attached_documents, 1):
                 user_content += f"\n--- Document {i} ---\n{doc}\n"
 
         if date_range:
-            user_content += f"\n\nDate range: {date_range.get('from_date', 'N/A')} to {date_range.get('to_date', 'N/A')}\n"
+            user_content += f"\nPrimary analysis period: {date_range.get('from_date', 'N/A')} to {date_range.get('to_date', 'N/A')}\n"
 
-        user_content += """
-Please use the available tools to fetch the latest data from our security systems before writing the report.
-Structure the report with:
-- Title
-- Executive Summary
-- Key Findings
-- Detailed Analysis
-- Recommendations
-- Appendix (raw data tables if relevant)
-
-Output as clean, well-formatted HTML."""
-
-        # Determine which tools to make available based on data_sources
-        available_tools = TOOLS
-        if data_sources:
-            tool_filter = set()
-            source_to_tool = {
-                "wazuh_alerts": "get_wazuh_alerts",
-                "mikrotik_connections": "get_mikrotik_connections",
-                "firewall_rules": "get_firewall_rules",
-                "arp_table": "get_arp_table",
-            }
-            for source in data_sources:
-                if source in source_to_tool:
-                    tool_filter.add(source_to_tool[source])
-            if tool_filter:
-                available_tools = [t for t in TOOLS if t["name"] in tool_filter]
-
-        messages = [{"role": "user", "content": user_content}]
-        data_sources_used = []
-        total_tokens = 0
-
-        # Agentic loop: keep calling until Claude produces final text
-        max_iterations = 10  # Safety limit
-        for iteration in range(max_iterations):
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=8192,
-                system=system_prompt,
-                tools=available_tools,
-                messages=messages,
+        if comparison_range:
+            user_content += (
+                f"\nComparison period: {comparison_range.get('from_date', 'N/A')} to {comparison_range.get('to_date', 'N/A')}\n"
+                "Please compare data between the primary period and the comparison period. "
+                "Highlight differences, trends, and anomalies between both periods.\n"
             )
 
-            total_tokens += response.usage.input_tokens + response.usage.output_tokens
+        user_content += (
+            "\nPlease use the available tools to fetch the latest data from our security systems before writing the report."
+            "\nStructure the report with: Title, Executive Summary, Key Findings, Detailed Analysis, Recommendations."
+            "\nOutput as clean, well-formatted HTML."
+        )
 
-            # Check if Claude wants to use tools
-            if response.stop_reason == "tool_use":
-                # Process all tool calls in this response
-                tool_results = []
-                for block in response.content:
-                    if block.type == "tool_use":
-                        tool_result = await self._execute_tool(
-                            block.name, block.input
-                        )
-                        data_sources_used.append(block.name)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps(
-                                tool_result, default=str, ensure_ascii=False
-                            )[:50000],  # Truncate very large results
-                        })
+        # Filter tools based on selected data_sources
+        if data_sources:
+            tool_names = {SOURCE_TO_TOOL[s] for s in data_sources if s in SOURCE_TO_TOOL}
+            active_tools = [t for t in TOOLS if t["function"]["name"] in tool_names]
+        else:
+            active_tools = TOOLS
 
-                # Add assistant response and tool results to conversation
-                messages.append({"role": "assistant", "content": response.content})
-                messages.append({"role": "user", "content": tool_results})
+        messages: list[dict] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+        data_sources_used: list[str] = []
+        total_tokens = 0
+        response = None
+
+        # Agentic loop
+        for iteration in range(10):
+            response = client.chat.completions.create(
+                model=model,
+                max_tokens=8192,
+                messages=messages,
+                tools=active_tools,
+                tool_choice="auto",
+            )
+            if response.usage:
+                total_tokens += response.usage.prompt_tokens + response.usage.completion_tokens
+
+            message = response.choices[0].message
+
+            if message.tool_calls:
+                messages.append({
+                    "role": "assistant",
+                    "content": message.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                        }
+                        for tc in message.tool_calls
+                    ],
+                })
+                for tool_call in message.tool_calls:
+                    tool_input = json.loads(tool_call.function.arguments or "{}")
+                    tool_result = await self._execute_tool(tool_call.function.name, tool_input)
+                    data_sources_used.append(tool_call.function.name)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps(tool_result, default=str, ensure_ascii=False)[:50000],
+                    })
             else:
-                # Claude produced final text response
                 break
 
-        # Extract HTML content from final response
         html_content = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                html_content += block.text
+        if response and response.choices:
+            html_content = response.choices[0].message.content or ""
 
-        # Extract title from HTML if present
+        # Extract title from HTML
         title = "NetShield Security Report"
         if "<h1>" in html_content and "</h1>" in html_content:
+            import re
             start = html_content.index("<h1>") + 4
             end = html_content.index("</h1>")
-            title = html_content[start:end].strip()
-            # Remove HTML tags from title
-            import re
-            title = re.sub(r"<[^>]+>", "", title)
-
-        # Generate summary (first paragraph or first 200 chars)
-        summary = prompt[:200]
+            title = re.sub(r"<[^>]+>", "", html_content[start:end]).strip()
 
         logger.info(
             "ai_report_generated",
             audience=audience,
             tools_used=data_sources_used,
             tokens=total_tokens,
-            iterations=iteration + 1,
+            model=model,
         )
 
         return {
             "html_content": html_content,
             "title": title,
-            "summary": summary,
+            "summary": prompt[:200],
             "data_sources_used": list(set(data_sources_used)),
             "tokens_used": total_tokens,
+            "model_used": model,
         }
 
     async def _get_system_health(self) -> dict:
-        """Aggregate health data from all services for Telegram bot queries."""
-        result = {}
+        """Aggregate health data from all services."""
+        result: dict = {}
         try:
             mt = get_mikrotik_service()
-            result["mikrotik"] = await mt.get_health()
+            result["mikrotik"] = await mt.get_system_health()
         except Exception as e:
             result["mikrotik"] = {"error": str(e)}
         try:
             wazuh = get_wazuh_service()
             agents = await wazuh.get_agents()
             alerts = await wazuh.get_alerts(limit=100)
-            active_agents = sum(1 for a in agents if a.get("status") == "active")
+            active = sum(1 for a in agents if a.get("status") == "active")
             critical = sum(1 for a in alerts if int(a.get("rule_level", 0)) >= 12)
             result["wazuh"] = {
                 "total_agents": len(agents),
-                "active_agents": active_agents,
+                "active_agents": active,
                 "alerts_count": len(alerts),
                 "critical_alerts": critical,
             }
@@ -345,83 +789,81 @@ Output as clean, well-formatted HTML."""
             result["wazuh"] = {"error": str(e)}
         try:
             from services.crowdsec_service import get_crowdsec_service
-            cs = get_crowdsec_service()
-            decisions = await cs.get_decisions()
+            decisions = await get_crowdsec_service().get_decisions()
             result["crowdsec"] = {"active_decisions": len(decisions)}
         except Exception as e:
             result["crowdsec"] = {"error": str(e)}
         try:
             from services.suricata_service import get_suricata_service
-            sur = get_suricata_service()
-            status = await sur.get_engine_status()
-            result["suricata"] = status
+            result["suricata"] = await get_suricata_service().get_engine_stats()
         except Exception as e:
             result["suricata"] = {"error": str(e)}
         return result
 
     async def answer_telegram_query(self, query: str, chat_id: str) -> str:
-        """
-        Answer a Telegram bot query using Claude with all tools available.
-        Returns plain text (Telegram HTML) instead of full HTML report.
-        """
-        if self._settings.should_mock_anthropic:
+        """Answer a Telegram bot query using OpenRouter with all tools available."""
+        if self._settings.should_mock_ai:
             from services.mock_data import MockData
             return MockData.telegram.bot_query_response(query)
 
         client = self._get_client()
-        user_content = (
-            f"User query from Telegram (chat_id: {chat_id}):\n\n{query}\n\n"
-            "Use the available tools to fetch current data before answering. "
-            "Respond concisely in Telegram HTML format."
-        )
-
-        messages = [{"role": "user", "content": user_content}]
+        messages: list[dict] = [
+            {"role": "system", "content": TELEGRAM_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"User query from Telegram (chat_id: {chat_id}):\n\n{query}\n\n"
+                    "Use the available tools to fetch current data before answering. "
+                    "Respond concisely in Telegram HTML format."
+                ),
+            },
+        ]
         total_tokens = 0
+        response = None
 
-        # Agentic loop (same pattern as generate_report but with lower token limit)
-        for iteration in range(5):  # Max 5 tool calls for Telegram
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+        for iteration in range(5):
+            response = client.chat.completions.create(
+                model=self._settings.openrouter_model,
                 max_tokens=2048,
-                system=TELEGRAM_SYSTEM_PROMPT,
-                tools=TOOLS,
                 messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
             )
-            total_tokens += response.usage.input_tokens + response.usage.output_tokens
+            if response.usage:
+                total_tokens += response.usage.prompt_tokens + response.usage.completion_tokens
 
-            if response.stop_reason == "tool_use":
-                tool_results = []
-                for block in response.content:
-                    if block.type == "tool_use":
-                        tool_result = await self._execute_tool(block.name, block.input)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps(
-                                tool_result, default=str, ensure_ascii=False
-                            )[:20000],
-                        })
-                messages.append({"role": "assistant", "content": response.content})
-                messages.append({"role": "user", "content": tool_results})
+            message = response.choices[0].message
+            if message.tool_calls:
+                messages.append({
+                    "role": "assistant",
+                    "content": message.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                        }
+                        for tc in message.tool_calls
+                    ],
+                })
+                for tool_call in message.tool_calls:
+                    tool_input = json.loads(tool_call.function.arguments or "{}")
+                    tool_result = await self._execute_tool(tool_call.function.name, tool_input)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps(tool_result, default=str, ensure_ascii=False)[:20000],
+                    })
             else:
                 break
 
-        # Extract text response
         text = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                text += block.text
+        if response and response.choices:
+            text = response.choices[0].message.content or ""
 
-        logger.info(
-            "ai_telegram_query_answered",
-            query=query[:50],
-            tokens=total_tokens,
-            iterations=iteration + 1,
-        )
-
+        logger.info("ai_telegram_answered", query=query[:50], tokens=total_tokens)
         return text
 
 
 def get_ai_service() -> AIService:
-    """Get an AI service instance."""
     return AIService()

@@ -98,6 +98,13 @@ import type {
   TelegramReportConfigCreate,
   TelegramMessageLog,
   TelegramSendResult,
+  AuditHistoryResponse,
+  // Report types (new)
+  SavedReport,
+  SavedReportPagination,
+  ReportSchedule,
+  ReportTemplate,
+  AIModel,
 } from '../types';
 
 const api = axios.create({
@@ -291,12 +298,14 @@ export const networkApi = {
 /* ── Reports ──────────────────────────────────────────────────── */
 
 export const reportsApi = {
+  // ── Generation ──────────────────────────────────────
   generate: (params: {
     prompt: string;
     audience: string;
     attached_documents?: string[];
     data_sources?: string[];
     date_range?: { from_date: string; to_date: string };
+    comparison_range?: { from_date: string; to_date: string };
   }) =>
     api.post<APIResponse<ReportDraft>>('/reports/generate', params).then(r => r.data),
 
@@ -305,6 +314,45 @@ export const reportsApi = {
       html_content: htmlContent, title, metadata,
     }, { responseType: 'blob' }).then(r => r.data),
 
+  // ── Templates ─────────────────────────────────────
+  getTemplates: () =>
+    api.get<APIResponse<ReportTemplate[]>>('/reports/templates').then(r => r.data),
+
+  // ── Saved Reports CRUD ────────────────────────────
+  listSaved: (page = 1, pageSize = 20, audience?: string) =>
+    api.get<APIResponse<SavedReportPagination>>('/reports/saved', {
+      params: { page, page_size: pageSize, ...(audience ? { audience } : {}) },
+    }).then(r => r.data),
+
+  getSaved: (id: number) =>
+    api.get<APIResponse<SavedReport>>(`/reports/saved/${id}`).then(r => r.data),
+
+  createSaved: (data: { title: string; html_content: string; prompt?: string; audience?: string; model_used?: string; data_sources?: string[]; tokens_used?: number }) =>
+    api.post<APIResponse<SavedReport>>('/reports/saved', data).then(r => r.data),
+
+  updateSaved: (id: number, data: { title?: string; html_content?: string }) =>
+    api.put<APIResponse<SavedReport>>(`/reports/saved/${id}`, data).then(r => r.data),
+
+  deleteSaved: (id: number) =>
+    api.delete<APIResponse<{ deleted: boolean }>>(`/reports/saved/${id}`).then(r => r.data),
+
+  // ── Report Schedules CRUD ─────────────────────────
+  listSchedules: () =>
+    api.get<APIResponse<ReportSchedule[]>>('/reports/schedules').then(r => r.data),
+
+  createSchedule: (data: Partial<ReportSchedule>) =>
+    api.post<APIResponse<ReportSchedule>>('/reports/schedules', data).then(r => r.data),
+
+  updateSchedule: (id: number, data: Partial<ReportSchedule>) =>
+    api.put<APIResponse<ReportSchedule>>(`/reports/schedules/${id}`, data).then(r => r.data),
+
+  deleteSchedule: (id: number) =>
+    api.delete<APIResponse<{ deleted: boolean }>>(`/reports/schedules/${id}`).then(r => r.data),
+
+  triggerSchedule: (id: number) =>
+    api.post<APIResponse<unknown>>(`/reports/schedules/${id}/trigger`).then(r => r.data),
+
+  // ── Legacy ─────────────────────────────────────────
   getHistory: (limit = 20) =>
     api.get<APIResponse<ActionLogEntry[]>>('/reports/history', { params: { limit } }).then(r => r.data),
 };
@@ -1152,13 +1200,25 @@ export const authApi = {
 /* ── Audit / Action History ───────────────────────────────────────────── */
 
 export const auditApi = {
-  /** Get paginated action history with optional filters */
+  /** Get paginated action history with server-side filters */
   getHistory: (params?: {
-    limit?: number;
+    page?: number;
+    page_size?: number;
     action_type?: string;
+    severity?: string;
     performed_by?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+    target_ip?: string;
   }) =>
     api
-      .get<APIResponse<ActionLogEntry[]>>('/actions/history', { params })
+      .get<APIResponse<AuditHistoryResponse>>('/actions/history', { params })
+      .then(r => r.data),
+
+  /** Get audit configuration (min severity, disabled actions) */
+  getConfig: () =>
+    api
+      .get<APIResponse<{ min_severity: string; disabled_actions: string[] }>>('/audit/config')
       .then(r => r.data),
 };

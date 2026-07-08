@@ -15,14 +15,12 @@ All actions are logged to ActionLog for audit trail.
 
 from __future__ import annotations
 
-import json
-
 import structlog
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models.action_log import ActionLog
+from services.audit_service import log_action
 from schemas.common import APIResponse
 from schemas.crowdsec import (
     FullRemediationRequest,
@@ -111,19 +109,19 @@ async def add_manual_decision(
             reason=request.reason,
             type_=request.type,
         )
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="crowdsec_manual_decision",
+            severity="high",
             target_ip=request.ip,
-            details=json.dumps({
+            details={
                 "type": request.type,
                 "duration": request.duration,
                 "reason": request.reason,
                 "source": "crowdsec",
-            }),
+            },
             comment=f"CrowdSec manual {request.type}: {request.reason}",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_crowdsec_manual_decision", ip=request.ip, type_=request.type)
         return APIResponse.ok(result)
     except Exception as e:
@@ -143,13 +141,13 @@ async def delete_decision(
     """
     try:
         result = await crowdsec.delete_decision(decision_id)
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="crowdsec_delete_decision",
-            details=json.dumps({"decision_id": decision_id, "source": "crowdsec"}),
+            severity="high",
+            details={"decision_id": decision_id, "source": "crowdsec"},
             comment=f"CrowdSec decision removed: {decision_id}",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_crowdsec_delete_decision", id=decision_id)
         return APIResponse.ok(result)
     except Exception as e:
@@ -169,14 +167,14 @@ async def delete_decisions_by_ip(
     """
     try:
         result = await crowdsec.delete_decisions_by_ip(ip)
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="crowdsec_unblock_ip",
+            severity="high",
             target_ip=ip,
-            details=json.dumps({"source": "crowdsec", "scope": "all_decisions"}),
+            details={"source": "crowdsec", "scope": "all_decisions"},
             comment=f"CrowdSec all decisions removed for {ip}",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_crowdsec_unblock_ip", ip=ip)
         return APIResponse.ok(result)
     except Exception as e:
@@ -300,14 +298,14 @@ async def add_to_whitelist(
     try:
         from services.mock_service import MockService
         entry = MockService.crowdsec_add_whitelist(ip=request.ip, reason=request.reason)
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="crowdsec_whitelist_add",
+            severity="high",
             target_ip=request.ip,
-            details=json.dumps({"reason": request.reason}),
+            details={"reason": request.reason},
             comment=f"CrowdSec whitelist add: {request.ip}",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_crowdsec_whitelist_add", ip=request.ip)
         return APIResponse.ok(entry)
     except Exception as e:
@@ -329,13 +327,13 @@ async def remove_from_whitelist(
         removed = MockService.crowdsec_delete_whitelist(whitelist_id)
         if not removed:
             return APIResponse.fail(f"Whitelist entry {whitelist_id} not found")
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="crowdsec_whitelist_remove",
-            details=json.dumps({"whitelist_id": whitelist_id}),
+            severity="high",
+            details={"whitelist_id": whitelist_id},
             comment=f"CrowdSec whitelist remove: ID {whitelist_id}",
         )
-        db.add(log_entry)
-        await db.flush()
         logger.info("api_crowdsec_whitelist_remove", id=whitelist_id)
         return APIResponse.ok({"id": whitelist_id, "removed": True})
     except Exception as e:
@@ -450,20 +448,20 @@ async def full_remediation(
             logger.warning("full_remediation_mikrotik_failed", ip=request.ip, error=str(e))
             results["mikrotik"] = {"blocked": False, "error": str(e)}
 
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="crowdsec_full_remediation",
+            severity="critical",
             target_ip=request.ip,
-            details=json.dumps({
+            details={
                 "reason": request.reason,
                 "duration": request.duration,
                 "trigger": request.trigger,
                 "crowdsec_blocked": results["crowdsec"]["blocked"],
                 "mikrotik_blocked": results["mikrotik"]["blocked"],
-            }),
+            },
             comment=f"Full remediation: {request.ip} — {request.reason}",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info(
             "api_crowdsec_full_remediation",
@@ -549,18 +547,18 @@ async def apply_sync(
             except Exception as e:
                 removed.append({"ip": ip, "success": False, "error": str(e)})
 
-        log_entry = ActionLog(
+        await log_action(
+            db,
             action_type="crowdsec_sync_apply",
-            details=json.dumps({
+            severity="high",
+            details={
                 "add_count": len(added),
                 "remove_count": len(removed),
                 "add_to_mikrotik": request.add_to_mikrotik,
                 "remove_from_mikrotik": request.remove_from_mikrotik,
-            }),
+            },
             comment=f"CrowdSec sync: +{len(added)} -{len(removed)} IPs to MikroTik",
         )
-        db.add(log_entry)
-        await db.flush()
 
         logger.info(
             "api_crowdsec_sync_applied",

@@ -44,7 +44,7 @@ from schemas.dhcp import (
     DhcpOptionCreate,
 )
 from services.mikrotik_service import get_mikrotik_service, MikroTikService
-from models.action_log import ActionLog
+from services.audit_service import log_action as _audit_log_action
 
 logger = structlog.get_logger(__name__)
 
@@ -52,19 +52,20 @@ router = APIRouter(prefix="/api/dhcp", tags=["DHCP"])
 
 
 async def _log_action(db: AsyncSession, action: str, target: str, detail: str) -> None:
-    """Persist an action log entry for auditing."""
+    """Wrapper local que delega al helper centralizado audit_service.log_action()."""
     try:
-        log = ActionLog(
+        target_ip = target if len(target) <= 45 else None
+        await _audit_log_action(
+            db,
             action_type=action,
-            target_ip=target if len(target) <= 45 else target[:45],
-            details=detail,
+            severity="medium",
+            target_ip=target_ip,
+            details={"target": target, "detail": detail},
             performed_by="dashboard",
+            comment=f"{action}: {target}",
         )
-        db.add(log)
-        await db.commit()
     except Exception as exc:
         logger.warning("dhcp_action_log_failed", action=action, error=str(exc))
-
 
 
 # ── Servers ────────────────────────────────────────────────────────────────────

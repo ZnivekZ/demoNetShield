@@ -53,7 +53,7 @@ DETAIL_PARAMS = {
 }
 
 # Interval in seconds between collection cycles
-COLLECT_INTERVAL = 300  # 5 minutes
+COLLECT_INTERVAL = 180  # 3 minutes
 
 
 class GlpiCollector:

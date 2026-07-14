@@ -140,7 +140,11 @@ export function SystemHealth() {
       isFetching: glpiFetching,
       isError: glpiError,
       isOnline: glpiStatus?.available === true,
-      detail: glpiStatus?.url ?? 'Inventario',
+      detail: glpiStatus
+        ? glpiStatus.available
+          ? glpiStatus.url ?? 'Inventario'
+          : glpiStatus.message   // mensaje descriptivo del backend cuando está offline
+        : 'Inventario',
       errorMessage: glpiError
         ? getApiErrorMessage(glpiErrorObj, 'No se pudo conectar con GLPI')
         : glpiStatus?.available === false
@@ -517,9 +521,9 @@ function integrationStatusText({
   detail?: string | number | null;
   errorMessage?: string | null;
 }) {
-  if (isChecking) return 'Verificando conexion';
-  if (hasProblem) return errorMessage || 'Sin conexion';
-  return detail ? `Todo OK - ${detail}` : 'Todo OK';
+  if (isChecking) return 'Verificando conexión…';
+  if (hasProblem) return errorMessage || 'Sin conexión al servidor';
+  return detail ? String(detail) : 'Conectado';
 }
 
 function IntegrationStatusCard({
@@ -543,7 +547,8 @@ function IntegrationStatusCard({
   errorMessage?: string | null;
   onRetry: () => Promise<unknown> | void;
 }) {
-  const isChecking = isLoading || (isFetching && !isOnline);
+  // Solo mostrar "Verificando" en la carga inicial, no en refetches periódicos de background
+  const isChecking = isLoading;
   const isRetrying = isLoading || isFetching;
   const hasProblem = isError || !isOnline;
   const label = integrationStatusText({ isChecking, hasProblem, detail, errorMessage });

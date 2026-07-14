@@ -69,15 +69,32 @@ async def get_glpi_status(
             return APIResponse.ok(
                 GlpiAvailability(
                     available=True,
-                    message="GLPI en modo mock — datos simulados activos",
+                    message="Modo demo — datos simulados activos",
                     url=settings.glpi_url,
                 ).model_dump()
             )
+
+        # Detectar si los tokens no están configurados
+        tokens_missing = not settings.glpi_app_token or not settings.glpi_user_token
+        if tokens_missing:
+            return APIResponse.ok(
+                GlpiAvailability(
+                    available=False,
+                    message="Tokens de API no configurados (GLPI_APP_TOKEN / GLPI_USER_TOKEN)",
+                    url=settings.glpi_url,
+                ).model_dump()
+            )
+
         available = await glpi.is_available()
+        message = (
+            f"Conectado — {settings.glpi_url}"
+            if available
+            else f"Sin respuesta en {settings.glpi_url}"
+        )
         return APIResponse.ok(
             GlpiAvailability(
                 available=available,
-                message="GLPI disponible" if available else "GLPI no disponible",
+                message=message,
                 url=settings.glpi_url,
             ).model_dump()
         )

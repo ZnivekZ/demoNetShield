@@ -347,6 +347,160 @@ export interface WazuhHealthResponse {
   cluster_enabled: boolean;
 }
 
+/* ── Wazuh Extended Types (Pagination, Vulnerabilities, MITRE, Agent Detail) ─ */
+
+export interface WazuhAlertsPagination {
+  items: WazuhAlert[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+    has_next: boolean;
+    has_prev: boolean;
+  };
+}
+
+export interface WazuhAlertsFilters {
+  page?: number;
+  page_size?: number;
+  level_min?: number;
+  agent_id?: string;
+  rule_id?: string;
+  from_date?: string;
+  to_date?: string;
+  search?: string;
+}
+
+export interface WazuhAgentsPagination {
+  items: WazuhAgent[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+    has_next: boolean;
+    has_prev: boolean;
+  };
+}
+
+export interface WazuhAgentsFilters {
+  page?: number;
+  page_size?: number;
+  status?: 'active' | 'disconnected' | 'never_connected' | 'pending';
+  search?: string;
+}
+
+export interface WazuhAgentDetail {
+  agent: WazuhAgent;
+  recent_alerts: WazuhAlert[];
+  recent_alerts_total?: number;
+  syscheck?: {
+    total_events: number;
+    last_scan: string | null;
+    files_modified: number;
+    recent_events: WazuhSyscheckEvent[];
+  };
+  syscollector?: {
+    hardware: Record<string, string | number>;
+    os: Record<string, string | number>;
+    packages_total: number;
+    processes_total: number;
+    ports_total: number;
+  };
+  not_available?: boolean;
+}
+
+export interface WazuhSyscheckEvent {
+  timestamp: string;
+  agent_id: string;
+  file: string;
+  event_type: 'added' | 'modified' | 'deleted';
+  diff: string | null;
+  permissions: string;
+  size_after: number;
+  sha256_after: string;
+}
+
+export interface WazuhVulnerability {
+  cve_id: string;
+  title: string;
+  description: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  cvss_score: number;
+  package_name: string;
+  package_version: string;
+  package_arch: string;
+  agent_id: string;
+  agent_name: string;
+  agent_ip: string;
+  detected_at: string;
+  references: string[];
+  not_available?: boolean;
+}
+
+export interface WazuhVulnerabilitiesPagination {
+  items: WazuhVulnerability[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+    has_next: boolean;
+    has_prev: boolean;
+  };
+}
+
+export interface WazuhVulnerabilitiesFilters {
+  page?: number;
+  page_size?: number;
+  severity?: 'critical' | 'high' | 'medium' | 'low';
+  agent_id?: string;
+  search?: string;
+}
+
+export interface MitreTechnique {
+  technique_id: string;
+  technique_name: string;
+  count: number;
+  last_seen: string;
+}
+
+export interface MitreTactic {
+  tactic_id: string;
+  tactic_name: string;
+  techniques: MitreTechnique[];
+  total_count: number;
+}
+
+export interface WazuhMitreMatrix {
+  tactics: MitreTactic[];
+  generated_at: string;
+  not_available?: boolean;
+}
+
+export interface WazuhStatsSummary {
+  total_alerts_24h: number;
+  total_alerts_7d: number;
+  critical_alerts_24h: number;
+  high_alerts_24h: number;
+  medium_alerts_24h: number;
+  low_alerts_24h: number;
+  active_agents: number;
+  total_agents: number;
+  vulnerabilities_total: number;
+  vulnerabilities_critical: number;
+  top_mitre_tactics: { tactic_id: string; tactic_name: string; count: number }[];
+  not_available?: boolean;
+}
+
+/* ── Not-available helper type ──────────────────────────────────────────── */
+
+export interface WazuhNotAvailable {
+  not_available: true;
+  reason: string;
+}
+
 /* ── MikroTik Extended Types ────────────────────────────────── */
 
 export interface SystemHealthMikrotik {

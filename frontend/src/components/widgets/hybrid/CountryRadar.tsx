@@ -30,7 +30,6 @@ export function CountryRadar({ config }: { config?: { limit?: number } }) {
           />
           <Radar name="CrowdSec" dataKey="CrowdSec" stroke="#10b981" fill="#10b981" fillOpacity={0.2} />
           <Radar name="Wazuh" dataKey="Wazuh" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.15} />
-          <Radar name="Suricata" dataKey="Suricata" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.15} />
           <Tooltip
             contentStyle={{
               background: 'var(--color-surface)',

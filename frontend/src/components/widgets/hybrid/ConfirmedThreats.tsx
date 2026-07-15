@@ -3,7 +3,6 @@ import { WidgetSkeleton, WidgetErrorState, WidgetHeader } from '../common';
 import type { ConfirmedThreat } from '../../../types';
 
 const SOURCE_BADGES: Record<string, { label: string; color: string }> = {
-  suricata: { label: 'S', color: '#8b5cf6' },
   crowdsec: { label: 'C', color: '#10b981' },
   wazuh: { label: 'W', color: '#f59e0b' },
 };

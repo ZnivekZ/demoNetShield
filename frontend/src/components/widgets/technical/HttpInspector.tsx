@@ -27,7 +27,7 @@ function statusColor(s?: number): string {
 }
 
 /**
- * Tabla de transacciones HTTP capturadas por Suricata NSM.
+ * Tabla de transacciones HTTP capturadas por la fuente NSM.
  * Columnas: método (badge), URL, user-agent, status, tamaño.
  */
 export function HttpInspector({ config }: { config?: { limit?: number } }) {

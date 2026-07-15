@@ -10,7 +10,6 @@ import {
   networkApi,
   crowdsecApi,
   wazuhApi,
-  suricataApi,
   mikrotikApi,
   telegramApi,
   vlansApi,
@@ -100,11 +99,10 @@ export function useDefenseLayers() {
   return useQuery({
     queryKey: ['widget', 'defense-layers'],
     queryFn: async () => {
-      const [wazuhRes, mikrotikRes, csRes, surRes] = await Promise.allSettled([
+      const [wazuhRes, mikrotikRes, csRes] = await Promise.allSettled([
         wazuhApi.getHealth(),
         mikrotikApi.getHealth(),
         crowdsecApi.getMetrics(),
-        suricataApi.getEngineStatus(),
       ]);
       return {
         wazuh: {
@@ -121,13 +119,7 @@ export function useDefenseLayers() {
           decisions: (csRes.status === 'fulfilled' && csRes.value.success)
             ? csRes.value.data?.active_decisions : undefined,
         },
-        suricata: {
-          ok: surRes.status === 'fulfilled' && surRes.value.success,
-          label: 'Suricata IDS',
-          mode: (surRes.status === 'fulfilled' && surRes.value.success)
-            ? surRes.value.data?.mode : undefined,
-        },
-        partial: [wazuhRes, mikrotikRes, csRes, surRes].some(r => r.status === 'rejected'),
+        partial: [wazuhRes, mikrotikRes, csRes].some(r => r.status === 'rejected'),
       };
     },
     staleTime: 30_000,
@@ -153,20 +145,6 @@ export function useApplyGeoblockSuggestion() {
   return useMutation({
     mutationFn: ({ id, duration }: { id: string; duration: string }) =>
       geoipApi.applySuggestion(id, duration),
-  });
-}
-
-/* ── Suricata × GLPI ───────────────────────────────────────────── */
-
-export function useSuricataGlpi(limit = 10) {
-  return useQuery({
-    queryKey: ['widget', 'suricata-glpi', limit],
-    queryFn: async () => {
-      const res = await widgetsApi.getSuricataAssetCorrelation(limit);
-      if (!res.success) throw new Error(res.error ?? 'Error');
-      return res.data!;
-    },
-    staleTime: 2 * 60_000,
   });
 }
 

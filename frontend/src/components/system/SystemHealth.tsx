@@ -1,24 +1,22 @@
 /**
  * SystemHealth — System monitoring page (route: /system).
- * Shows health cards for ALL 5 integrations:
- *   Row 1 (3-col): MikroTik, Wazuh, CrowdSec
- *   Row 2 (2-col): Suricata, GLPI
+ * Shows health cards for ALL integrations:
+ *   Row 1 (4-col): MikroTik, Wazuh, CrowdSec, GLPI
  *   Full-width:    Interface traffic chart, GeoIP DB status
- * Tab: CLI Remota (MikroTik, Wazuh, Suricata, CrowdSec)
+ * Tab: CLI Remota (MikroTik, Wazuh, CrowdSec)
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Cpu, HardDrive, Clock, Thermometer, Activity, Shield, Terminal,
-  Crosshair, Bug, Package, Server, RefreshCw,
+  Crosshair, Package, Server, RefreshCw,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useMikrotikHealth, useInterfaceTraffic, useInterfaces } from '../../hooks/useMikrotikHealth';
 import { useWazuhHealth, useAgentsSummary } from '../../hooks/useWazuhSummary';
 import { useCrowdSecMetrics, useCrowdSecBouncers } from '../../hooks/useCrowdSecMetrics';
-import { useSuricataEngine } from '../../hooks/useSuricataEngine';
 import { useGlpiAssetStats } from '../../hooks/useGlpiAssets';
-import { glpiApi, suricataApi } from '../../services/api';
+import { glpiApi } from '../../services/api';
 import { getApiErrorMessage, requireApiSuccess } from '../../services/apiResponse';
 import { RemoteCLI } from './RemoteCLI';
 import { GeoIPStatus } from './GeoIPStatus';
@@ -39,22 +37,6 @@ export function SystemHealth() {
   // CrowdSec
   const { data: csMetrics, isLoading: csLoading, isFetching: csFetching, isError: csError, error: csErrorObj, refetch: refetchCs } = useCrowdSecMetrics();
   const { data: csBouncers = [] } = useCrowdSecBouncers();
-
-  // Suricata
-  const {
-    engineStatus: surEngine,
-    isLoadingStatus: surLoading,
-    isFetchingStatus: surFetching,
-    isStatusError: surError,
-    statusError: surErrorObj,
-    refetchStatus: refetchSuricata,
-  } = useSuricataEngine();
-  const { data: surMode } = useQuery({
-    queryKey: ['suricata', 'engine-mode'],
-    queryFn: () => suricataApi.getEngineMode(),
-    refetchInterval: 60_000,
-    select: r => r.data,
-  });
 
   // GLPI
   const { data: glpiStatus, isLoading: glpiLoading, isFetching: glpiFetching, isError: glpiError, error: glpiErrorObj, refetch: refetchGlpi } = useQuery({
@@ -117,21 +99,6 @@ export function SystemHealth() {
       detail: csMetrics ? `${csMetrics.active_decisions} decisiones activas` : 'LAPI',
       errorMessage: csError ? getApiErrorMessage(csErrorObj, 'No se pudo conectar con CrowdSec') : null,
       onRetry: refetchCs,
-    },
-    {
-      name: 'Suricata',
-      icon: <Bug size={15} />,
-      isLoading: surLoading,
-      isFetching: !!surFetching,
-      isError: surError,
-      isOnline: surEngine?.running === true,
-      detail: surEngine?.version ?? surEngine?.mode ?? 'IDS/IPS',
-      errorMessage: surError
-        ? getApiErrorMessage(surErrorObj, 'No se pudo conectar con Suricata')
-        : surEngine && !surEngine.running
-          ? 'Motor Suricata detenido'
-          : null,
-      onRetry: refetchSuricata,
     },
     {
       name: 'GLPI',
@@ -362,57 +329,8 @@ export function SystemHealth() {
             </div>
           </div>
 
-          {/* ── Row 2: Suricata, GLPI (2 cols) ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
-            {/* Suricata Health */}
-            <div className="glass-card" style={{ padding: '1.5rem' }}>
-              <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-surface-200)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Bug size={15} style={{ color: 'var(--color-brand-400)' }} />
-                Suricata IDS/IPS
-                {surEngine?.version && <span className="badge badge-info">{surEngine.version}</span>}
-                {surEngine?.running != null && (
-                  <span className={`badge ${surEngine.running ? 'badge-success' : 'badge-critical'}`} style={{ fontSize: '0.58rem' }}>
-                    {surEngine.running ? 'RUNNING' : 'STOPPED'}
-                  </span>
-                )}
-              </h3>
-
-              {surEngine ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {/* Key stats */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
-                    {[
-                      { label: 'Modo', value: (surMode?.mode || surEngine.mode || '—').toUpperCase(), color: 'var(--color-brand-400)' },
-                      { label: 'Alertas', value: surEngine.alerts_total, color: 'var(--color-warning)' },
-                      { label: 'Reglas', value: surEngine.rules_loaded, color: 'var(--color-success)' },
-                      { label: 'Drops', value: surEngine.packets_dropped, color: surEngine.packets_dropped > 0 ? 'var(--color-danger)' : 'var(--color-surface-400)' },
-                    ].map(s => (
-                      <div key={s.label} style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(15,23,42,0.4)', borderRadius: 8 }}>
-                        <div style={{ fontSize: '1rem', fontWeight: 700, color: s.color }}>{s.value}</div>
-                        <div style={{ fontSize: '0.6rem', color: 'var(--color-surface-500)' }}>{s.label}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Info rows */}
-                  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                    <InfoRow icon={<Server size={12} />} label="Interfaz" value={surMode?.interface || surEngine.interface || '—'} />
-                    <InfoRow icon={<Clock size={12} />} label="Uptime" value={surEngine.uptime_label || '—'} />
-                    <InfoRow icon={<Activity size={12} />} label="Flujos" value={String(surEngine.flows_active)} />
-                  </div>
-
-                  {/* Rules detail */}
-                  {surEngine.rules_failed > 0 && (
-                    <div style={{ padding: '0.4rem 0.65rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, fontSize: '0.72rem', color: '#fca5a5' }}>
-                      ⚠ {surEngine.rules_failed} reglas fallidas al cargar
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="empty-state">Sin datos de Suricata</div>
-              )}
-            </div>
-
+          {/* ── Row 2: GLPI Inventory (full width) ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
             {/* GLPI Health */}
             <div className="glass-card" style={{ padding: '1.5rem' }}>
               <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-surface-200)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

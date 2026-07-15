@@ -242,9 +242,119 @@ async def get_wazuh_health(
     Includes: services, version, cluster status.
     """
     try:
-        data = await service.get_health()
+        data = await asyncio.wait_for(service.get_health(), timeout=5.0)
         return APIResponse.ok(data)
+    except asyncio.TimeoutError:
+        logger.warning("api_wazuh_health_timeout", timeout=5.0)
+        return APIResponse.fail("Wazuh no respondió en 5s (timeout)")
     except Exception as e:
         logger.error("api_get_wazuh_health_failed", error=str(e))
         return APIResponse.fail(f"Failed to fetch Wazuh health: {str(e)}")
+
+
+# ── Extended Wazuh endpoints (new Wazuh UI module) ────────────
+
+
+@router.get("/stats/summary")
+async def get_stats_summary(
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """[Wazuh API] Aggregate stats for the dashboard hero numbers."""
+    try:
+        data = await asyncio.wait_for(service.get_stats_summary(), timeout=15.0)
+        return APIResponse.ok(data)
+    except asyncio.TimeoutError:
+        logger.warning("api_wazuh_stats_timeout")
+        return APIResponse.fail("Wazuh stats agregadas: timeout")
+    except Exception as e:
+        logger.error("api_wazuh_stats_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch Wazuh stats: {str(e)}")
+
+
+@router.get("/vulnerabilities")
+async def get_vulnerabilities(
+    agent_id: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """[Wazuh API] List vulnerabilities detected on agents, optionally filtered by agent."""
+    try:
+        data = await service.get_vulnerabilities(agent_id=agent_id, limit=limit, offset=offset)
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_wazuh_vulnerabilities_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch vulnerabilities: {str(e)}")
+
+
+@router.get("/agents/{agent_id}")
+async def get_agent_detail(
+    agent_id: str,
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """[Wazuh API] Detail of a single agent."""
+    try:
+        data = await service.get_agent_detail(agent_id)
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_wazuh_agent_detail_failed", agent_id=agent_id, error=str(e))
+        return APIResponse.fail(f"Failed to fetch agent {agent_id}: {str(e)}")
+
+
+@router.get("/agents/{agent_id}/alerts")
+async def get_agent_alerts(
+    agent_id: str,
+    limit: int = Query(25, ge=1, le=500),
+    level_min: int = Query(0, ge=0, le=15),
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """[Wazuh API] Recent alerts from one specific agent."""
+    try:
+        data = await service.get_agent_alerts(agent_id=agent_id, limit=limit, level_min=level_min)
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_wazuh_agent_alerts_failed", agent_id=agent_id, error=str(e))
+        return APIResponse.fail(f"Failed to fetch agent {agent_id} alerts: {str(e)}")
+
+
+@router.get("/agents/{agent_id}/syscheck")
+async def get_agent_syscheck(
+    agent_id: str,
+    limit: int = Query(50, ge=1, le=500),
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """[Wazuh API] File integrity monitoring (FIM) events for an agent."""
+    try:
+        data = await service.get_agent_syscheck(agent_id=agent_id, limit=limit)
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_wazuh_agent_syscheck_failed", agent_id=agent_id, error=str(e))
+        return APIResponse.fail(f"Failed to fetch syscheck for agent {agent_id}: {str(e)}")
+
+
+@router.get("/agents/{agent_id}/syscollector")
+async def get_agent_syscollector(
+    agent_id: str,
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """[Wazuh API] Hardware/OS/packages inventory for an agent."""
+    try:
+        data = await service.get_agent_syscollector(agent_id)
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_wazuh_agent_syscollector_failed", agent_id=agent_id, error=str(e))
+        return APIResponse.fail(f"Failed to fetch syscollector for agent {agent_id}: {str(e)}")
+
+
+@router.get("/mitre/matrix")
+async def get_mitre_matrix(
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """[Wazuh API] MITRE ATT&CK matrix: tactics → techniques → count."""
+    try:
+        data = await service.get_mitre_matrix()
+        return APIResponse.ok(data)
+    except Exception as e:
+        logger.error("api_wazuh_mitre_matrix_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch MITRE matrix: {str(e)}")
 

@@ -111,14 +111,7 @@ from schemas.crowdsec import (
     FullRemediationRequest,
     SyncApplyRequest,
 )
-from schemas.suricata import (
-    AutoResponseTriggerRequest,
-    AutoResponseConfigUpdate,
-    RuleToggleRequest,
-    AlertFilterParams,
-    FlowFilterParams,
-    RuleFilterParams,
-)
+
 from schemas.telegram import (
     TelegramAlert,
     TelegramReportConfigCreate,

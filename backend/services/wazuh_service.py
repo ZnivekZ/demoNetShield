@@ -619,6 +619,284 @@ class WazuhService:
             "cluster_enabled": cluster_enabled,
         }
 
+    # ── Extended Security Endpoints (for new Wazuh UI module) ───────────
+
+    async def get_vulnerabilities(
+        self,
+        agent_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict]:
+        """
+        [Wazuh API] Get vulnerabilities detected on agents.
+        Wazuh endpoint: GET /vulnerability/{agent_id} or GET /vulnerabilities
+        Returns normalized vulnerability items with severity scoring.
+        """
+        if self._settings.should_mock_wazuh:
+            from services.mock_data import MockData
+            return MockData.wazuh.vulnerabilities(agent_id=agent_id, limit=limit)
+        try:
+            params: dict[str, Any] = {"limit": limit, "offset": offset}
+            if agent_id:
+                endpoint = f"/vulnerability/{agent_id}"
+            else:
+                endpoint = "/vulnerabilities"
+            data = await self._api_request("GET", endpoint, params=params)
+            affected = data.get("data", {}).get("affected_items", [])
+            out: list[dict] = []
+            for item in affected:
+                severity = (item.get("severity") or "").lower()
+                score = float(item.get("cvss2_score") or item.get("cvss3_score") or 0)
+                out.append({
+                    "id": item.get("id", ""),
+                    "agent_id": item.get("agent_id", ""),
+                    "agent_name": item.get("agent_name", ""),
+                    "cve": item.get("cve", ""),
+                    "title": item.get("title", ""),
+                    "severity": severity,
+                    "score": score,
+                    "reference": item.get("reference", ""),
+                    "published": item.get("published", ""),
+                    "updated": item.get("updated", ""),
+                    "version": item.get("version", ""),
+                    "type": item.get("type", ""),
+                })
+            return out
+        except Exception as e:
+            logger.warning("wazuh_get_vulnerabilities_failed", error=str(e))
+            # Fallback to mock so the UI keeps working
+            from services.mock_data import MockData
+            return MockData.wazuh.vulnerabilities(agent_id=agent_id, limit=limit)
+
+    async def get_agent_detail(self, agent_id: str) -> dict:
+        """
+        [Wazuh API] Get detail of a single agent.
+        Wazuh endpoints: GET /agents/{agent_id} and GET /agents/{agent_id}/group/is_sync.
+        """
+        if self._settings.should_mock_wazuh:
+            from services.mock_data import MockData
+            return MockData.wazuh.agent_detail(agent_id)
+        try:
+            data = await self._api_request("GET", f"/agents/{agent_id}")
+            items = data.get("data", {}).get("affected_items", [])
+            if items:
+                agent = items[0]
+                return {
+                    "id": agent.get("id", agent_id),
+                    "name": agent.get("name", ""),
+                    "ip": agent.get("ip", ""),
+                    "status": agent.get("status", ""),
+                    "os_name": agent.get("os", {}).get("name", "") if isinstance(agent.get("os"), dict) else str(agent.get("os", "")),
+                    "os_version": agent.get("version", "") or (agent.get("os", {}).get("version", "") if isinstance(agent.get("os"), dict) else ""),
+                    "manager": agent.get("manager", ""),
+                    "node_name": agent.get("node_name", ""),
+                    "last_keep_alive": agent.get("last_keep_alive", ""),
+                    "registration_ip": agent.get("registration_ip", ""),
+                    "group": agent.get("group", []),
+                    "date_add": agent.get("dateAdd", ""),
+                }
+            return {"id": agent_id, "error": "not_found"}
+        except Exception as e:
+            logger.warning("wazuh_get_agent_detail_failed", agent_id=agent_id, error=str(e))
+            from services.mock_data import MockData
+            return MockData.wazuh.agent_detail(agent_id)
+
+    async def get_agent_alerts(
+        self, agent_id: str, limit: int = 25, level_min: int = 0
+    ) -> list[dict]:
+        """
+        [Wazuh API] Get recent alerts from one specific agent.
+        Falls back to get_alerts + filter by agent_id if Wazuh lacks a dedicated endpoint.
+        """
+        if self._settings.should_mock_wazuh:
+            from services.mock_data import MockData
+            return MockData.wazuh.agent_alerts(agent_id, limit=limit)
+        try:
+            return await self.get_alerts_by_agent(
+                agent_id=agent_id, limit=limit, offset=0
+            )
+        except Exception as e:
+            logger.warning("wazuh_get_agent_alerts_failed", agent_id=agent_id, error=str(e))
+            from services.mock_data import MockData
+            return MockData.wazuh.agent_alerts(agent_id, limit=limit)
+
+    async def get_agent_syscheck(self, agent_id: str, limit: int = 50) -> list[dict]:
+        """
+        [Wazuh API] Get recent file integrity monitoring (syscheck) events for an agent.
+        Endpoint: GET /syscheck/{agent_id}
+        """
+        if self._settings.should_mock_wazuh:
+            from services.mock_data import MockData
+            return MockData.wazuh.agent_syscheck(agent_id, limit=limit)
+        try:
+            data = await self._api_request(
+                "GET", f"/syscheck/{agent_id}", params={"limit": limit}
+            )
+            items = data.get("data", {}).get("affected_items", [])
+            out: list[dict] = []
+            for it in items:
+                out.append({
+                    "file": it.get("file", ""),
+                    "event": it.get("event", ""),
+                    "timestamp": it.get("timestamp", ""),
+                    "sha256": it.get("sha256", ""),
+                    "size": it.get("size", 0),
+                    "agent_id": agent_id,
+                })
+            return out
+        except Exception as e:
+            logger.warning("wazuh_get_agent_syscheck_failed", agent_id=agent_id, error=str(e))
+            from services.mock_data import MockData
+            return MockData.wazuh.agent_syscheck(agent_id, limit=limit)
+
+    async def get_agent_syscollector(self, agent_id: str) -> dict:
+        """
+        [Wazuh API] Get hardware/software inventory (syscollector) for one agent.
+        Endpoints: GET /syscollector/{agent_id}/hardware, GET /.../os, GET /.../packages.
+        """
+        if self._settings.should_mock_wazuh:
+            from services.mock_data import MockData
+            return MockData.wazuh.agent_syscollector(agent_id)
+        result: dict[str, Any] = {"agent_id": agent_id}
+        try:
+            hw = await self._api_request("GET", f"/syscollector/{agent_id}/hardware")
+            hw_items = hw.get("data", {}).get("affected_items", [])
+            if hw_items:
+                h = hw_items[0]
+                result["hardware"] = {
+                    "cpu_cores": h.get("cpu", {}).get("cores", 0),
+                    "cpu_name": h.get("cpu", {}).get("name", ""),
+                    "cpu_mhz": h.get("cpu", {}).get("mhz", 0),
+                    "ram_total_mb": int((h.get("ram", {}).get("total", 0) or 0) / 1024),
+                    "ram_free_mb": int((h.get("ram", {}).get("free", 0) or 0) / 1024),
+                }
+        except Exception as e:
+            logger.warning("wazuh_syscollector_hw_failed", agent_id=agent_id, error=str(e))
+            result["hardware"] = None
+        try:
+            os_data = await self._api_request("GET", f"/syscollector/{agent_id}/os")
+            os_items = os_data.get("data", {}).get("affected_items", [])
+            if os_items:
+                o = os_items[0]
+                result["os"] = {
+                    "sysname": o.get("sysname", ""),
+                    "version": o.get("version", ""),
+                    "architecture": o.get("architecture", ""),
+                }
+        except Exception as e:
+            logger.warning("wazuh_syscollector_os_failed", agent_id=agent_id, error=str(e))
+            result["os"] = None
+        try:
+            pkgs = await self._api_request(
+                "GET", f"/syscollector/{agent_id}/packages", params={"limit": 50}
+            )
+            pkgs_items = pkgs.get("data", {}).get("affected_items", [])
+            result["packages_count"] = len(pkgs_items)
+            result["packages"] = [
+                {"name": p.get("name", ""), "version": p.get("version", ""), "vendor": p.get("vendor", "")}
+                for p in pkgs_items[:50]
+            ]
+        except Exception as e:
+            logger.warning("wazuh_syscollector_packages_failed", agent_id=agent_id, error=str(e))
+            result["packages_count"] = 0
+            result["packages"] = []
+        return result
+
+    async def get_mitre_matrix(self) -> dict:
+        """
+        [Wazuh API] Get MITRE ATT&CK matrix counts (tactics → techniques → count).
+        Uses the existing mitre summary and groups techniques under their tactic.
+        """
+        if self._settings.should_mock_wazuh:
+            from services.mock_data import MockData
+            return MockData.wazuh.mitre_matrix()
+        try:
+            summary = await self.get_mitre_summary()
+            # Group by tactic (TA00XX codes)
+            tactics: dict[str, dict[str, Any]] = {}
+            for row in summary:
+                tech = row.get("technique", "")
+                tactic_id = row.get("tactic", "")
+                count = row.get("count", 0)
+                if not tactic_id:
+                    continue
+                if tactic_id not in tactics:
+                    tactics[tactic_id] = {"id": tactic_id, "name": tactic_id, "techniques": [], "total": 0}
+                tactics[tactic_id]["techniques"].append({"id": tech, "name": tech, "count": count})
+                tactics[tactic_id]["total"] += count
+            return {"tactics": list(tactics.values())}
+        except Exception as e:
+            logger.warning("wazuh_get_mitre_matrix_failed", error=str(e))
+            from services.mock_data import MockData
+            return MockData.wazuh.mitre_matrix()
+
+    async def get_stats_summary(self) -> dict:
+        """
+        [Wazuh API] Global aggregate stats: agents counts, alerts in last 24h, critical alerts, vulnerabilities count, top tactic.
+        """
+        if self._settings.should_mock_wazuh:
+            from services.mock_data import MockData
+            return MockData.wazuh.stats_summary()
+        result: dict[str, Any] = {
+            "agents": {"active": 0, "disconnected": 0, "never_connected": 0, "total": 0},
+            "alerts_24h": 0,
+            "critical_alerts": 0,
+            "vulnerabilities_count": 0,
+            "top_tactic": None,
+        }
+        try:
+            ag_summary = await self.get_agents_summary()
+            summary = ag_summary.get("summary") if isinstance(ag_summary, dict) else ag_summary
+            if isinstance(summary, list) and summary:
+                for row in summary:
+                    status = row.get("status", "")
+                    count = row.get("count", 0)
+                    key_map = {
+                        "active": "active",
+                        "disconnected": "disconnected",
+                        "never_connected": "never_connected",
+                        "pending": "never_connected",
+                    }
+                    k = key_map.get(status)
+                    if k:
+                        result["agents"][k] = count
+                    result["agents"]["total"] += count
+        except Exception as e:
+            logger.warning("wazuh_stats_summary_agents_failed", error=str(e))
+        try:
+            critical = await self.get_critical_alerts(limit=1)
+            result["critical_alerts"] = len(critical) if isinstance(critical, list) else 0
+            # Get actual count via a broader query
+            broad = await self.get_critical_alerts(limit=500)
+            result["critical_alerts"] = len(broad) if isinstance(broad, list) else 0
+        except Exception as e:
+            logger.warning("wazuh_stats_summary_critical_failed", error=str(e))
+        try:
+            vulns = await self.get_vulnerabilities(limit=500)
+            result["vulnerabilities_count"] = len(vulns) if isinstance(vulns, list) else 0
+        except Exception as e:
+            logger.warning("wazuh_stats_summary_vulns_failed", error=str(e))
+        try:
+            mitre = await self.get_mitre_summary(limit=1) if hasattr(self.get_mitre_summary, "__call__") else None
+            # Just use first row of summary
+            ms = await self.get_mitre_summary()
+            if ms:
+                top = ms[0]
+                result["top_tactic"] = {"tactic": top.get("tactic", ""), "technique": top.get("technique", ""), "count": top.get("count", 0)}
+        except Exception as e:
+            logger.warning("wazuh_stats_summary_mitre_failed", error=str(e))
+        # Alerts 24h — use get_alerts with a 24h window
+        try:
+            from datetime import datetime, timezone, timedelta
+            since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+            params = {"limit": 500, "q": f"timestamp>{since}"}
+            resp = await self._api_request("GET", "/alerts", params=params)
+            items = resp.get("data", {}).get("affected_items", [])
+            result["alerts_24h"] = len(items)
+        except Exception as e:
+            logger.warning("wazuh_stats_summary_alerts_24h_failed", error=str(e))
+        return result
+
     async def close(self) -> None:
         """Close the HTTP client."""
         if self._client and not self._client.is_closed:

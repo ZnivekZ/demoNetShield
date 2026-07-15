@@ -1,15 +1,13 @@
 /**
- * RemoteCLI — Read-only remote CLI for MikroTik, Wazuh, Suricata, and CrowdSec.
+ * RemoteCLI — Read-only remote CLI for MikroTik, Wazuh, and CrowdSec.
  * MikroTik: sends path to whitelisted read-only commands.
- * Wazuh: restart or status on selected agent.
- * Suricata: engine status, mode, reload rules (with ConfirmModal).
+ * Wazuh:    restart or status on selected agent.
  * CrowdSec: decisions, bouncers, scenarios queries.
  */
 import { useState } from 'react';
 import { Terminal, RefreshCw, ChevronRight, AlertTriangle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { cliApi, wazuhApi, suricataApi, crowdsecApi } from '../../services/api';
-import { ConfirmModal } from '../common/ConfirmModal';
+import { cliApi, wazuhApi, crowdsecApi } from '../../services/api';
 import type { CLIResponse } from '../../types';
 
 const MIKROTIK_SUGGESTIONS = [
@@ -18,7 +16,7 @@ const MIKROTIK_SUGGESTIONS = [
   '/ip/dns/static', '/log', '/queue/simple',
 ];
 
-type CliTab = 'mikrotik' | 'wazuh' | 'suricata' | 'crowdsec';
+type CliTab = 'mikrotik' | 'wazuh' | 'crowdsec';
 
 export function RemoteCLI() {
   const [cliTab, setCliTab] = useState<CliTab>('mikrotik');
@@ -35,14 +33,6 @@ export function RemoteCLI() {
   const [wazuhResult, setWazuhResult] = useState<CLIResponse | null>(null);
   const [wazuhLoading, setWazuhLoading] = useState(false);
   const [wazuhError, setWazuhError] = useState<string | null>(null);
-
-  // Suricata CLI state
-  const [surResult, setSurResult] = useState<Record<string, unknown> | null>(null);
-  const [surLoading, setSurLoading] = useState(false);
-  const [surError, setSurError] = useState<string | null>(null);
-  const [surLastAction, setSurLastAction] = useState('');
-  const [showReloadConfirm, setShowReloadConfirm] = useState(false);
-  const [reloading, setReloading] = useState(false);
 
   // CrowdSec CLI state
   const [csResult, setCsResult] = useState<unknown>(null);
@@ -84,43 +74,6 @@ export function RemoteCLI() {
     }
   };
 
-  // ── Suricata actions ──
-  const executeSuricata = async (action: 'status' | 'mode' | 'reload') => {
-    if (action === 'reload') {
-      setShowReloadConfirm(true);
-      return;
-    }
-    setSurLoading(true); setSurError(null); setSurResult(null);
-    setSurLastAction(action === 'status' ? 'Engine Status' : 'Engine Mode');
-    try {
-      const resp = action === 'status'
-        ? await suricataApi.getEngineStatus()
-        : await suricataApi.getEngineMode();
-      if (resp.success) setSurResult(resp.data as Record<string, unknown>);
-      else setSurError(resp.error ?? 'Error');
-    } catch (e) {
-      setSurError(e instanceof Error ? e.message : 'Error de conexión');
-    } finally {
-      setSurLoading(false);
-    }
-  };
-
-  const confirmReloadRules = async () => {
-    setReloading(true); setSurError(null); setSurResult(null);
-    setSurLastAction('Reload Rules');
-    try {
-      const resp = await suricataApi.reloadRules();
-      if (resp.success) setSurResult(resp.data as Record<string, unknown>);
-      else setSurError(resp.error ?? 'Error');
-    } catch (e) {
-      setSurError(e instanceof Error ? e.message : 'Error de conexión');
-    } finally {
-      setReloading(false);
-      setShowReloadConfirm(false);
-    }
-  };
-
-  // ── CrowdSec actions ──
   const executeCrowdSec = async (action: 'decisions' | 'bouncers' | 'scenarios' | 'metrics') => {
     setCsLoading(true); setCsError(null); setCsResult(null);
     const labels: Record<string, string> = {
@@ -145,7 +98,7 @@ export function RemoteCLI() {
   };
 
   const tabLabels: Record<CliTab, string> = {
-    mikrotik: 'MikroTik', wazuh: 'Wazuh Agent', suricata: 'Suricata', crowdsec: 'CrowdSec',
+    mikrotik: 'MikroTik', wazuh: 'Wazuh Agent', crowdsec: 'CrowdSec',
   };
 
   return (
@@ -278,46 +231,6 @@ export function RemoteCLI() {
         </div>
       )}
 
-      {/* ── Suricata Tab ── */}
-      {cliTab === 'suricata' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-500)', padding: '0.5rem 0.75rem', background: 'rgba(99,102,241,0.08)', borderRadius: 8, borderLeft: '3px solid var(--color-brand-600)' }}>
-            Consultas al motor Suricata. Reload Rules requiere confirmación.
-          </p>
-
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {[
-              { key: 'status', label: 'Engine Status', variant: 'btn-primary' },
-              { key: 'mode', label: 'Engine Mode', variant: 'btn-primary' },
-              { key: 'reload', label: '⟳ Reload Rules', variant: 'btn-danger' },
-            ].map(a => (
-              <button
-                key={a.key}
-                className={`btn ${a.variant}`}
-                style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                onClick={() => executeSuricata(a.key as 'status' | 'mode' | 'reload')}
-                disabled={surLoading || reloading}
-              >
-                {(surLoading || reloading) && surLastAction === a.label ? <span className="loading-spinner" /> : null}
-                {a.label}
-              </button>
-            ))}
-          </div>
-
-          <CLIError error={surError} />
-          {surResult && (
-            <div className="cli-output">
-              <div className="cli-output__header">
-                <span>Suricata — {surLastAction}</span>
-              </div>
-              <pre className="cli-output__content">
-                {JSON.stringify(surResult, null, 2)}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ── CrowdSec Tab ── */}
       {cliTab === 'crowdsec' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -369,19 +282,6 @@ export function RemoteCLI() {
             </div>
           )}
         </div>
-      )}
-
-      {/* ── Reload Rules Confirm Modal ── */}
-      {showReloadConfirm && (
-        <ConfirmModal
-          title="Recargar Reglas Suricata"
-          description="Se recargarán todas las reglas en el motor Suricata sin reiniciarlo. Esto puede afectar brevemente el rendimiento de detección."
-          data={{ Acción: 'suricata-update + reload', Motor: 'No se reinicia', Impacto: 'Brevemente reducido' }}
-          confirmLabel="Recargar"
-          onConfirm={confirmReloadRules}
-          onCancel={() => setShowReloadConfirm(false)}
-          isLoading={reloading}
-        />
       )}
     </div>
   );

@@ -48,7 +48,6 @@ export function CorrelationTimeline({ config }: CorrelationTimelineProps) {
           />
           <Legend wrapperStyle={{ fontSize: '11px' }} />
           <Line type="monotone" dataKey="wazuh_alerts" stroke="#f59e0b" name="Wazuh" dot={false} strokeWidth={2} />
-          <Line type="monotone" dataKey="suricata_alerts" stroke="#8b5cf6" name="Suricata" dot={false} strokeWidth={2} />
           <Line type="monotone" dataKey="crowdsec_decisions" stroke="#10b981" name="CrowdSec" dot={false} strokeWidth={1.5} strokeDasharray="4 2" />
         </LineChart>
       </ResponsiveContainer>

@@ -674,6 +674,199 @@ class MockData:
             base = MockData.wazuh.alerts(limit=50)
             return [a for a in base if "phishing" in a["rule_description"].lower() or a["dst_url"]]
 
+        @staticmethod
+        def vulnerabilities(agent_id: str | None = None, limit: int = 50) -> list[dict]:
+            """Generate mock vulnerabilities (CVE-style) for the dashboard."""
+            _r = _random_module.Random(123)
+            agents = MockData.wazuh.agents()
+            if agent_id:
+                agents = [a for a in agents if a["id"] == agent_id] or agents[:1]
+            cves = [
+                ("CVE-2024-3094", "XZ Utils Backdoor",                         "Critical", 10.0),
+                ("CVE-2023-44487", "HTTP/2 Rapid Reset",                       "High",     7.5),
+                ("CVE-2024-21412", "Microsoft Defender SmartScreen Bypass",    "High",     8.1),
+                ("CVE-2023-36802", "Microsoft Office Search Path RCE",         "High",     8.8),
+                ("CVE-2022-22965", "Spring4Shell RCE",                         "Critical", 9.8),
+                ("CVE-2021-44228", "Log4Shell RCE",                             "Critical", 10.0),
+                ("CVE-2024-1086",  "Linux Kernel nf_tables UAF LPE",            "High",     7.8),
+                ("CVE-2023-22518", "Confluence Privilege Escalation",          "Critical", 9.1),
+                ("CVE-2024-0204",  "Fortra GoAnywhere MFT Auth Bypass",        "Critical", 9.8),
+                ("CVE-2023-46805", "Ivanti Connect Secure Auth Bypass",         "High",     8.2),
+            ]
+            result: list[dict] = []
+            for i in range(limit):
+                cve, title, sev, score = cves[i % len(cves)]
+                ag = _r.choice(agents)
+                result.append({
+                    "id": f"vuln-{i:04d}",
+                    "agent_id": ag["id"],
+                    "agent_name": ag["name"],
+                    "cve": cve,
+                    "title": title,
+                    "severity": sev.lower(),
+                    "score": score,
+                    "reference": f"https://nvd.nist.gov/vuln/detail/{cve}",
+                    "published": _ts(60 * 24 * 90),
+                    "updated": _ts(_r.randint(1, 30 * 24 * 60)),
+                    "version": f"{_r.randint(1, 8)}.{_r.randint(0, 9)}.{_r.randint(0, 9)}",
+                    "type": _r.choice(["Packages", "OS", "Applications"]),
+                })
+            return result
+
+        @staticmethod
+        def agent_detail(agent_id: str) -> dict:
+            """Return a single agent's detail with extended fields."""
+            agents = MockData.wazuh.agents()
+            for a in agents:
+                if a["id"] == agent_id:
+                    return {
+                        **a,
+                        "registration_ip": a["ip"],
+                        "version": "4.9.0",
+                        "node_name": a.get("node_name", "node01"),
+                        "merged_sum": "abc123def456",
+                        "config_sum": "fed987cba654",
+                    }
+            # If not found, return a synthetic one
+            return {
+                "id": agent_id,
+                "name": f"agent-{agent_id}",
+                "ip": "192.168.88.99",
+                "status": "active",
+                "os_name": "Ubuntu",
+                "os_version": "22.04",
+                "manager": "wazuh-manager",
+                "node_name": "node01",
+                "group": ["default"],
+                "last_keep_alive": _ts(1),
+                "date_add": _ts(60 * 24),
+                "registration_ip": "192.168.88.99",
+                "version": "4.9.0",
+            }
+
+        @staticmethod
+        def agent_alerts(agent_id: str, limit: int = 25) -> list[dict]:
+            return MockData.wazuh.alerts(limit=limit, agent_id=agent_id)
+
+        @staticmethod
+        def agent_syscheck(agent_id: str, limit: int = 50) -> list[dict]:
+            """Mock File Integrity Monitoring (syscheck) events."""
+            files = [
+                "/etc/passwd", "/etc/shadow", "/etc/sudoers",
+                "/var/log/auth.log", "/var/log/syslog",
+                "/etc/ssh/sshd_config", "/usr/bin/sudo",
+                "/usr/sbin/sshd", "/etc/crontab",
+                "/opt/netshield/config.yaml",
+            ]
+            events = ["modified", "added", "deleted"]
+            _r = _random_module.Random(hash(agent_id) & 0xFFFFFFFF)
+            result: list[dict] = []
+            for i in range(limit):
+                f = files[i % len(files)]
+                ev = events[_r.randint(0, 2)]
+                result.append({
+                    "file": f,
+                    "event": ev,
+                    "timestamp": _ts(_r.randint(1, 60 * 24)),
+                    "sha256": f"sha256-{_r.randint(100000, 999999):06x}" + "a" * 50,
+                    "size": _r.randint(100, 10000),
+                    "agent_id": agent_id,
+                })
+            return result
+
+        @staticmethod
+        def agent_syscollector(agent_id: str) -> dict:
+            """Mock syscollector (hardware + os + packages) for one agent."""
+            return {
+                "agent_id": agent_id,
+                "hardware": {
+                    "cpu_cores": 4,
+                    "cpu_name": "Intel(R) Core(TM) i5-10400 CPU @ 2.90GHz",
+                    "cpu_mhz": 2900,
+                    "ram_total_mb": 16384,
+                    "ram_free_mb": 8423,
+                },
+                "os": {
+                    "sysname": "Linux",
+                    "version": "5.15.0-89-generic",
+                    "architecture": "x86_64",
+                },
+                "packages_count": 1452,
+                "packages": [
+                    {"name": "openssl",   "version": "3.0.2-0ubuntu1.10", "vendor": "Ubuntu"},
+                    {"name": "sudo",      "version": "1.8.31-1ubuntu1.5", "vendor": "Ubuntu"},
+                    {"name": "openssh-server", "version": "8.9p1-3ubuntu0.4", "vendor": "Ubuntu"},
+                    {"name": "wazuh-agent", "version": "4.9.0-1", "vendor": "Wazuh"},
+                ],
+            }
+
+        @staticmethod
+        def mitre_matrix() -> dict:
+            """Mock MITRE ATT&CK matrix grouped by tactic."""
+            return {
+                "tactics": [
+                    {
+                        "id": "TA0006",
+                        "name": "Credential Access",
+                        "total": 18,
+                        "techniques": [
+                            {"id": "T1110", "name": "Brute Force", "count": 12},
+                            {"id": "T1555", "name": "Credentials from Password Stores", "count": 6},
+                        ],
+                    },
+                    {
+                        "id": "TA0001",
+                        "name": "Initial Access",
+                        "total": 12,
+                        "techniques": [
+                            {"id": "T1566", "name": "Phishing", "count": 9},
+                            {"id": "T1190", "name": "Exploit Public-Facing Application", "count": 3},
+                        ],
+                    },
+                    {
+                        "id": "TA0007",
+                        "name": "Discovery",
+                        "total": 8,
+                        "techniques": [
+                            {"id": "T1046", "name": "Network Service Discovery", "count": 6},
+                            {"id": "T1057", "name": "Process Discovery", "count": 2},
+                        ],
+                    },
+                    {
+                        "id": "TA0004",
+                        "name": "Privilege Escalation",
+                        "total": 5,
+                        "techniques": [
+                            {"id": "T1548", "name": "Abuse Elevation Control Mechanism", "count": 3},
+                            {"id": "T1068", "name": "Exploitation for Privilege Escalation", "count": 2},
+                        ],
+                    },
+                    {
+                        "id": "TA0011",
+                        "name": "Command and Control",
+                        "total": 5,
+                        "techniques": [
+                            {"id": "T1071", "name": "Application Layer Protocol", "count": 5},
+                        ],
+                    },
+                ],
+            }
+
+        @staticmethod
+        def stats_summary() -> dict:
+            """Global aggregate stats (for dashboard hero numbers)."""
+            return {
+                "agents": {"active": 4, "disconnected": 1, "never_connected": 0, "total": 5},
+                "alerts_24h": 38,
+                "critical_alerts": 6,
+                "vulnerabilities_count": 47,
+                "top_tactic": {
+                    "tactic": "TA0006",
+                    "technique": "T1110",
+                    "count": 12,
+                },
+            }
+
     # ── GLPI ─────────────────────────────────────────────────────────────────
 
     class glpi:

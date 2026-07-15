@@ -38,13 +38,12 @@ import {
   ShieldCheck,
   Globe,
   Settings2,
-  Radar,
-  Eye,
-  BookOpen,
-  AlertTriangle,
   LayoutDashboard,
   Server,
   LogOut,
+  Bell,
+  Bug,
+  Target,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GlobalSearch } from './common/GlobalSearch';
@@ -91,18 +90,19 @@ const navGroups = [
     ],
   },
   {
-    label: 'Suricata',
-    items: [
-      { to: '/suricata', icon: Radar, label: 'Motor IDS/IPS', end: true },
-      { to: '/suricata/alerts', icon: AlertTriangle, label: 'Alertas', end: false },
-      { to: '/suricata/network', icon: Eye, label: 'Red NSM', end: false },
-      { to: '/suricata/rules', icon: BookOpen, label: 'Reglas', end: false },
-    ],
-  },
-  {
     label: 'Inventario',
     items: [
       { to: '/inventory', icon: Package, label: 'GLPI', end: false },
+    ],
+  },
+  {
+    label: 'Wazuh SIEM',
+    items: [
+      { to: '/wazuh', icon: ShieldAlert, label: 'Dashboard', end: true },
+      { to: '/wazuh/alerts', icon: Bell, label: 'Alertas', end: false },
+      { to: '/wazuh/agents', icon: Server, label: 'Agentes', end: false },
+      { to: '/wazuh/vulnerabilities', icon: Bug, label: 'Vulnerabilidades', end: false },
+      { to: '/wazuh/mitre', icon: Target, label: 'MITRE ATT&CK', end: false },
     ],
   },
   {

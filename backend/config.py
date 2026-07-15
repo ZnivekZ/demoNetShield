@@ -10,7 +10,6 @@ Mock Mode:
   MOCK_GLPI=true       → solo GLPI en mock
   MOCK_AI=true         → solo OpenRouter AI en mock
   MOCK_GEOIP=true      → solo GeoIP en mock (true por defecto hasta descargar DB)
-  MOCK_SURICATA=true   → solo Suricata en mock (true por defecto hasta instalación)
   MOCK_TELEGRAM=true   → solo Telegram en mock (true por defecto hasta configurar bot)
 
   Retrocompatibilidad: si APP_ENV=lab y NO hay ninguna variable MOCK_*
@@ -102,16 +101,6 @@ class Settings(BaseSettings):
     maxmind_license_key: str = ""  # Requerida para descargar la DB
     mock_geoip: bool = True  # True por defecto hasta descargar la DB
 
-    # ── Suricata IDS/IPS/NSM ──────────────────────────────────────────────
-    # Motor de análisis de red. Datos accesibles via:
-    #   1. Unix socket para control del motor (reload-rules, stats)
-    #   2. eve.json leído por el agente Wazuh → Wazuh API
-    # Activar real: MOCK_SURICATA=false + Suricata instalado con socket accesible.
-    suricata_socket: str = "/var/run/suricata/suricata.socket"
-    suricata_eve_log: str = "/var/log/suricata/eve.json"
-    suricata_host: str = "192.168.88.50"  # Host donde corre Suricata
-    mock_suricata: bool = True  # True por defecto hasta instalación
-
     # ── Telegram Bot ──────────────────────────────────────────────────────
     # Bot de Telegram para notificaciones bidireccionales.
     # Crear el bot con @BotFather, obtener el token, y agregar el bot al grupo/canal.
@@ -152,7 +141,6 @@ class Settings(BaseSettings):
     mock_glpi: bool = False
     mock_ai: bool = False
     mock_crowdsec: bool = False
-    # mock_suricata está definida arriba (True por defecto hasta instalación)
     # mock_telegram está definida arriba (True por defecto hasta configurar bot)
 
     @model_validator(mode="after")
@@ -216,7 +204,7 @@ class Settings(BaseSettings):
             os.environ.get(var) is not None
             for var in (
                 "MOCK_ALL", "MOCK_MIKROTIK", "MOCK_WAZUH", "MOCK_GLPI",
-                "MOCK_AI", "MOCK_CROWDSEC", "MOCK_GEOIP", "MOCK_SURICATA",
+                "MOCK_AI", "MOCK_CROWDSEC", "MOCK_GEOIP",
                 "MOCK_TELEGRAM",
             )
         )
@@ -265,14 +253,6 @@ class Settings(BaseSettings):
         MOCK_ALL=true también activa el mock de GeoIP.
         """
         return self._effective_mock_all or self.mock_geoip
-
-    @property
-    def should_mock_suricata(self) -> bool:
-        """True si Suricata debe usar datos mock.
-        Por defecto True hasta que se instale Suricata y se configure el socket.
-        MOCK_ALL=true también activa el mock de Suricata.
-        """
-        return self._effective_mock_all or self.mock_suricata
 
     @property
     def should_mock_telegram(self) -> bool:

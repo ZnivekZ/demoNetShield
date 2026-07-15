@@ -32,7 +32,6 @@ from routers import cli, mikrotik, network, phishing, portal, reports, security,
 from routers import glpi as glpi_router
 from routers import crowdsec as crowdsec_router
 from routers import geoip as geoip_router
-from routers import suricata as suricata_router
 from routers import views as views_router
 from routers import widgets as widgets_router
 from routers import dhcp as dhcp_router
@@ -42,7 +41,6 @@ from services.wazuh_service import get_wazuh_service
 from services.glpi_service import get_glpi_service
 from services.crowdsec_service import get_crowdsec_service
 from services.geoip_service import GeoIPService
-from services.suricata_service import get_suricata_service
 from services.telegram_service import get_telegram_service
 from services.telegram_scheduler import get_telegram_scheduler
 from services.report_scheduler import get_report_scheduler
@@ -100,13 +98,6 @@ async def lifespan(app: FastAPI):
     # Initialize GeoIP service (loads .mmdb readers into memory, or sets mock mode)
     GeoIPService.initialize()
 
-    # Initialize Suricata service (verify socket connectivity, or set mock mode)
-    try:
-        sur_service = get_suricata_service()
-        await sur_service.connect()
-    except Exception as e:
-        logger.warning("suricata_initial_connection_failed", error=str(e))
-
     # Initialize Telegram bot and scheduler
     try:
         tg_service = get_telegram_service()
@@ -158,13 +149,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     try:
-        sur_service = get_suricata_service()
-        await sur_service.close()
-    except Exception:
-        pass
-    try:
         glpi_collector = get_glpi_collector()
-        await glpi_collector.stop()
     except Exception:
         pass
     try:
@@ -278,7 +263,6 @@ app.include_router(portal.router)
 app.include_router(glpi_router.router)
 app.include_router(crowdsec_router.router)
 app.include_router(geoip_router.router)
-app.include_router(suricata_router.router)
 app.include_router(views_router.router)
 app.include_router(widgets_router.router)
 app.include_router(dhcp_router.router)

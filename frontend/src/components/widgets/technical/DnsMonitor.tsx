@@ -10,7 +10,7 @@ interface DnsQuery {
 }
 
 /**
- * Tabla de queries DNS capturados por Suricata NSM.
+ * Tabla de queries DNS capturados por la fuente NSM (MikroTik/dhcp).
  * Columnas: dominio, tipo, respuesta, IP origen, hora.
  */
 export function DnsMonitor({ config }: { config?: { limit?: number } }) {

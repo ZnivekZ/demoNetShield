@@ -97,7 +97,6 @@ export function WorldThreatMap({ config: _config }: { config?: Record<string, un
             <div className="tip-row"><span>Score</span><strong style={{ color: scoreColor(hovered.score) }}>{hovered.score}/100</strong></div>
             <div className="tip-row"><span>CrowdSec</span><span>{hovered.crowdsec_count}</span></div>
             <div className="tip-row"><span>Wazuh</span><span>{hovered.wazuh_count} (L{hovered.wazuh_max_level})</span></div>
-            <div className="tip-row"><span>Suricata</span><span>{hovered.suricata_count}</span></div>
             {hovered.top_asn && <div className="tip-asn">{hovered.top_asn}</div>}
           </div>
         )}

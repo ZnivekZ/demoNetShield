@@ -40,15 +40,17 @@ import { InventoryPage } from './components/inventory/InventoryPage';
 import { CrowdSecCommandCenter } from './components/crowdsec/CommandCenter';
 import { CrowdSecIntelligence } from './components/crowdsec/IntelligenceView';
 import { CrowdSecConfig } from './components/crowdsec/ConfigView';
-// Suricata
-import { SuricataMotorPage } from './components/suricata/MotorPage';
-import { SuricataAlertsPage } from './components/suricata/AlertsPage';
-import { SuricataNSMPage } from './components/suricata/NSMPage';
-import { SuricataRulesPage } from './components/suricata/RulesPage';
 // Custom Views
 import ViewsListPage from './components/views/ViewsListPage';
 import ViewBuilderPage from './components/views/ViewBuilderPage';
 import ViewDetailPage from './components/views/ViewDetailPage';
+// Wazuh SIEM
+import { WazuhDashboard } from './components/wazuh/WazuhDashboard';
+import { WazuhAlertsPage } from './components/wazuh/AlertsPage';
+import { WazuhAgentsPage } from './components/wazuh/AgentsPage';
+import { WazuhVulnerabilitiesPage } from './components/wazuh/VulnerabilitiesPage';
+import { WazuhMitrePage } from './components/wazuh/MitrePage';
+import { AgentDetailPage as WazuhAgentDetailPage } from './components/wazuh/AgentDetailPanel';
 // DHCP
 import DhcpPage from './components/dhcp/DhcpPage';
 // Admin
@@ -106,12 +108,6 @@ export default function App() {
               <Route path="/crowdsec/intelligence" element={<CrowdSecIntelligence />} />
               <Route path="/crowdsec/config" element={<CrowdSecConfig />} />
 
-              {/* Suricata IDS/IPS/NSM */}
-              <Route path="/suricata" element={<SuricataMotorPage />} />
-              <Route path="/suricata/alerts" element={<SuricataAlertsPage />} />
-              <Route path="/suricata/network" element={<SuricataNSMPage />} />
-              <Route path="/suricata/rules" element={<SuricataRulesPage />} />
-
               {/* Legacy redirect — VLANs page merged into /network */}
               <Route path="/vlans" element={<Navigate to="/network" replace />} />
 
@@ -120,6 +116,14 @@ export default function App() {
               <Route path="/views/new" element={<ViewBuilderPage />} />
               <Route path="/views/:id" element={<ViewDetailPage />} />
               <Route path="/views/:id/edit" element={<ViewBuilderPage />} />
+
+              {/* Wazuh SIEM */}
+              <Route path="/wazuh" element={<WazuhDashboard />} />
+              <Route path="/wazuh/alerts" element={<WazuhAlertsPage />} />
+              <Route path="/wazuh/agents" element={<WazuhAgentsPage />} />
+              <Route path="/wazuh/agents/:agentId" element={<WazuhAgentDetailPage />} />
+              <Route path="/wazuh/vulnerabilities" element={<WazuhVulnerabilitiesPage />} />
+              <Route path="/wazuh/mitre" element={<WazuhMitrePage />} />
 
               {/* Admin — accessible from SettingsDrawer */}
               <Route path="/admin/users" element={<UsersManagementPage />} />

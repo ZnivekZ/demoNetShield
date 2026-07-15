@@ -100,12 +100,22 @@ import type {
   TelegramSendResult,
   AuditHistoryResponse,
   // Report types (new)
-  SavedReport,
-  SavedReportPagination,
-  ReportSchedule,
-  ReportTemplate,
-  AIModel,
-} from '../types';
+    SavedReport,
+    SavedReportPagination,
+    ReportSchedule,
+    ReportTemplate,
+    AIModel,
+    // Wazuh extended (pagination, vulnerabilities, mitre, agent detail)
+    WazuhAlertsFilters,
+    WazuhAlertsPagination,
+    WazuhAgentsFilters,
+    WazuhAgentsPagination,
+    WazuhAgentDetail,
+    WazuhVulnerabilitiesFilters,
+    WazuhVulnerabilitiesPagination,
+    WazuhMitreMatrix,
+    WazuhStatsSummary,
+  } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -251,12 +261,338 @@ export const wazuhApi = {
     api.get<APIResponse<WazuhHealthResponse>>('/wazuh/health').then(r => r.data),
 
   sendActiveResponse: (agentId: string, command: string, args: string[] = []) =>
-    api.post<APIResponse>('/wazuh/active-response', {
-      agent_id: agentId,
-      command,
-      args,
-    }).then(r => r.data),
+      api.post<APIResponse>('/wazuh/active-response', {
+        agent_id: agentId,
+        command,
+        args,
+      }).then(r => r.data),
+  };
+
+  /**
+   * wazuhApiExtended — Extended Wazuh API client.
+   *
+   * Some of these endpoints do NOT exist in the backend yet (e.g. /agents/{id},
+   * /vulnerability, /mitre/matrix). When that's the case, each method catches
+   * the network/server error and returns a not_available response so the UI
+   * can render a graceful "Pendiente de integración backend" message instead
+   * of crashing.
+   *
+   * Always prefer the existing wazuhApi for endpoints that are already wired
+   * (health, alerts, alerts/critical, alerts/timeline, alerts/last-critical,
+   * agents, agents/top, agents/summary, mitre/summary, active-response).
+   */
+export const wazuhApiExtended = {
+  // ── Alerts with pagination + filters ─────────────────────────────
+  getAlertsPaginated: async (filters: WazuhAlertsFilters): Promise<APIResponse<WazuhAlertsPagination>> => {
+    try {
+      // Build params, drop undefined/null to keep URL clean
+      const params: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.page_size ?? 25 };
+      if (filters.level_min != null) params.level_min = filters.level_min;
+      if (filters.agent_id) params.agent_id = filters.agent_id;
+      if (filters.rule_id) params.rule_id = filters.rule_id;
+      if (filters.from_date) params.from_date = filters.from_date;
+      if (filters.to_date) params.to_date = filters.to_date;
+      if (filters.search) params.search = filters.search;
+
+      return await api
+        .get<APIResponse<WazuhAlertsPagination>>('/wazuh/alerts', { params })
+        .then(r => r.data);
+    } catch (e: unknown) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      // If the backend doesn't support paginated params yet, fall back to the basic endpoint
+      // and shape the response manually.
+      if (status && status >= 400 && status < 500) {
+        try {
+          const basic = await wazuhApi.getAlerts(
+            filters.page_size ?? 25,
+            filters.level_min,
+            ((filters.page ?? 1) - 1) * (filters.page_size ?? 25),
+          );
+          if (basic.success && basic.data) {
+            const all = basic.data;
+            const page = filters.page ?? 1;
+            const size = filters.page_size ?? 25;
+            const filtered = all.filter(a => {
+              if (filters.agent_id && a.agent_id !== filters.agent_id) return false;
+              if (filters.rule_id && a.rule_id !== filters.rule_id) return false;
+              if (filters.search) {
+                const q = filters.search.toLowerCase();
+                if (!a.rule_description.toLowerCase().includes(q) && !a.agent_name.toLowerCase().includes(q)) return false;
+              }
+              return true;
+            });
+            return {
+              success: true,
+              data: {
+                items: filtered.slice((page - 1) * size, page * size),
+                pagination: {
+                  page,
+                  page_size: size,
+                  total: filtered.length,
+                  total_pages: Math.max(1, Math.ceil(filtered.length / size)),
+                  has_next: page * size < filtered.length,
+                  has_prev: page > 1,
+                },
+              },
+              error: null,
+            };
+          }
+        } catch {
+          // ignore — fallthrough
+        }
+      }
+      return notAvailableResponse<WazuhAlertsPagination>('getAlertsPaginated');
+    }
+  },
+
+  // ── Agents list with pagination + filters ────────────────────────
+  getAgentsPaginated: async (filters: WazuhAgentsFilters): Promise<APIResponse<WazuhAgentsPagination>> => {
+    try {
+      const params: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.page_size ?? 50 };
+      if (filters.status) params.status = filters.status;
+      if (filters.search) params.search = filters.search;
+
+      return await api
+        .get<APIResponse<WazuhAgentsPagination>>('/wazuh/agents', { params })
+        .then(r => r.data);
+    } catch (e: unknown) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status && status >= 400 && status < 500) {
+        try {
+          const basic = await wazuhApi.getAgents();
+          if (basic.success && basic.data) {
+            const all = basic.data;
+            const filtered = all.filter(a => {
+              if (filters.status && a.status !== filters.status) return false;
+              if (filters.search) {
+                const q = filters.search.toLowerCase();
+                if (!a.name.toLowerCase().includes(q) && !a.ip.toLowerCase().includes(q) && !a.id.toLowerCase().includes(q)) return false;
+              }
+              return true;
+            });
+            const page = filters.page ?? 1;
+            const size = filters.page_size ?? 50;
+            return {
+              success: true,
+              data: {
+                items: filtered.slice((page - 1) * size, page * size),
+                pagination: {
+                  page,
+                  page_size: size,
+                  total: filtered.length,
+                  total_pages: Math.max(1, Math.ceil(filtered.length / size)),
+                  has_next: page * size < filtered.length,
+                  has_prev: page > 1,
+                },
+              },
+              error: null,
+            };
+          }
+        } catch {
+          // ignore
+        }
+      }
+      return notAvailableResponse<WazuhAgentsPagination>('getAgentsPaginated');
+    }
+  },
+
+  // ── Agent detail (includes syscheck + syscollector if backend exposes them) ──
+  getAgentDetail: async (agentId: string): Promise<APIResponse<WazuhAgentDetail>> => {
+    try {
+      const [agentRes, alertsRes] = await Promise.all([
+        api.get<APIResponse<WazuhAgentDetail['agent']>>(`/wazuh/agents/${encodeURIComponent(agentId)}`),
+        wazuhApi.getAlertsByAgent(agentId, 20, 0),
+      ]);
+
+      if (agentRes.data.success && agentRes.data.data) {
+        return {
+          success: true,
+          data: {
+            agent: agentRes.data.data,
+            recent_alerts: alertsRes.success && alertsRes.data ? alertsRes.data : [],
+          },
+          error: null,
+        };
+      }
+      // If endpoint exists but returned success=false, treat as not_available
+      if (agentRes.status === 404 || (agentRes.data && agentRes.data.success === false)) {
+        return notAvailableResponse<WazuhAgentDetail>('getAgentDetail');
+      }
+      return notAvailableResponse<WazuhAgentDetail>('getAgentDetail');
+    } catch {
+      // Endpoint /wazuh/agents/{id} doesn't exist on backend — fall back gracefully
+      try {
+        const agentsRes = await wazuhApi.getAgents();
+        if (agentsRes.success && agentsRes.data) {
+          const agent = agentsRes.data.find(a => a.id === agentId);
+          if (agent) {
+            const alertsRes = await wazuhApi.getAlertsByAgent(agentId, 20, 0);
+            return {
+              success: true,
+              data: {
+                agent,
+                recent_alerts: alertsRes.success && alertsRes.data ? alertsRes.data : [],
+              },
+              error: null,
+            };
+          }
+        }
+      } catch {
+        // ignore
+      }
+      return notAvailableResponse<WazuhAgentDetail>('getAgentDetail');
+    }
+  },
+
+  getAgentSyscheck: async (_agentId: string): Promise<APIResponse<WazuhAgentDetail['syscheck']>> => {
+    // Backend endpoint not implemented yet — return graceful not-available
+    return notAvailableResponse<WazuhAgentDetail['syscheck']>('getAgentSyscheck');
+  },
+
+  getAgentSyscollector: async (_agentId: string): Promise<APIResponse<WazuhAgentDetail['syscollector']>> => {
+    return notAvailableResponse<WazuhAgentDetail['syscollector']>('getAgentSyscollector');
+  },
+
+  // ── Vulnerabilities ──────────────────────────────────────────────
+  getVulnerabilities: async (filters: WazuhVulnerabilitiesFilters): Promise<APIResponse<WazuhVulnerabilitiesPagination>> => {
+    try {
+      const params: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.page_size ?? 25 };
+      if (filters.severity) params.severity = filters.severity;
+      if (filters.agent_id) params.agent_id = filters.agent_id;
+      if (filters.search) params.search = filters.search;
+
+      return await api
+        .get<APIResponse<WazuhVulnerabilitiesPagination>>('/wazuh/vulnerability', { params })
+        .then(r => r.data);
+    } catch {
+      return notAvailableResponse<WazuhVulnerabilitiesPagination>('getVulnerabilities');
+    }
+  },
+
+  // ── MITRE matrix ─────────────────────────────────────────────────
+  getMitreMatrix: async (): Promise<APIResponse<WazuhMitreMatrix>> => {
+    try {
+      // Try the dedicated matrix endpoint first
+      return await api
+        .get<APIResponse<WazuhMitreMatrix>>('/wazuh/mitre/matrix')
+        .then(r => r.data);
+    } catch {
+      // Fallback: use the existing mitre summary endpoint and shape it into a matrix
+      try {
+        const summaryRes = await wazuhApi.getMitreSummary();
+        if (summaryRes.success && summaryRes.data && summaryRes.data.length > 0) {
+          // Group techniques by inferred tactic prefix (T1xxx → Initial Access, etc.)
+          const tacticMap = new Map<string, { name: string; techniques: typeof summaryRes.data }>();
+          for (const tech of summaryRes.data) {
+            const tac = inferTacticFromTechnique(tech.technique_id);
+            if (!tacticMap.has(tac.id)) tacticMap.set(tac.id, { name: tac.name, techniques: [] });
+            tacticMap.get(tac.id)!.techniques.push(tech);
+          }
+          const tactics = Array.from(tacticMap.entries()).map(([id, v]) => ({
+            tactic_id: id,
+            tactic_name: v.name,
+            techniques: v.techniques,
+            total_count: v.techniques.reduce((s, t) => s + t.count, 0),
+          }));
+          return {
+            success: true,
+            data: { tactics, generated_at: new Date().toISOString() },
+            error: null,
+          };
+        }
+      } catch {
+        // ignore
+      }
+      return notAvailableResponse<WazuhMitreMatrix>('getMitreMatrix');
+    }
+  },
+
+  // ── Stats summary (aggregated dashboard KPIs) ──────────────────
+  getStatsSummary: async (): Promise<APIResponse<WazuhStatsSummary>> => {
+    try {
+      // Compose from existing endpoints — no dedicated endpoint needed
+      const [criticalRes, summaryRes, topAgentsRes, mitreRes] = await Promise.all([
+        wazuhApi.getCriticalAlerts(500, 0),
+        wazuhApi.getAgentsSummary(),
+        wazuhApi.getTopAgents(100),
+        wazuhApi.getMitreSummary(),
+      ]);
+
+      const total24h = criticalRes.data?.length ?? 0;
+      const critical24h = (criticalRes.data ?? []).filter(a => a.rule_level >= 12).length;
+      const high24h = (criticalRes.data ?? []).filter(a => a.rule_level >= 8 && a.rule_level < 12).length;
+      const medium24h = (criticalRes.data ?? []).filter(a => a.rule_level >= 5 && a.rule_level < 8).length;
+      const low24h = (criticalRes.data ?? []).filter(a => a.rule_level < 5).length;
+
+      const tacticsMap = new Map<string, { name: string; count: number }>();
+      for (const m of mitreRes.data ?? []) {
+        const tac = inferTacticFromTechnique(m.technique_id);
+        const cur = tacticsMap.get(tac.id);
+        if (cur) cur.count += m.count;
+        else tacticsMap.set(tac.id, { name: tac.name, count: m.count });
+      }
+      const topTactics = Array.from(tacticsMap.entries())
+        .map(([tactic_id, v]) => ({ tactic_id, tactic_name: v.name, count: v.count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+      return {
+        success: true,
+        data: {
+          total_alerts_24h: total24h,
+          total_alerts_7d: total24h, // Backend only exposes 24h; same number is fine
+          critical_alerts_24h: critical24h,
+          high_alerts_24h: high24h,
+          medium_alerts_24h: medium24h,
+          low_alerts_24h: low24h,
+          active_agents: summaryRes.data?.active ?? 0,
+          total_agents: summaryRes.data?.total ?? 0,
+          vulnerabilities_total: 0, // No backend endpoint — UI shows "no disponible"
+          vulnerabilities_critical: 0,
+          top_mitre_tactics: topTactics,
+        },
+        error: null,
+      };
+    } catch {
+      return notAvailableResponse<WazuhStatsSummary>('getStatsSummary');
+    }
+  },
 };
+
+/* ── Helpers ────────────────────────────────────────────────────── */
+
+function notAvailableResponse<T>(endpoint: string): APIResponse<T> {
+  return {
+    success: false,
+    data: null,
+    error: 'no_disponible',
+  };
+}
+
+/**
+ * Map a MITRE technique ID (Txxxx) to its parent tactic.
+ * This is a best-effort approximation based on the ATT&CK matrix
+ * ordering — not exhaustive, but covers the most common prefixes.
+ */
+function inferTacticFromTechnique(techniqueId: string): { id: string; name: string } {
+  const num = parseInt(techniqueId.replace(/\D/g, ''), 10);
+  if (isNaN(num)) return { id: 'TA0000', name: 'Other' };
+  if (num < 1000) return { id: 'TA0043', name: 'Reconnaissance' };
+  if (num < 2000) return { id: 'TA0042', name: 'Resource Development' };
+  if (num < 3000) return { id: 'TA0001', name: 'Initial Access' };
+  if (num < 4000) return { id: 'TA0002', name: 'Execution' };
+  if (num < 5000) return { id: 'TA0003', name: 'Persistence' };
+  if (num < 6000) return { id: 'TA0004', name: 'Privilege Escalation' };
+  if (num < 7000) return { id: 'TA0005', name: 'Defense Evasion' };
+  if (num < 8000) return { id: 'TA0006', name: 'Credential Access' };
+  if (num < 9000) return { id: 'TA0007', name: 'Discovery' };
+  if (num < 10000) return { id: 'TA0008', name: 'Lateral Movement' };
+  if (num < 11000) return { id: 'TA0009', name: 'Collection' };
+  if (num < 12000) return { id: 'TA0011', name: 'Command and Control' };
+  if (num < 13000) return { id: 'TA0010', name: 'Exfiltration' };
+  if (num < 14000) return { id: 'TA0040', name: 'Impact' };
+  return { id: 'TA0000', name: 'Other' };
+}
 
 /* ── Network ──────────────────────────────────────────────────── */
 

@@ -28,7 +28,6 @@ import {
   wazuhApi,
   mikrotikApi,
   crowdsecApi,
-  suricataApi,
   glpiApi,
   phishingApi,
   geoipApi,
@@ -62,7 +61,6 @@ const CountryRadar = lazy(() => import('../widgets/hybrid/CountryRadar').then(m 
 const IncidentLifecycle = lazy(() => import('../widgets/hybrid/IncidentLifecycle').then(m => ({ default: m.IncidentLifecycle })));
 const DefenseLayers = lazy(() => import('../widgets/hybrid/DefenseLayers').then(m => ({ default: m.DefenseLayers })));
 const GeoblockPredictor = lazy(() => import('../widgets/hybrid/GeoblockPredictor').then(m => ({ default: m.GeoblockPredictor })));
-const SuricataGlpiCorrelation = lazy(() => import('../widgets/hybrid/SuricataGlpiCorrelation').then(m => ({ default: m.SuricataGlpiCorrelation })));
 const WorldThreatMap = lazy(() => import('../widgets/hybrid/WorldThreatMap').then(m => ({ default: m.WorldThreatMap })));
 const ViewReportGenerator = lazy(() => import('../widgets/hybrid/ViewReportGenerator').then(m => ({ default: m.ViewReportGenerator })));
 const TelegramActivity = lazy(() => import('../widgets/hybrid/TelegramActivity').then(m => ({ default: m.TelegramActivity })));
@@ -188,18 +186,7 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
             ],
           };
         }
-        case 'suricata_alerts': {
-          const r = await suricataApi.getAlerts({ limit });
-          const d = r.data;
-          const alerts = Array.isArray(d) ? d : (d?.alerts ?? []);
-          return { kind: 'table' as const, data: alerts.slice(0, limit), columns: ['severity', 'signature', 'src_ip', 'timestamp'] };
-        }
-        case 'suricata_flows': {
-          const r = await suricataApi.getFlows({ limit });
-          const fd = r.data;
-          const flows = Array.isArray(fd) ? fd : (fd?.flows ?? []);
-          return { kind: 'table' as const, data: flows.slice(0, limit), columns: ['proto', 'src_ip', 'dest_ip', 'bytes_toserver'] };
-        }
+
         case 'glpi_assets': {
           const r = await glpiApi.getAssets({ limit });
           const ad = r.data;
@@ -376,49 +363,48 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
   if (data.kind === 'custom') {
     const cfg = widget.config ?? {};
     const customMap: Record<string, React.ReactNode> = {
-      traffic_chart:                 <TrafficChartWidget config={cfg as { interface?: string }} />,
-      visual_threat_gauge:           <ThreatGauge config={cfg} />,
-      visual_network_pulse:          <NetworkPulse config={cfg as { interface?: string }} />,
-      visual_event_counter:          <EventCounter config={cfg as { source?: string }} />,
-      visual_activity_heatmap:       <ActivityHeatmap config={cfg} />,
-      visual_protocol_donut:         <ProtocolDonut config={cfg} />,
-      visual_agents_thermometer:     <AgentsThermometer config={cfg} />,
-      visual_blocks_timeline:        <BlocksTimeline config={cfg} />,
-      visual_portal_usage:           <PortalUsage config={cfg} />,
-      visual_phishing_stats:         <PhishingStats config={cfg} />,
-      visual_agent_alert_heatmap:    <AgentAlertHeatmap config={cfg as { hours?: number }} />,
-      visual_subnet_usage:           <DhcpSubnetUsage config={cfg} />,
-      technical_action_log:          <ActionLogWidget config={cfg as { limit?: number }} />,
-      technical_packet_inspector:    <PacketInspector config={cfg as { limit?: number }} />,
-      technical_flow_table:          <FlowTableWidget config={cfg as { limit?: number }} />,
-      technical_firewall_tree:       <FirewallTree config={cfg} />,
-      technical_live_logs:           <LiveLogs config={cfg as { limit?: number; filter?: string }} />,
-      technical_crowdsec_raw:        <CrowdSecRaw config={cfg as { limit?: number }} />,
-      technical_correlation_timeline:<CorrelationTimeline config={cfg as { minutes?: number }} />,
-      technical_critical_assets:     <CriticalAssets config={cfg as { limit?: number }} />,
-      technical_dns_monitor:         <DnsMonitor config={cfg as { limit?: number }} />,
-      technical_tls_fingerprint:     <TlsFingerprint config={cfg as { limit?: number }} />,
-      technical_bandwidth_top:       <BandwidthTop config={cfg as { limit?: number }} />,
-      technical_http_inspector:      <HttpInspector config={cfg as { limit?: number }} />,
-      technical_dhcp_leases:         <DhcpLeasesWidget config={cfg as { limit?: number }} />,
-      technical_nat_table:           <NatTable />,
-      technical_route_table:         <RouteTable />,
-      visual_queue_bars:             <QueueBars />,
-      hybrid_ip_profiler:            <IpProfiler config={cfg as { default_ip?: string }} />,
-      hybrid_confirmed_threats:      <ConfirmedThreats config={cfg} />,
-      hybrid_country_radar:          <CountryRadar config={cfg as { limit?: number }} />,
-      hybrid_incident_lifecycle:     <IncidentLifecycle config={cfg as { ip?: string }} />,
-      hybrid_defense_layers:         <DefenseLayers config={cfg} />,
-      hybrid_geoblock_predictor:     <GeoblockPredictor config={cfg} />,
-      hybrid_suricata_glpi:          <SuricataGlpiCorrelation config={cfg as { limit?: number }} />,
-      hybrid_world_threat_map:       <WorldThreatMap config={cfg} />,
-      hybrid_view_report_generator:  <ViewReportGenerator config={cfg as { audience?: string; output?: string }} />,
-      hybrid_telegram_activity:      <TelegramActivity config={cfg as { limit?: number }} />,
-      hybrid_mitre_matrix:           <MitreMatrix config={cfg} />,
-      hybrid_vlan_health:            <VlanHealth config={cfg} />,
-      hybrid_quarantine_tracker:     <QuarantineTracker config={cfg} />,
+      traffic_chart: <TrafficChartWidget config={cfg as { interface?: string }} />,
+      visual_threat_gauge: <ThreatGauge config={cfg} />,
+      visual_network_pulse: <NetworkPulse config={cfg as { interface?: string }} />,
+      visual_event_counter: <EventCounter config={cfg as { source?: string }} />,
+      visual_activity_heatmap: <ActivityHeatmap config={cfg} />,
+      visual_protocol_donut: <ProtocolDonut config={cfg} />,
+      visual_agents_thermometer: <AgentsThermometer config={cfg} />,
+      visual_blocks_timeline: <BlocksTimeline config={cfg} />,
+      visual_portal_usage: <PortalUsage config={cfg} />,
+      visual_phishing_stats: <PhishingStats config={cfg} />,
+      visual_agent_alert_heatmap: <AgentAlertHeatmap config={cfg as { hours?: number }} />,
+      visual_subnet_usage: <DhcpSubnetUsage config={cfg} />,
+      technical_action_log: <ActionLogWidget config={cfg as { limit?: number }} />,
+      technical_packet_inspector: <PacketInspector config={cfg as { limit?: number }} />,
+      technical_flow_table: <FlowTableWidget config={cfg as { limit?: number }} />,
+      technical_firewall_tree: <FirewallTree config={cfg} />,
+      technical_live_logs: <LiveLogs config={cfg as { limit?: number; filter?: string }} />,
+      technical_crowdsec_raw: <CrowdSecRaw config={cfg as { limit?: number }} />,
+      technical_correlation_timeline: <CorrelationTimeline config={cfg as { minutes?: number }} />,
+      technical_critical_assets: <CriticalAssets config={cfg as { limit?: number }} />,
+      technical_dns_monitor: <DnsMonitor config={cfg as { limit?: number }} />,
+      technical_tls_fingerprint: <TlsFingerprint config={cfg as { limit?: number }} />,
+      technical_bandwidth_top: <BandwidthTop config={cfg as { limit?: number }} />,
+      technical_http_inspector: <HttpInspector config={cfg as { limit?: number }} />,
+      technical_dhcp_leases: <DhcpLeasesWidget config={cfg as { limit?: number }} />,
+      technical_nat_table: <NatTable />,
+      technical_route_table: <RouteTable />,
+      visual_queue_bars: <QueueBars />,
+      hybrid_ip_profiler: <IpProfiler config={cfg as { default_ip?: string }} />,
+      hybrid_confirmed_threats: <ConfirmedThreats config={cfg} />,
+      hybrid_country_radar: <CountryRadar config={cfg as { limit?: number }} />,
+      hybrid_incident_lifecycle: <IncidentLifecycle config={cfg as { ip?: string }} />,
+      hybrid_defense_layers: <DefenseLayers config={cfg} />,
+      hybrid_geoblock_predictor: <GeoblockPredictor config={cfg} />,
+      hybrid_world_threat_map: <WorldThreatMap config={cfg} />,
+      hybrid_view_report_generator: <ViewReportGenerator config={cfg as { audience?: string; output?: string }} />,
+      hybrid_telegram_activity: <TelegramActivity config={cfg as { limit?: number }} />,
+      hybrid_mitre_matrix: <MitreMatrix config={cfg} />,
+      hybrid_vlan_health: <VlanHealth config={cfg} />,
+      hybrid_quarantine_tracker: <QuarantineTracker config={cfg} />,
       hybrid_sinkhole_effectiveness: <SinkholeEffectiveness config={cfg} />,
-      hybrid_dhcp_discovery:         <DhcpDiscovery config={cfg as { limit?: number }} />,
+      hybrid_dhcp_discovery: <DhcpDiscovery config={cfg as { limit?: number }} />,
     };
     const node = customMap[widget.type];
     return (

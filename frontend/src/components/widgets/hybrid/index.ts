@@ -9,7 +9,6 @@ export { CountryRadar } from './CountryRadar';
 export { IncidentLifecycle } from './IncidentLifecycle';
 export { DefenseLayers } from './DefenseLayers';
 export { GeoblockPredictor } from './GeoblockPredictor';
-export { SuricataGlpiCorrelation } from './SuricataGlpiCorrelation';
 export { WorldThreatMap } from './WorldThreatMap';
 export { ViewReportGenerator } from './ViewReportGenerator';
 export { TelegramActivity } from './TelegramActivity';

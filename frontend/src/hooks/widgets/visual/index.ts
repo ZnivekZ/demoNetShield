@@ -6,7 +6,6 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   widgetsApi,
-  suricataApi,
   wazuhApi,
   crowdsecApi,
   mikrotikApi,
@@ -60,15 +59,6 @@ export function useEventCounter(source: string = 'wazuh') {
           label: 'Alertas CrowdSec 24h',
         };
       }
-      if (source === 'suricata') {
-        const res = await suricataApi.getEngineStatus();
-        if (!res.success) throw new Error(res.error ?? 'Error');
-        return {
-          count: (res.data as { alerts_total?: number })?.alerts_total ?? 0,
-          source,
-          label: 'Alertas Suricata',
-        };
-      }
       // Default: wazuh
       const res = await wazuhApi.getAlertsTimeline();
       if (!res.success) throw new Error(res.error ?? 'Error');
@@ -95,17 +85,13 @@ export function useActivityHeatmap() {
 }
 
 /* ── Protocol Donut ────────────────────────────────────────────── */
-
+// Suricata integration removed — widget currently disabled.
 export function useProtocolDonut() {
   return useQuery({
     queryKey: ['widget', 'protocol-donut'],
-    queryFn: async () => {
-      const res = await suricataApi.getFlowsStats();
-      if (!res.success) throw new Error(res.error ?? 'Error cargando flujos');
-      return res.data!;
-    },
-    staleTime: 60_000,
-    refetchInterval: 2 * 60_000,
+    queryFn: async () => ({ protocols: [] } as { protocols: never[] }),
+    enabled: false,
+    staleTime: Infinity,
   });
 }
 

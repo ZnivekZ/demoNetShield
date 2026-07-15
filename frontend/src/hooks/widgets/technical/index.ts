@@ -5,7 +5,6 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   widgetsApi,
-  suricataApi,
   mikrotikApi,
   crowdsecApi,
   actionsApi,
@@ -29,32 +28,24 @@ export function useActionLogWidget(limit = 50) {
 }
 
 /* ── Packet Inspector ──────────────────────────────────────────── */
-
-export function usePacketInspector(limit = 20) {
+// Suricata integration removed — widget currently disabled.
+export function usePacketInspector(_limit = 20) {
   return useQuery({
-    queryKey: ['widget', 'packet-inspector', limit],
-    queryFn: async () => {
-      const res = await suricataApi.getAlerts({ limit });
-      if (!res.success) throw new Error(res.error ?? 'Error');
-      return res.data!;
-    },
-    staleTime: 15_000,
-    refetchInterval: 30_000,
+    queryKey: ['widget', 'packet-inspector'],
+    queryFn: async () => [] as const,
+    enabled: false,
+    staleTime: Infinity,
   });
 }
 
 /* ── Flow Table ────────────────────────────────────────────────── */
-
-export function useFlowTable(limit = 30) {
+// Suricata integration removed — widget currently disabled.
+export function useFlowTable(_limit = 30) {
   return useQuery({
-    queryKey: ['widget', 'flow-table', limit],
-    queryFn: async () => {
-      const res = await suricataApi.getFlows({ limit });
-      if (!res.success) throw new Error(res.error ?? 'Error');
-      return res.data!;
-    },
-    staleTime: 15_000,
-    refetchInterval: 30_000,
+    queryKey: ['widget', 'flow-table'],
+    queryFn: async () => [] as const,
+    enabled: false,
+    staleTime: Infinity,
   });
 }
 
@@ -141,32 +132,24 @@ export function useCriticalAssets(limit = 10) {
 }
 
 /* ── DNS Monitor ───────────────────────────────────────────────── */
-
-export function useDnsMonitor(limit = 30) {
+// Suricata integration removed — widget currently disabled.
+export function useDnsMonitor(_limit = 30) {
   return useQuery({
-    queryKey: ['widget', 'dns-monitor', limit],
-    queryFn: async () => {
-      const res = await suricataApi.getDnsQueries({ limit });
-      if (!res.success) throw new Error(res.error ?? 'Error cargando DNS');
-      return (res.data as { queries?: unknown[]; total?: number } | null)?.queries ?? [];
-    },
-    staleTime: 15_000,
-    refetchInterval: 30_000,
+    queryKey: ['widget', 'dns-monitor'],
+    queryFn: async () => [] as const,
+    enabled: false,
+    staleTime: Infinity,
   });
 }
 
 /* ── TLS Fingerprint ───────────────────────────────────────────── */
-
-export function useTlsFingerprint(limit = 20) {
+// Suricata integration removed — widget currently disabled.
+export function useTlsFingerprint(_limit = 20) {
   return useQuery({
-    queryKey: ['widget', 'tls-fingerprint', limit],
-    queryFn: async () => {
-      const res = await suricataApi.getTlsHandshakes({ limit });
-      if (!res.success) throw new Error(res.error ?? 'Error cargando TLS');
-      return (res.data as { handshakes?: unknown[]; total?: number } | null)?.handshakes ?? [];
-    },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    queryKey: ['widget', 'tls-fingerprint'],
+    queryFn: async () => [] as const,
+    enabled: false,
+    staleTime: Infinity,
   });
 }
 
@@ -199,17 +182,13 @@ export function useBandwidthTop(limit = 10) {
 }
 
 /* ── HTTP Inspector ────────────────────────────────────────────── */
-
-export function useHttpInspector(limit = 25) {
+// Suricata integration removed — widget currently disabled.
+export function useHttpInspector(_limit = 25) {
   return useQuery({
-    queryKey: ['widget', 'http-inspector', limit],
-    queryFn: async () => {
-      const res = await suricataApi.getHttpTransactions({ limit });
-      if (!res.success) throw new Error(res.error ?? 'Error cargando HTTP');
-      return (res.data as { transactions?: unknown[]; total?: number } | null)?.transactions ?? [];
-    },
-    staleTime: 15_000,
-    refetchInterval: 30_000,
+    queryKey: ['widget', 'http-inspector'],
+    queryFn: async () => [] as const,
+    enabled: false,
+    staleTime: Infinity,
   });
 }
 

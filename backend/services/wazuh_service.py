@@ -631,50 +631,23 @@ class WazuhService:
             raise
 
     async def get_agents_summary(self) -> dict:
-        """
-        [Wazuh API] Get count of agents by status.
-        Uses Wazuh endpoint: GET /agents/summary/status
+        """[Wazuh API] Get count of agents by status.
 
-        Resilient: if /agents/summary/status is slow / disconnected, falls back
-        to computing the summary from /agents. Never raises — returns zeros
-        with a "partial" flag if both paths fail.
+        Computes the summary from `/agents` so the counts always agree with
+        what the agents page lists. Previously this used `/agents/summary/status`
+        which excludes the manager (id `000`) and produced a confusing
+        mismatch where the page showed 1 active agent but the summary said 2.
         """
         if self._settings.should_mock_wazuh:
             from services.mock_data import MockData
             return MockData.wazuh.agents_summary()
-        # Primary path: dedicated /agents/summary/status endpoint (fast)
-        try:
-            data = await asyncio.wait_for(
-                self._api_request("GET", "/agents/summary/status"),
-                timeout=8.0,
-            )
-            connection = data.get("data", {}).get("connection", {})
-            return {
-                "active": connection.get("active", 0),
-                "disconnected": connection.get("disconnected", 0),
-                "never_connected": connection.get("never_connected", 0),
-                "pending": connection.get("pending", 0),
-                "total": connection.get("total", 0),
-            }
-        except (asyncio.TimeoutError, Exception) as e:
-            logger.warning(
-                "wazuh_get_agents_summary_primary_failed",
-                error=str(e),
-                fallback="compute_from_agents",
-            )
-        # Fallback: derive the summary from /agents list (heavier but reliable)
         try:
             agents = await asyncio.wait_for(self.get_agents(), timeout=8.0)
-            counts = {"active": 0, "disconnected": 0, "never_connected": 0, "pending": 0, "total": 0}
-            for a in agents:
-                status = (a.get("status") or "").lower()
-                if status in counts:
-                    counts[status] += 1
-                counts["total"] += 1
-            return counts
         except Exception as e:
-            logger.error("wazuh_get_agents_summary_fallback_failed", error=str(e))
-            # Last resort: return zeros with a partial flag so the UI can show "unknown"
+            logger.warning(
+                "wazuh_get_agents_summary_failed",
+                error=str(e),
+            )
             return {
                 "active": 0,
                 "disconnected": 0,
@@ -683,6 +656,14 @@ class WazuhService:
                 "total": 0,
                 "partial": True,
             }
+        counts = {"active": 0, "disconnected": 0, "never_connected": 0, "pending": 0}
+        for a in agents:
+            status = (a.get("status") or "").lower()
+            if status in counts:
+                counts[status] += 1
+            # ignore unknown statuses
+        counts["total"] = len(agents)
+        return counts
 
     async def get_mitre_summary(self) -> list[dict]:
         """
@@ -1085,4 +1066,3 @@ class WazuhService:
 def get_wazuh_service() -> WazuhService:
     """Get the Wazuh service singleton."""
     return WazuhService()
-

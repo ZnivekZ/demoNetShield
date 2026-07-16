@@ -29,6 +29,10 @@ from tenacity import (
 )
 
 from config import get_settings
+from services.resilience import (
+    safe_call,
+    make_resilience,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +62,16 @@ class MikroTikService:
         self._connect_lock = asyncio.Lock()
         self._api_lock = asyncio.Lock()
         self._settings = get_settings()
+        # Per-service resilience: MikroTik has its own ThreadPoolExecutor
+        # so a hung RouterOS connection can only starve its own workers,
+        # not the rest of the backend. The circuit breaker short-circuits
+        # calls when the host is unreachable.
+        self._breaker, self._executor = make_resilience(
+            name="mikrotik",
+            failure_threshold=3,
+            cooldown_seconds=30.0,
+            max_workers=2,
+        )
         # Traffic tracking: stores {interface_name: {"rx": bytes, "tx": bytes, "time": timestamp}}
         self._last_traffic: dict[str, dict[str, float]] = {}
         # VLAN traffic tracking (separate dict to avoid interfering with general traffic)
@@ -77,12 +91,17 @@ class MikroTikService:
             if self._connected and self._api is not None:
                 return
             try:
-                loop = asyncio.get_event_loop()
-                self._connection = await loop.run_in_executor(
-                    None, self._create_connection
+                # Use safe_call to bound the connect attempt and feed the
+                # breaker; do NOT short-circuit when the breaker is open
+                # because connect() is the operation that recovers the
+                # service once MikroTik is back up.
+                self._connection = await asyncio.wait_for(
+                    self._executor.run(self._create_connection),
+                    timeout=10.0,
                 )
                 self._api = self._connection.get_api()
                 self._connected = True
+                self._breaker.record_success()
                 logger.info(
                     "mikrotik_connected",
                     host=self._settings.mikrotik_host,
@@ -91,6 +110,7 @@ class MikroTikService:
             except Exception as e:
                 self._connected = False
                 self._api = None
+                self._breaker.record_failure()
                 logger.error("mikrotik_connection_failed", error=str(e))
                 raise
 

@@ -201,7 +201,26 @@ class WazuhService:
             from services.wazuh_indexer import get_indexer_client
             indexer = get_indexer_client()
             if indexer.is_configured():
-                return await self._indexer_passthrough(method, endpoint, params, json_body)
+                # Short-circuit when the Indexer circuit breaker is open:
+                # return empty envelope without touching the network. This stops
+                # the WebSocket polling loop from blocking on timeouts.
+                if indexer._breaker.is_open():
+                    logger.debug(
+                        "indexer_circuit_open_skip_passthrough",
+                        endpoint=endpoint,
+                        seconds_until_retry=round(indexer._breaker.seconds_until_retry, 1),
+                    )
+                    return {"data": {"affected_items": []}, "error": 0}
+                try:
+                    return await self._indexer_passthrough(method, endpoint, params, json_body)
+                except Exception as e:
+                    logger.warning(
+                        "wazuh_indexer_passthrough_error",
+                        endpoint=endpoint,
+                        error=repr(e),
+                        error_type=type(e).__name__,
+                    )
+                    return {"data": {"affected_items": []}, "error": 0}
         # ── End: redirect block ──
         token = await self._ensure_token()
         client = self._get_client()

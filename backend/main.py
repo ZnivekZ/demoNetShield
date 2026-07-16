@@ -73,6 +73,48 @@ logger = structlog.get_logger(__name__)
 
 # ── Application Lifespan ─────────────────────────────────────────
 
+# ── Event Loop Lag Monitor ────────────────────────────────────────
+# Diagnostic: detects when the asyncio event loop is blocked (by sync I/O,
+# CPU-bound work, or a hung to_thread). A blocked loop makes httpx report
+# spurious ConnectTimeout('') on unrelated calls (e.g. Wazuh Indexer),
+# because the connect timer expires while the loop cannot service the socket.
+async def _event_loop_lag_monitor(threshold_s: float = 1.0, interval_s: float = 0.5):
+    """Log a warning whenever the event loop is blocked longer than threshold_s.
+
+    Also captures asyncio.all_tasks() snapshot at the moment of the lag so you
+    can see WHICH coroutine was holding the loop (typically the one running
+    sync I/O or CPU-bound work directly on the loop instead of via to_thread).
+    """
+    import asyncio as _a
+    import traceback as _tb
+    loop = _a.get_running_loop()
+    while True:
+        t0 = loop.time()
+        await _a.sleep(interval_s)
+        drift = loop.time() - t0 - interval_s
+        if drift >= threshold_s:
+            # Capture stack of each running task so we can find the culprit
+            running_tasks = []
+            for task in _a.all_tasks():
+                if task is not _a.current_task() and not task.done():
+                    stack = task.get_stack(limit=4)
+                    if stack:
+                        running_tasks.append({
+                            "name": task.get_name(),
+                            "coro": getattr(task, "_coro", None).__qualname__
+                                    if hasattr(task, "_coro") and task._coro
+                                    else str(type(task)),
+                            "stack": _tb.format_list(stack),
+                        })
+            logger.error(
+                "event_loop_blocked",
+                blocked_seconds=round(drift, 2),
+                running_tasks=running_tasks[:5],
+                hint="A coroutine ran sync I/O or CPU-bound work on the loop; "
+                     "this causes spurious ConnectTimeout on httpx calls.",
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application startup and shutdown."""
@@ -124,7 +166,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("report_scheduler_start_failed", error=str(e))
 
+    # Start event-loop lag monitor (diagnostic for ConnectTimeout issues)
+    _lag_monitor_task = asyncio.create_task(_event_loop_lag_monitor())
+    logger.info("event_loop_lag_monitor_started")
+
     yield
+
+    # Stop the lag monitor
+    _lag_monitor_task.cancel()
 
     # Shutdown
     logger.info("netshield_shutting_down")
@@ -297,6 +346,64 @@ async def get_mock_status():
     """Return which services are running in mock mode. Used by the frontend MockModeBadge."""
     from services.mock_service import MockService
     return {"success": True, "data": MockService.get_mock_status(), "error": None}
+
+
+@app.get("/api/health/services")
+async def get_services_health():
+    """
+    Resilience diagnostics: state of every per-service circuit breaker
+    and ThreadPoolExecutor registered with `services.resilience`.
+
+    Useful when the dashboard looks empty: hit this endpoint and you'll
+    see which service has its breaker open (= short-circuiting calls)
+    and which is in mock mode (silent fallback).
+    """
+    from services.resilience import get_resilience_registry
+    from services.mock_service import MockService
+
+    registry = get_resilience_registry()
+    breakers = registry.breakers
+    executors = registry.executors
+
+    # Mark breakers that align with currently-mocked services. This lets the
+    # operator distinguish "service is down, breaker tripped" from "we're in
+    # mock mode for that service".
+    mock_status = MockService.get_mock_status()
+    # mock_status shape from mock_service: per-service booleans like
+    # {"mikrotik": True, "glpi": False, ...}. Normalise to a set.
+    mocked = {k for k, v in mock_status.items() if v} if isinstance(mock_status, dict) else set()
+
+    breaker_payload = {}
+    for name, breaker in breakers.items():
+        snap = breaker.snapshot()
+        snap["mocked"] = name in mocked
+        breaker_payload[name] = snap
+
+    executor_payload = {
+        name: {
+            "name": ex.name,
+            # `max_workers` is the only public knob we set on the pool
+            "max_workers": getattr(ex._executor, "_max_workers", None),
+        }
+        for name, ex in executors.items()
+    }
+
+    overall = "healthy"
+    for snap in breaker_payload.values():
+        if snap["state"] == "open":
+            overall = "degraded"
+            break
+
+    return {
+        "success": True,
+        "data": {
+            "overall": overall,
+            "breakers": breaker_payload,
+            "executors": executor_payload,
+            "mocked_services": sorted(mocked),
+        },
+        "error": None,
+    }
 
 
 # ── Action Log History ────────────────────────────────────────────
@@ -865,13 +972,36 @@ async def websocket_crowdsec_decisions(websocket: WebSocket):
                             "data": decision,
                         })
                 else:
-                    stream = await cs_service.get_decisions_stream(startup=(tick == 0))
-                    new_decisions = stream.get("new", [])
-                    if new_decisions:
-                        await websocket.send_json({
-                            "type": "crowdsec_decision",
-                            "data": {"decisions": new_decisions, "count": len(new_decisions)},
-                        })
+                    # Skip CrowdSec call entirely if the breaker is open.
+                    # Prevents the WS loop from issuing a useless network request
+                    # every 10s when CrowdSec is unreachable.
+                    if cs_service._breaker.is_open():
+                        if tick % 30 == 0:  # emit a warning only occasionally
+                            logger.warning(
+                                "ws_crowdsec_circuit_open_skip",
+                                seconds_until_retry=round(
+                                    cs_service._breaker.seconds_until_retry, 1
+                                ),
+                            )
+                        stream = None
+                    else:
+                        # Bound the CrowdSec stream call to 6s so an unresponsive
+                        # server can't block the WS polling loop for 30s+.
+                        try:
+                            stream = await asyncio.wait_for(
+                                cs_service.get_decisions_stream(startup=(tick == 0)),
+                                timeout=6.0,
+                            )
+                        except asyncio.TimeoutError:
+                            logger.warning("ws_crowdsec_poll_timeout")
+                            stream = None
+                    if stream:
+                        new_decisions = stream.get("new", [])
+                        if new_decisions:
+                            await websocket.send_json({
+                                "type": "crowdsec_decision",
+                                "data": {"decisions": new_decisions, "count": len(new_decisions)},
+                            })
             except Exception as e:
                 try:
                     if websocket.client_state.value == 1:  # CONNECTED

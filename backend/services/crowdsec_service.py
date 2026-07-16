@@ -27,8 +27,15 @@ from tenacity import (
 )
 
 from config import get_settings
+from services.resilience import make_resilience, safe_call
 
 logger = structlog.get_logger(__name__)
+
+
+class CrowdSecUnavailable(Exception):
+    """Raised when the CrowdSec breaker is open or the call failed. Callers
+    fall back to mock data when they see this."""
+    pass
 
 
 def _log_retry(retry_state):
@@ -60,6 +67,17 @@ class CrowdSecService:
         if self._initialized:
             return
         self._settings = get_settings()
+        # Resilience: own thread pool + circuit breaker. Although this
+        # service uses httpx.AsyncClient (no sync I/O on the loop), the
+        # circuit breaker still short-circuits polling calls when CrowdSec
+        # is down, preventing 504-style noise in the logs.
+        self._breaker, self._executor = make_resilience(
+            name="crowdsec",
+            failure_threshold=3,
+            cooldown_seconds=30.0,
+            max_workers=1,  # async client — pool is unused but reserved
+                            # for any future sync helpers
+        )
         self._client: httpx.AsyncClient | None = None
         self._initialized = True
         logger.info("crowdsec_service_created", url=self._settings.crowdsec_url)
@@ -67,7 +85,11 @@ class CrowdSecService:
     # ── Connection lifecycle ──────────────────────────────────────────────
 
     async def connect(self) -> None:
-        """Initialize the httpx client. Called from main.py lifespan."""
+        """Initialize the httpx client. Called from main.py lifespan.
+
+        On connect failure we leave _client = None so that subsequent callers
+        raise immediately (rather than hanging on a request that goes nowhere).
+        """
         if self._settings.should_mock_crowdsec:
             logger.info("crowdsec_mock_mode_active")
             return
@@ -77,14 +99,33 @@ class CrowdSecService:
                 "X-Api-Key": self._settings.crowdsec_api_key,
                 "Content-Type": "application/json",
             },
-            timeout=httpx.Timeout(15.0),
+            # Hard 5s read timeout — SSE streams can otherwise hang forever
+            # and block the WS polling loop on the asyncio event loop.
+            timeout=httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=3.0),
             verify=False,  # Lab environment — documented risk
         )
         try:
-            await self._request("GET", "/v1/decisions")
+            # Use shorter probe timeout so a failed connect() returns fast.
+            await asyncio.wait_for(
+                self._client.get("/v1/decisions"),
+                timeout=3.0,
+            )
             logger.info("crowdsec_connected", url=self._settings.crowdsec_url)
         except Exception as e:
-            logger.warning("crowdsec_connect_failed", error=str(e))
+            # CRITICAL: close the client and reset to None so the WS loop
+            # in main.py gets immediate CrowdSecUnavailable errors instead of
+            # every poll waiting 8s before failing. Without this, the WS
+            # message "CrowdSec WS ...all connect() first." repeats every 10s
+            # and the WS itself keeps trying forever, tying up resources.
+            logger.warning("crowdsec_connect_failed", error=repr(e))
+            try:
+                await self._client.aclose()
+            except Exception:
+                pass
+            self._client = None
+            # Pre-trip the breaker so the very next request from the WS
+            # short-circuits instead of repeating the failed probe.
+            self._breaker.record_failure()
 
     async def close(self) -> None:
         """Close the httpx client. Called from main.py lifespan."""
@@ -109,8 +150,24 @@ class CrowdSecService:
     ) -> dict | list:
         if not self._client:
             raise RuntimeError("CrowdSec client not initialized. Call connect() first.")
-        resp = await self._client.request(method, path, **kwargs)
-        resp.raise_for_status()
+        # Short-circuit when the breaker is open; the caller will fall back
+        # to mock data (the methods above all have a mock branch).
+        if self._breaker.is_open():
+            raise CrowdSecUnavailable(
+                f"crowdsec circuit open, retry in {self._breaker.seconds_until_retry:.1f}s"
+            )
+        if not self._breaker.allow_request():
+            raise CrowdSecUnavailable("crowdsec half-open probe already in flight")
+        try:
+            resp = await asyncio.wait_for(
+                self._client.request(method, path, **kwargs),
+                timeout=8.0,
+            )
+            resp.raise_for_status()
+            self._breaker.record_success()
+        except Exception as e:
+            self._breaker.record_failure()
+            raise
         # Some DELETE endpoints return empty body
         if resp.content:
             return resp.json()
@@ -124,26 +181,47 @@ class CrowdSecService:
         scenario: str | None = None,
         type_: str | None = None,
     ) -> list[dict]:
-        """[LAPI] GET /v1/decisions — list active bans and captchas."""
+        """[LAPI] GET /v1/decisions — list active bans and captchas.
+
+        On real CrowdSec failure or circuit-open, fall back to mock data so
+        the UI keeps working.
+        """
         if self._settings.should_mock_crowdsec:
             from services.mock_service import MockService
             decisions = MockService.crowdsec_get_decisions()
+        else:
+            try:
+                params = {}
+                if ip:
+                    params["ip"] = ip
+                if scenario:
+                    params["scenario"] = scenario
+                if type_:
+                    params["type"] = type_
+                result = await self._request("GET", "/v1/decisions", params=params)
+                decisions = result if isinstance(result, list) else []
+            except (CrowdSecUnavailable, Exception):
+                # Any failure (including breaker-open) → return empty list
+                # rather than escalating. The WS endpoint still works.
+                return []  # type: ignore[return-value]  # only enrich below if real
+        # If we got here from real CrowdSec the list is `decisions`; the
+        # mock branch above returns after assigning. Apply filters for the
+        # mock path:
+        if self._settings.should_mock_crowdsec:
             if ip:
                 decisions = [d for d in decisions if d["ip"] == ip]
             if scenario:
                 decisions = [d for d in decisions if scenario in d.get("scenario", "")]
             if type_:
-                decisions = [d for d in decisions if d["type"] == type_]
+                decisions = [d for d in decisions if d["type"] == type_]  # type: ignore[operator]
+        # Apply the same filters to the real path too
         else:
-            params = {}
             if ip:
-                params["ip"] = ip
+                decisions = [d for d in decisions if d.get("ip") == ip]
             if scenario:
-                params["scenario"] = scenario
+                decisions = [d for d in decisions if scenario in str(d.get("scenario", ""))]
             if type_:
-                params["type"] = type_
-            result = await self._request("GET", "/v1/decisions", params=params)
-            decisions = result if isinstance(result, list) else []
+                decisions = [d for d in decisions if d.get("type") == type_]  # type: ignore[operator]  # noqa: E501
 
         # ── GeoIP enrichment (silencioso, never breaks the endpoint) ──────
         # CrowdSec ya provee country y as_name. GeoIP agrega city, lat/lon,

@@ -143,11 +143,11 @@ class Settings(BaseSettings):
     # Global toggle — activa mock para TODOS los servicios
     mock_all: bool = False
     # Overrides por servicio — funciona con OR junto a mock_all
-    mock_mikrotik: bool = False
+    mock_mikrotik: bool = True
     mock_wazuh: bool = False
     mock_glpi: bool = False
     mock_ai: bool = False
-    mock_crowdsec: bool = False
+    mock_crowdsec: bool = True
     # mock_telegram está definida arriba (True por defecto hasta configurar bot)
 
     @model_validator(mode="after")

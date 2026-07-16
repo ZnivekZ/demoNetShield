@@ -26,6 +26,7 @@ import requests
 import structlog
 
 from config import get_settings
+from services.resilience import make_resilience
 
 logger = structlog.get_logger(__name__)
 
@@ -79,26 +80,46 @@ class GlpiCollector:
             return
         self._initialized = True
         self._settings = get_settings()
+        # Per-service resilience: own executor (so a hung GLPI host can't
+        # starve MikroTik/Wazuh workers), circuit breaker to skip cycles
+        # when the GLPI server has been failing, and a hard 30s timeout on
+        # the whole collection cycle.
+        self._breaker, self._executor = make_resilience(
+            name="glpi",
+            failure_threshold=3,
+            cooldown_seconds=120.0,  # longer cooldown than the others —
+                                     # GLPI changes rarely and the cost of
+                                     # hammering a dead host is high
+            max_workers=2,
+        )
         self._task: asyncio.Task | None = None
         self._raw_assets: list[dict] = []
         self._parsed_cache: dict[int, dict] = {}  # asset_id → parsed full detail
         self._last_sync: str | None = None
-        self._load_existing_cache()
+        # Cache load happens in start() (async)
 
-    def _load_existing_cache(self) -> None:
-        """Load previously saved JSON if it exists (cold start)."""
+    def _load_existing_cache_sync(self) -> None:
+        """Sync: just read the JSON file from disk (fast). The parsed-cache
+        rebuild happens later in _load_existing_cache_async (threaded)."""
         if _CACHE_FILE.exists():
             try:
                 with open(_CACHE_FILE, "r", encoding="utf-8") as f:
                     self._raw_assets = json.load(f)
-                self._rebuild_parsed_cache()
-                logger.info(
-                    "glpi_collector_cache_loaded",
-                    assets=len(self._raw_assets),
-                    file=str(_CACHE_FILE),
-                )
             except Exception as e:
                 logger.warning("glpi_collector_cache_load_failed", error=str(e))
+                self._raw_assets = []
+
+    async def _load_existing_cache(self) -> None:
+        """Async: load disk cache and rebuild parsed cache in a thread."""
+        self._load_existing_cache_sync()
+        if self._raw_assets:
+            await self._rebuild_parsed_cache_async()
+            logger.info(
+                "glpi_collector_cache_loaded",
+                assets=len(self._raw_assets),
+                file=str(_CACHE_FILE),
+            )
+
 
     # ── Sync GLPI (runs in thread) ────────────────────────────────
 
@@ -225,6 +246,17 @@ class GlpiCollector:
                 continue
             cache[int(asset_id)] = self._parse_full_detail(raw)
         self._parsed_cache = cache
+
+
+
+    async def _rebuild_parsed_cache_async(self) -> None:
+        """Async wrapper: run the cache rebuild in the dedicated glpi
+        executor so it does not block the asyncio event loop. With a
+        1.4MB raw_assets payload the parse may take several seconds —
+        enough to time out downstream httpx calls (Wazuh Indexer polls)
+        and produce spurious ConnectTimeout errors.
+        """
+        await self._executor.run(self._rebuild_parsed_cache)
 
     def _parse_full_detail(self, raw: dict) -> dict[str, Any]:
         """Transform a raw GLPI asset into the structured full-detail format."""
@@ -549,6 +581,9 @@ class GlpiCollector:
             logger.info("glpi_collector_skipped_mock_mode")
             return
 
+        # Load any previously cached GLPI assets before starting the loop
+        # (so the UI has data immediately, even if the GLPI host is down)
+        await self._load_existing_cache()
         self._task = asyncio.create_task(self._loop())
         logger.info("glpi_collector_started", interval_s=COLLECT_INTERVAL)
 
@@ -565,18 +600,31 @@ class GlpiCollector:
     async def collect_now(self) -> int:
         """Run a collection cycle immediately. Returns asset count.
 
-        Hard-capped at COLLECT_TIMEOUT_SECONDS so a hung GLPI host cannot
-        block the asyncio event loop and cause ConnectTimeout errors on
-        unrelated downstream calls (e.g. Wazuh Indexer polling).
+        Resilience: skip immediately when the circuit is open (the GLPI
+        host has been failing). Otherwise run the sync collection in our
+        dedicated executor with a hard timeout, and update the breaker
+        based on the outcome. Never raises — returns 0 if anything fails.
         """
+        if self._breaker.is_open():
+            logger.debug(
+                "glpi_collector_circuit_open_skip",
+                seconds_until_retry=round(self._breaker.seconds_until_retry, 1),
+            )
+            return 0
+        if not self._breaker.allow_request():
+            # half-open probe already running, skip this tick
+            return 0
         try:
             raw_assets = await asyncio.wait_for(
-                asyncio.to_thread(self._collect_sync),
+                self._executor.run(self._collect_sync),
                 timeout=COLLECT_TIMEOUT_SECONDS,
             )
             self._raw_assets = raw_assets
-            self._rebuild_parsed_cache()
+            # Parsing 1.4MB of nested GLPI data can take seconds. Run in a
+            # thread (also dedicated) so it cannot block the asyncio event loop.
+            await self._rebuild_parsed_cache_async()
             self._last_sync = datetime.now(timezone.utc).isoformat()
+            self._breaker.record_success()
             logger.info(
                 "glpi_collector_sync_complete",
                 assets=len(raw_assets),
@@ -584,13 +632,16 @@ class GlpiCollector:
             )
             return len(raw_assets)
         except asyncio.TimeoutError:
+            self._breaker.record_failure()
             logger.warning(
                 "glpi_collector_sync_timeout",
                 timeout_s=COLLECT_TIMEOUT_SECONDS,
-                hint="GLPI host unreachable or stuck; skipping this cycle",
+                hint="GLPI host unreachable or stuck; circuit breaker "
+                     "will skip further attempts until cooldown",
             )
             return 0
         except Exception as e:
+            self._breaker.record_failure()
             logger.error("glpi_collector_sync_failed", error=str(e))
             return 0
 

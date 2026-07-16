@@ -29,6 +29,7 @@ import httpx
 import structlog
 
 from config import get_settings
+from services.resilience import make_resilience, safe_call
 
 logger = structlog.get_logger(__name__)
 
@@ -50,13 +51,16 @@ class WazuhIndexerClient:
         self._initialized = True
         self._settings = get_settings()
         self._client: httpx.AsyncClient | None = None
-        # Circuit breaker: if the Indexer fails repeatedly, stop hammering it.
-        # State: closed (normal) -> open (failing, skip calls) -> half-open (try one)
-        self._cb_state: str = "closed"
-        self._cb_failures: int = 0
-        self._cb_open_until: float = 0.0
-        self._cb_failure_threshold: int = 3
-        self._cb_cooldown_seconds: float = 30.0
+        # Resilience: register a circuit breaker with the global registry
+        # so the /api/health/services endpoint can show its state. The
+        # custom inline breaker state (closed/open/half-open) is replaced
+        # by the shared `CircuitBreaker` from services.resilience.
+        self._breaker, self._executor = make_resilience(
+            name="wazuh_indexer",
+            failure_threshold=3,
+            cooldown_seconds=30.0,
+            max_workers=1,  # httpx.AsyncClient — pool reserved for symmetry
+        )
         # Global lock to serialize Indexer HTTP calls.
         # Avoids the "ConnectTimeout on first attempt, then works" pattern
         # that happens when too many concurrent connect_tcp() calls share
@@ -105,40 +109,6 @@ class WazuhIndexerClient:
             self._request_lock = asyncio.Lock()
         return self._request_lock
 
-    # ── Circuit breaker ─────────────────────────────────────────
-    def _cb_now(self) -> float:
-        import time as _t
-        return _t.monotonic()
-
-    def _cb_is_open(self) -> bool:
-        """True if circuit is open (skip calls until cooldown expires)."""
-        if self._cb_state == "open":
-            if self._cb_now() >= self._cb_open_until:
-                self._cb_state = "half-open"
-                return False
-            return True
-        return False
-
-    def _cb_record_success(self) -> None:
-        if self._cb_state != "closed":
-            self._cb_state = "closed"
-            self._cb_failures = 0
-            logger.info("wazuh_indexer_circuit_closed", msg="recovered")
-
-    def _cb_record_failure(self) -> None:
-        self._cb_failures += 1
-        if self._cb_state == "half-open":
-            self._cb_state = "open"
-            self._cb_open_until = self._cb_now() + self._cb_cooldown_seconds
-            logger.warning("wazuh_indexer_circuit_reopened",
-                          cooldown_seconds=self._cb_cooldown_seconds)
-        elif self._cb_failures >= self._cb_failure_threshold:
-            self._cb_state = "open"
-            self._cb_open_until = self._cb_now() + self._cb_cooldown_seconds
-            logger.warning("wazuh_indexer_circuit_opened",
-                          failures=self._cb_failures,
-                          cooldown_seconds=self._cb_cooldown_seconds)
-
     def is_configured(self) -> bool:
         """True if Indexer URL is set and non-empty."""
         return bool(self._settings.wazuh_indexer_url)
@@ -156,15 +126,20 @@ class WazuhIndexerClient:
         """
         Run a search against the given index pattern.
         Returns the list of hits (`_source` fields). Empty list on failure.
+
+        Resilient to event-loop-lag-induced ConnectTimeout: retries the POST
+        up to 3 times, resetting the client each time. A blocked event loop
+        (sync I/O or CPU-bound work in another coroutine) makes httpx fire a
+        spurious ConnectTimeout('') even when the network is perfectly fine;
+        retrying once the loop frees up almost always succeeds.
         """
         # Circuit breaker: skip calls when the Indexer is known to be failing
-        if self._cb_is_open():
+        if self._breaker.is_open():
             logger.debug("wazuh_indexer_circuit_open_skip", index=index_pattern)
             return []
         if not self.is_configured():
             logger.warning("wazuh_indexer_not_configured")
             return []
-        client = self._get_client()
         body: dict[str, Any] = {
             "size": size,
             "query": query,
@@ -172,121 +147,81 @@ class WazuhIndexerClient:
         }
         if sort:
             body["sort"] = sort
-        try:
-            resp = await asyncio.wait_for(
-                client.post(
-                    f"/{index_pattern}/_search",
-                    headers={"Content-Type": "application/json"},
-                    content=json.dumps(body),
-                ),
-                timeout=timeout_s,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            self._cb_record_success()
-            return [hit["_source"] for hit in data.get("hits", {}).get("hits", [])]
-        except asyncio.TimeoutError:
-            logger.warning(
-                "wazuh_indexer_search_timeout",
-                index=index_pattern,
-                timeout_s=timeout_s,
-                url=str(client.base_url) + f"/{index_pattern}/_search",
-            )
-            await self._reset_client()
-            self._cb_record_failure()
-            return []
-        except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
-            logger.warning(
-                "wazuh_indexer_search_transport_error",
-                index=index_pattern,
-                error=repr(e),
-                error_type=type(e).__name__,
-            )
-            # Reset client to recover from broken connection pool
-            await self._reset_client()
-            self._cb_record_failure()
-            return []
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                "wazuh_indexer_search_http_error",
-                index=index_pattern,
-                status=e.response.status_code,
-                detail=e.response.text[:300],
-                url=str(e.request.url),
-            )
-            return []
-        except Exception as e:
-            logger.error(
-                "wazuh_indexer_search_failed",
-                index=index_pattern,
-                error=repr(e),
-                error_type=type(e).__name__,
-                error_str=str(e),
-                exc_info=True,
-            )
-            self._cb_record_failure()
-            return []
+        payload = json.dumps(body)
+        url = f"/{index_pattern}/_search"
 
-
-    # ── Diagnostics ──────────────────────────────────────────
-
-    async def ping(self, timeout_s: float = 5.0) -> dict[str, Any]:
-        """
-        Lightweight diagnostic: hit GET / on the Indexer and report status.
-        Useful for verifying connectivity without doing a heavy search.
-        """
-        if not self.is_configured():
-            return {"configured": False, "url": "", "reachable": False, "error": "Indexer URL not configured"}
-        client = self._get_client()
-        try:
-            t0 = time.time()
-            resp = await asyncio.wait_for(client.get("/"), timeout=timeout_s)
-            elapsed = time.time() - t0
-            data: dict[str, Any] = {}
+        for attempt in range(3):
+            client = self._get_client()
             try:
+                resp = await asyncio.wait_for(
+                    client.post(
+                        url,
+                        headers={"Content-Type": "application/json"},
+                        content=payload,
+                    ),
+                    timeout=timeout_s,
+                )
+                resp.raise_for_status()
                 data = resp.json()
-            except Exception:
-                pass
-            return {
-                "configured": True,
-                "url": str(client.base_url),
-                "reachable": resp.status_code == 200,
-                "status_code": resp.status_code,
-                "version": data.get("version", {}).get("number", "unknown"),
-                "cluster_name": data.get("cluster_name", "unknown"),
-                "latency_ms": round(elapsed * 1000, 1),
-            }
-        except Exception as e:
-            return {
-                "configured": True,
-                "url": str(client.base_url),
-                "reachable": False,
-                "error": repr(e),
-                "error_type": type(e).__name__,
-            }
+                self._breaker.record_success()
+                return [hit["_source"] for hit in data.get("hits", {}).get("hits", [])]
+            except httpx.ConnectTimeout as e:
+                # Spurious timeout from event-loop lag — reset client and retry
+                await self._reset_client()
+                if attempt < 2:
+                    await asyncio.sleep(0.25 * (attempt + 1))
+                    continue
+                logger.warning(
+                    "wazuh_indexer_connect_timeout_exhausted",
+                    index=index_pattern,
+                    attempts=attempt + 1,
+                    error=repr(e),
+                    hint="event loop likely blocked; check event_loop_blocked warnings",
+                )
+                self._breaker.record_failure()
+                return []
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "wazuh_indexer_search_timeout",
+                    index=index_pattern,
+                    timeout_s=timeout_s,
+                    url=str(client.base_url) + url,
+                )
+                await self._reset_client()
+                self._breaker.record_failure()
+                return []
+            except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
+                logger.warning(
+                    "wazuh_indexer_search_transport_error",
+                    index=index_pattern,
+                    error=repr(e),
+                    error_type=type(e).__name__,
+                )
+                await self._reset_client()
+                self._breaker.record_failure()
+                return []
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    "wazuh_indexer_search_http_error",
+                    index=index_pattern,
+                    status=e.response.status_code,
+                    detail=e.response.text[:300],
+                    url=str(e.request.url),
+                )
+                return []
+            except Exception as e:
+                logger.error(
+                    "wazuh_indexer_search_failed",
+                    index=index_pattern,
+                    error=repr(e),
+                    error_type=type(e).__name__,
+                    error_str=str(e),
+                    exc_info=True,
+                )
+                self._breaker.record_failure()
+                return []
+        return []
 
-    async def indices_summary(self, pattern: str = "wazuh-*", timeout_s: float = 5.0) -> dict[str, Any]:
-        """
-        Diagnostic: list matching indices and their doc counts.
-        """
-        if not self.is_configured():
-            return {"configured": False, "indices": []}
-        client = self._get_client()
-        try:
-            resp = await asyncio.wait_for(
-                client.get(f"/_cat/indices/{pattern}?h=index,docs.count&format=json"),
-                timeout=timeout_s,
-            )
-            resp.raise_for_status()
-            rows = resp.json()
-            return {
-                "configured": True,
-                "pattern": pattern,
-                "count": len(rows),
-                "indices": [{"index": r.get("index"), "docs": r.get("docs.count")} for r in rows],
-            }
-        except Exception as e:
-            return {"configured": True, "pattern": pattern, "error": repr(e), "error_type": type(e).__name__}
 
     # ── Alerts ─────────────────────────────────────────────────
 

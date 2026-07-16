@@ -347,21 +347,21 @@ export const wazuhApiExtended = {
 
   // ── Agents list with pagination + filters ────────────────────────
   getAgentsPaginated: async (filters: WazuhAgentsFilters): Promise<APIResponse<WazuhAgentsPagination>> => {
-    try {
-      const params: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.page_size ?? 50 };
-      if (filters.status) params.status = filters.status;
-      if (filters.search) params.search = filters.search;
+      try {
+        const params: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.page_size ?? 50 };
+        if (filters.status) params.status = filters.status;
+        if (filters.search) params.search = filters.search;
 
-      return await api
-        .get<APIResponse<WazuhAgentsPagination>>('/wazuh/agents', { params })
-        .then(r => r.data);
-    } catch (e: unknown) {
-      const status = (e as { response?: { status?: number } })?.response?.status;
-      if (status && status >= 400 && status < 500) {
-        try {
-          const basic = await wazuhApi.getAgents();
-          if (basic.success && basic.data) {
-            const all = basic.data;
+        const resp = await api
+          .get<APIResponse<WazuhAgentsPagination | WazuhAgent[]>>('/wazuh/agents', { params });
+
+        // Normalize: backend may return either WazuhAgentsPagination OR a flat WazuhAgent[]
+        // (depending on whether the backend honors pagination params).
+        const payload = resp.data;
+        if (payload?.success && payload.data) {
+          if (Array.isArray(payload.data)) {
+            // Flat list — paginate client-side and apply filters
+            const all = payload.data;
             const filtered = all.filter(a => {
               if (filters.status && a.status !== filters.status) return false;
               if (filters.search) {
@@ -388,13 +388,50 @@ export const wazuhApiExtended = {
               error: null,
             };
           }
-        } catch {
-          // ignore
+          // Already in paginated form
+          return payload as APIResponse<WazuhAgentsPagination>;
         }
+        return payload as APIResponse<WazuhAgentsPagination>;
+      } catch (e: unknown) {
+        const status = (e as { response?: { status?: number } })?.response?.status;
+        if (status && status >= 400 && status < 500) {
+          try {
+            const basic = await wazuhApi.getAgents();
+            if (basic.success && basic.data) {
+              const all = basic.data;
+              const filtered = all.filter(a => {
+                if (filters.status && a.status !== filters.status) return false;
+                if (filters.search) {
+                  const q = filters.search.toLowerCase();
+                  if (!a.name.toLowerCase().includes(q) && !a.ip.toLowerCase().includes(q) && !a.id.toLowerCase().includes(q)) return false;
+                }
+                return true;
+              });
+              const page = filters.page ?? 1;
+              const size = filters.page_size ?? 50;
+              return {
+                success: true,
+                data: {
+                  items: filtered.slice((page - 1) * size, page * size),
+                  pagination: {
+                    page,
+                    page_size: size,
+                    total: filtered.length,
+                    total_pages: Math.max(1, Math.ceil(filtered.length / size)),
+                    has_next: page * size < filtered.length,
+                    has_prev: page > 1,
+                  },
+                },
+                error: null,
+              };
+            }
+          } catch {
+            // ignore
+          }
+        }
+        return notAvailableResponse<WazuhAgentsPagination>('getAgentsPaginated');
       }
-      return notAvailableResponse<WazuhAgentsPagination>('getAgentsPaginated');
-    }
-  },
+    },
 
   // ── Agent detail (includes syscheck + syscollector if backend exposes them) ──
   getAgentDetail: async (agentId: string): Promise<APIResponse<WazuhAgentDetail>> => {

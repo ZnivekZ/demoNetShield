@@ -53,7 +53,12 @@ DETAIL_PARAMS = {
 }
 
 # Interval in seconds between collection cycles
-COLLECT_INTERVAL = 180  # 3 minutes
+COLLECT_INTERVAL = 180
+# Hard cap on each collection cycle. Without this, a hung GLPI host
+# (192.168.0.88 in this lab) makes the sync thread hang 15s+ per attempt,
+# which accumulates zombies and degrades the asyncio event loop —
+# manifesting as ConnectTimeout errors on unrelated Wazuh Indexer calls.
+COLLECT_TIMEOUT_SECONDS = 30.0  # 3 minutes
 
 
 class GlpiCollector:
@@ -558,9 +563,17 @@ class GlpiCollector:
         logger.info("glpi_collector_stopped")
 
     async def collect_now(self) -> int:
-        """Run a collection cycle immediately. Returns asset count."""
+        """Run a collection cycle immediately. Returns asset count.
+
+        Hard-capped at COLLECT_TIMEOUT_SECONDS so a hung GLPI host cannot
+        block the asyncio event loop and cause ConnectTimeout errors on
+        unrelated downstream calls (e.g. Wazuh Indexer polling).
+        """
         try:
-            raw_assets = await asyncio.to_thread(self._collect_sync)
+            raw_assets = await asyncio.wait_for(
+                asyncio.to_thread(self._collect_sync),
+                timeout=COLLECT_TIMEOUT_SECONDS,
+            )
             self._raw_assets = raw_assets
             self._rebuild_parsed_cache()
             self._last_sync = datetime.now(timezone.utc).isoformat()
@@ -570,6 +583,13 @@ class GlpiCollector:
                 timestamp=self._last_sync,
             )
             return len(raw_assets)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "glpi_collector_sync_timeout",
+                timeout_s=COLLECT_TIMEOUT_SECONDS,
+                hint="GLPI host unreachable or stuck; skipping this cycle",
+            )
+            return 0
         except Exception as e:
             logger.error("glpi_collector_sync_failed", error=str(e))
             return 0

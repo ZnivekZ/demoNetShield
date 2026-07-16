@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     wazuh_user: str = "wazuh"
     wazuh_password: str = ""
 
+    # Wazuh Indexer (OpenSearch 7.10) — alerts + vulnerabilities live here.
+    # Server API does NOT expose /alerts. Real alerts come from Indexer :9200.
+    wazuh_indexer_url: str = ""
+    wazuh_indexer_user: str = "admin"
+    wazuh_indexer_password: str = ""
+    wazuh_indexer_verify_ssl: bool = False
+
     # ── OpenRouter AI (modelos gratuitos vía proxy OpenAI-compatible) ──────
     openrouter_api_key: str = ""
     openrouter_model: str = "openrouter/auto"  # modelo gratuito por defecto

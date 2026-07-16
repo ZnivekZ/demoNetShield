@@ -93,6 +93,94 @@ class WazuhService:
                 self._token = await self._authenticate()
             return self._token
 
+
+    # ── Indexer passthrough ───────────────────────────────────────
+    async def _indexer_passthrough(
+        self,
+        method: str,
+        endpoint: str,
+        params: dict | None,
+        json_body: dict | None,
+    ) -> dict[str, Any]:
+        """
+        Translate Server API-style calls to Indexer queries and adapt the response
+        to the same `{data: {affected_items: [...]}}` envelope that the Server API
+        returns. This keeps every public method on WazuhService unchanged.
+
+        Mapping:
+            /alerts                                  → indexer.get_alerts
+            /alerts/critical                         → indexer.get_critical_alerts
+            /alerts/timeline                         → indexer.get_alerts_timeline
+            /alerts/last-critical                    → indexer.get_critical_alerts(1)
+            /vulnerabilities                         → indexer.get_vulnerabilities
+        """
+        from services.wazuh_indexer import get_indexer_client
+        indexer = get_indexer_client()
+        params = params or {}
+
+        def _int(name: str, default: int) -> int:
+            try:
+                v = params.get(name, default)
+                return int(v) if v is not None else default
+            except (TypeError, ValueError):
+                return default
+
+        def _str(name: str, default: str = "") -> str:
+            return str(params.get(name, default) or default)
+
+        try:
+            # ── Vulnerabilities ────────────────────────────────────
+            if endpoint.startswith("/vulnerabilities"):
+                limit = _int("limit", 100)
+                agent_id = params.get("agent_id") or None
+                items = await indexer.get_vulnerabilities(limit=limit, agent_id=agent_id)
+                return {"data": {"affected_items": items}, "error": 0}
+
+            # ── Last critical (single item) ────────────────────────
+            if endpoint.startswith("/alerts/last-critical"):
+                items = await indexer.get_critical_alerts(limit=1)
+                if not items:
+                    return {"data": {"affected_items": []}, "error": 0}
+                return {"data": {"affected_items": items[:1]}, "error": 0}
+
+            # ── Critical alerts ────────────────────────────────────
+            if endpoint.startswith("/alerts/critical"):
+                limit = _int("limit", 20)
+                items = await indexer.get_critical_alerts(limit=limit)
+                return {"data": {"affected_items": items}, "error": 0}
+
+            # ── Timeline ───────────────────────────────────────────
+            if endpoint.startswith("/alerts/timeline"):
+                # Parse `q=rule.level>=X` if present, else 0
+                q = _str("q", "")
+                level_min = None
+                if q.startswith("rule.level>="):
+                    try:
+                        level_min = int(q.split(">=", 1)[1])
+                    except ValueError:
+                        level_min = None
+                hours = _int("hours", 24)
+                buckets = await indexer.get_alerts_timeline(level_min=level_min, hours=hours)
+                return {"data": {"affected_items": buckets}, "error": 0}
+
+            # ── Generic /alerts (with or without filters) ─────────
+            limit = _int("limit", 50)
+            level_min: int | None = None
+            q = _str("q", "")
+            if q.startswith("rule.level>="):
+                try:
+                    level_min = int(q.split(">=", 1)[1])
+                except ValueError:
+                    level_min = None
+            agent_id = params.get("agent_id") or None
+            items = await indexer.get_alerts(limit=limit, level_min=level_min, agent_id=agent_id)
+            return {"data": {"affected_items": items}, "error": 0}
+
+        except Exception as e:
+            logger.error("wazuh_indexer_passthrough_failed", endpoint=endpoint, error=str(e))
+            # Return empty envelope so callers can degrade gracefully
+            return {"data": {"affected_items": []}, "error": 0}
+
     async def _api_request(
         self,
         method: str,
@@ -103,7 +191,18 @@ class WazuhService:
         """
         Make an authenticated API request to Wazuh.
         Automatically refreshes token on 401 errors.
+
+        Special routing: endpoints that don't exist in Wazuh 4.14.6 Server API
+        (/alerts*, /vulnerabilities) get transparently redirected to the Wazuh
+        Indexer (OpenSearch :9200) when configured.
         """
+        # ── Redirect: /alerts* and /vulnerabilities → Indexer ──
+        if endpoint.startswith(("/alerts", "/vulnerabilities")):
+            from services.wazuh_indexer import get_indexer_client
+            indexer = get_indexer_client()
+            if indexer.is_configured():
+                return await self._indexer_passthrough(method, endpoint, params, json_body)
+        # ── End: redirect block ──
         token = await self._ensure_token()
         client = self._get_client()
         headers = {"Authorization": f"Bearer {token}"}
@@ -193,21 +292,38 @@ class WazuhService:
             from services.mock_data import MockData
             alerts = MockData.wazuh.alerts(limit=limit, level_min=level_min)
         else:
-            try:
-                params: dict[str, Any] = {
-                    "limit": limit,
-                    "offset": offset,
-                    "sort": "-timestamp",
-                }
-                if level_min is not None:
-                    params["q"] = f"rule.level>={level_min}"
+            # Prefer the Wazuh Indexer (OpenSearch :9200) — Server API has no /alerts
+            from services.wazuh_indexer import get_indexer_client
+            indexer = get_indexer_client()
+            if indexer.is_configured():
+                try:
+                    raw_alerts = await indexer.get_alerts(
+                        limit=limit, level_min=level_min
+                    )
+                    # Indexer returns nested format (agent.name, rule.level).
+                    # Flatten to match the rest of the dashboard's flat schema
+                    # (agent_name, rule_level, rule_description, ...).
+                    alerts = self._normalize_alerts(raw_alerts)
+                except Exception as e:
+                    logger.error("wazuh_get_alerts_indexer_failed", error=str(e))
+                    raise
+            else:
+                # Fallback to Server API (will 404 on Wazuh 4.14.6 but kept for compat)
+                try:
+                    params: dict[str, Any] = {
+                        "limit": limit,
+                        "offset": offset,
+                        "sort": "-timestamp",
+                    }
+                    if level_min is not None:
+                        params["q"] = f"rule.level>={level_min}"
 
-                data = await self._api_request("GET", "/alerts", params=params)
-                raw_alerts = data.get("data", {}).get("affected_items", [])
-                alerts = self._normalize_alerts(raw_alerts)
-            except Exception as e:
-                logger.error("wazuh_get_alerts_failed", error=str(e))
-                raise
+                    data = await self._api_request("GET", "/alerts", params=params)
+                    raw_alerts = data.get("data", {}).get("affected_items", [])
+                    alerts = self._normalize_alerts(raw_alerts)
+                except Exception as e:
+                    logger.error("wazuh_get_alerts_failed", error=str(e))
+                    raise
 
         # ── GeoIP enrichment (silencioso — nunca rompe el endpoint) ──────
         # Enriquece alertas con src_ip externas: ciudad, lat/lon, tipo de red.
@@ -386,8 +502,23 @@ class WazuhService:
         if self._settings.should_mock_wazuh:
             from services.mock_data import MockData
             return MockData.wazuh.alerts_timeline(level_min=level_min, minutes=minutes)
+        # Prefer Indexer native bucketing (hourly buckets, last N hours)
+        from services.wazuh_indexer import get_indexer_client
+        indexer = get_indexer_client()
+        if indexer.is_configured():
+            try:
+                hours = max(1, (minutes + 59) // 60)
+                buckets = await indexer.get_alerts_timeline(level_min=level_min, hours=hours)
+                # Adapt key: Indexer returns {"hour": ...}, legacy uses {"minute": ...}
+                return [
+                    {"minute": b["hour"], "count": b["count"]}
+                    for b in buckets
+                ]
+            except Exception as e:
+                logger.error("wazuh_get_alerts_timeline_indexer_failed", error=str(e))
+                # fall through to legacy path
+        # Legacy fallback (Server API + client-side bucketing)
         try:
-            # Fetch a large batch of recent alerts above threshold
             params: dict[str, Any] = {
                 "limit": 500,
                 "offset": 0,
@@ -397,7 +528,6 @@ class WazuhService:
             data = await self._api_request("GET", "/alerts", params=params)
             alerts = data.get("data", {}).get("affected_items", [])
 
-            # Bucketize by minute
             from collections import Counter
             from datetime import datetime, timedelta, timezone
 
@@ -410,7 +540,6 @@ class WazuhService:
                 if not ts_str:
                     continue
                 try:
-                    # Wazuh timestamps: "2024-01-15T10:30:45.123+0000"
                     ts = datetime.fromisoformat(ts_str.replace("+0000", "+00:00"))
                     if ts >= cutoff:
                         minute_key = ts.strftime("%Y-%m-%dT%H:%M:00")
@@ -418,7 +547,6 @@ class WazuhService:
                 except (ValueError, TypeError):
                     continue
 
-            # Fill in missing minutes with 0
             result = []
             for i in range(minutes):
                 t = cutoff + timedelta(minutes=i)
@@ -487,14 +615,21 @@ class WazuhService:
         """
         [Wazuh API] Get count of agents by status.
         Uses Wazuh endpoint: GET /agents/summary/status
+
+        Resilient: if /agents/summary/status is slow / disconnected, falls back
+        to computing the summary from /agents. Never raises — returns zeros
+        with a "partial" flag if both paths fail.
         """
         if self._settings.should_mock_wazuh:
             from services.mock_data import MockData
             return MockData.wazuh.agents_summary()
+        # Primary path: dedicated /agents/summary/status endpoint (fast)
         try:
-            data = await self._api_request("GET", "/agents/summary/status")
+            data = await asyncio.wait_for(
+                self._api_request("GET", "/agents/summary/status"),
+                timeout=8.0,
+            )
             connection = data.get("data", {}).get("connection", {})
-            config = data.get("data", {}).get("configuration", {})
             return {
                 "active": connection.get("active", 0),
                 "disconnected": connection.get("disconnected", 0),
@@ -502,9 +637,33 @@ class WazuhService:
                 "pending": connection.get("pending", 0),
                 "total": connection.get("total", 0),
             }
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.warning(
+                "wazuh_get_agents_summary_primary_failed",
+                error=str(e),
+                fallback="compute_from_agents",
+            )
+        # Fallback: derive the summary from /agents list (heavier but reliable)
+        try:
+            agents = await asyncio.wait_for(self.get_agents(), timeout=8.0)
+            counts = {"active": 0, "disconnected": 0, "never_connected": 0, "pending": 0, "total": 0}
+            for a in agents:
+                status = (a.get("status") or "").lower()
+                if status in counts:
+                    counts[status] += 1
+                counts["total"] += 1
+            return counts
         except Exception as e:
-            logger.error("wazuh_get_agents_summary_failed", error=str(e))
-            raise
+            logger.error("wazuh_get_agents_summary_fallback_failed", error=str(e))
+            # Last resort: return zeros with a partial flag so the UI can show "unknown"
+            return {
+                "active": 0,
+                "disconnected": 0,
+                "never_connected": 0,
+                "pending": 0,
+                "total": 0,
+                "partial": True,
+            }
 
     async def get_mitre_summary(self) -> list[dict]:
         """
@@ -837,38 +996,38 @@ class WazuhService:
         if self._settings.should_mock_wazuh:
             from services.mock_data import MockData
             return MockData.wazuh.stats_summary()
+        # Schema matches WazuhDashboard.tsx expectations
+        # (total_alerts_24h, critical_alerts_24h, vulnerabilities_count)
         result: dict[str, Any] = {
             "agents": {"active": 0, "disconnected": 0, "never_connected": 0, "total": 0},
             "alerts_24h": 0,
+            "total_alerts_24h": 0,
             "critical_alerts": 0,
+            "critical_alerts_24h": 0,
             "vulnerabilities_count": 0,
             "top_tactic": None,
         }
         try:
             ag_summary = await self.get_agents_summary()
-            summary = ag_summary.get("summary") if isinstance(ag_summary, dict) else ag_summary
-            if isinstance(summary, list) and summary:
-                for row in summary:
-                    status = row.get("status", "")
-                    count = row.get("count", 0)
-                    key_map = {
-                        "active": "active",
-                        "disconnected": "disconnected",
-                        "never_connected": "never_connected",
-                        "pending": "never_connected",
-                    }
-                    k = key_map.get(status)
-                    if k:
-                        result["agents"][k] = count
-                    result["agents"]["total"] += count
+            # get_agents_summary now returns the flat schema {active, disconnected,
+            # never_connected, pending, total} directly — no further unpacking needed.
+            if isinstance(ag_summary, dict) and "active" in ag_summary:
+                result["agents"] = {
+                    "active": ag_summary.get("active", 0),
+                    "disconnected": ag_summary.get("disconnected", 0),
+                    "never_connected": ag_summary.get("never_connected", 0),
+                    "total": ag_summary.get("total", 0),
+                }
         except Exception as e:
             logger.warning("wazuh_stats_summary_agents_failed", error=str(e))
         try:
             critical = await self.get_critical_alerts(limit=1)
             result["critical_alerts"] = len(critical) if isinstance(critical, list) else 0
+            result["critical_alerts_24h"] = len(critical) if isinstance(critical, list) else 0
             # Get actual count via a broader query
             broad = await self.get_critical_alerts(limit=500)
             result["critical_alerts"] = len(broad) if isinstance(broad, list) else 0
+            result["critical_alerts_24h"] = len(broad) if isinstance(broad, list) else 0
         except Exception as e:
             logger.warning("wazuh_stats_summary_critical_failed", error=str(e))
         try:
@@ -877,7 +1036,6 @@ class WazuhService:
         except Exception as e:
             logger.warning("wazuh_stats_summary_vulns_failed", error=str(e))
         try:
-            mitre = await self.get_mitre_summary(limit=1) if hasattr(self.get_mitre_summary, "__call__") else None
             # Just use first row of summary
             ms = await self.get_mitre_summary()
             if ms:
@@ -893,6 +1051,7 @@ class WazuhService:
             resp = await self._api_request("GET", "/alerts", params=params)
             items = resp.get("data", {}).get("affected_items", [])
             result["alerts_24h"] = len(items)
+            result["total_alerts_24h"] = len(items)
         except Exception as e:
             logger.warning("wazuh_stats_summary_alerts_24h_failed", error=str(e))
         return result

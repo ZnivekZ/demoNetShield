@@ -64,7 +64,13 @@ structlog.configure(
         logging.getLevelName(settings.log_level)
     ),
     context_class=dict,
-    logger_factory=structlog.PrintLoggerFactory(),
+    # PrintLoggerFactory on its own does NOT accept arbitrary kwargs
+    # (it accepts only an `event` positional). Use stdlib LoggerFactory so
+    # that calls like logger.warning("...", breaker=self.name, cooldown_seconds=...)
+    # work — they would otherwise raise TypeError on every log call from
+    # services/resilience.py (CircuitBreaker) and silently break the
+    # resilience machinery. The processors still produce JSON output.
+    logger_factory=structlog.stdlib.LoggerFactory(),
     cache_logger_on_first_use=True,
 )
 
@@ -128,14 +134,20 @@ async def lifespan(app: FastAPI):
     auth_service = get_auth_service()
     await auth_service.ensure_default_admin()
 
-    # Try to connect to MikroTik (non-blocking - will retry on first request if fails)
-    try:
-        mt_service = get_mikrotik_service()
-        await mt_service.connect()
-        logger.info("mikrotik_initial_connection_ok")
-    except Exception as e:
-        logger.warning("mikrotik_initial_connection_failed", error=str(e),
-                       msg="Will retry on first API request")
+    # MikroTik is connected on-demand (lazy): the first endpoint that
+    # needs RouterOS data will call mt_service._ensure_connected() and
+    # bind the connection then. Connecting during startup caused the
+    # backend to take ~3s to come online when MikroTik was down, which
+    # is bad UX and unnecessary — the WS loop and REST endpoints will
+    # catch the broken connection via the circuit breaker.
+    mt_service = get_mikrotik_service()
+    if settings.should_mock_mikrotik:
+        logger.info("mikrotik_mock_mode_active")
+    else:
+        logger.info(
+            "mikrotik_lazy_connect",
+            msg="MikroTik connections are established on first use, not at startup",
+        )
 
     # Initialize GeoIP service (loads .mmdb readers into memory, or sets mock mode)
     GeoIPService.initialize()
@@ -849,24 +861,37 @@ async def websocket_security_alerts(websocket: WebSocket):
 
                 # ── MikroTik polling (every 10s = tick % 2 == 0)
                 if tick % 2 == 0 and not settings.should_mock_mikrotik:
-                    try:
-                        interfaces = await mt_service.get_interfaces()
-                        for iface in interfaces:
-                            name = iface.get("name", "")
-                            running = iface.get("running", False)
-                            was_running = last_interface_state.get(name)
-                            if was_running is True and not running:
-                                notifications.append({
-                                    "type": "interface_down",
-                                    "level": "critical",
-                                    "title": f"Interfaz caída: {name}",
-                                    "detail": f"La interfaz {name} ({iface.get('type', '')}) dejó de responder.",
-                                    "actions": ["dismiss"],
-                                    "data": {"interface": name, "type": iface.get("type", "")},
-                                })
-                            last_interface_state[name] = running
-                    except Exception as e:
-                        logger.warning("ws_security_mikrotik_poll_failed", error=str(e))
+                    # Skip MikroTik polling when the breaker is open.
+                    # Prevents the WS loop from initiating a connect() that
+                    # would saturate the thread pool and starve the rest of
+                    # the backend.
+                    if mt_service._breaker.is_open():
+                        if tick % 30 == 0:  # log only occasionally
+                            logger.warning(
+                                "ws_mikrotik_circuit_open_skip",
+                                seconds_until_retry=round(
+                                    mt_service._breaker.seconds_until_retry, 1
+                                ),
+                            )
+                    else:
+                        try:
+                            interfaces = await mt_service.get_interfaces()
+                            for iface in interfaces:
+                                name = iface.get("name", "")
+                                running = iface.get("running", False)
+                                was_running = last_interface_state.get(name)
+                                if was_running is True and not running:
+                                    notifications.append({
+                                        "type": "interface_down",
+                                        "level": "critical",
+                                        "title": f"Interfaz caída: {name}",
+                                        "detail": f"La interfaz {name} ({iface.get('type', '')}) dejó de responder.",
+                                        "actions": ["dismiss"],
+                                        "data": {"interface": name, "type": iface.get("type", "")},
+                                    })
+                                last_interface_state[name] = running
+                        except Exception as e:
+                            logger.warning("ws_security_mikrotik_poll_failed", error=str(e))
 
             if notifications:
                 for notif in notifications:

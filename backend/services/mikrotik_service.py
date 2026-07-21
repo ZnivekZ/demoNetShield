@@ -37,6 +37,14 @@ from services.resilience import (
 logger = structlog.get_logger(__name__)
 
 
+class MikroTikUnavailable(Exception):
+    """Raised when MikroTik is unavailable — breaker is open, half-open probe
+    in flight, or the call failed. Callers should treat this as a transient
+    error and let the WS loop / circuit breaker decide when to retry.
+    """
+    pass
+
+
 class MikroTikService:
     """
     Singleton service for MikroTik RouterOS API communication.
@@ -70,7 +78,11 @@ class MikroTikService:
             name="mikrotik",
             failure_threshold=3,
             cooldown_seconds=30.0,
-            max_workers=2,
+            # max_workers=1: a hung connect() / sync I/O cannot starve a
+            # subsequent request. The previous default of 2 let two
+            # hung requests pile up, both contending for the GIL and
+            # starving the rest of the backend.
+            max_workers=1,
         )
         # Traffic tracking: stores {interface_name: {"rx": bytes, "tx": bytes, "time": timestamp}}
         self._last_traffic: dict[str, dict[str, float]] = {}
@@ -81,23 +93,34 @@ class MikroTikService:
         """
         Establish connection to MikroTik CHR.
         Uses plaintext_login=True for lab environment.
+
+        Bound at 3s: most of the wait when the host is unreachable
+        is the TCP connect. The previous 10s blocked the event loop
+        too long when MikroTik was down and the worker thread was
+        also contending on the GIL.
         """
         if self._settings.should_mock_mikrotik:
             self._connected = True
             logger.info("mikrotik_mock_mode_active_skipping_connection")
             return
 
+        # Skip early if the breaker is open. The WS loop already gates
+        # on this, but the lifespan startup also calls connect() once
+        # and a hung connect here blocks the entire backend startup.
+        if self._breaker.is_open():
+            logger.warning(
+                "mikrotik_connect_skipped_breaker_open",
+                seconds_until_retry=round(self._breaker.seconds_until_retry, 1),
+            )
+            return
+
         async with self._connect_lock:
             if self._connected and self._api is not None:
                 return
             try:
-                # Use safe_call to bound the connect attempt and feed the
-                # breaker; do NOT short-circuit when the breaker is open
-                # because connect() is the operation that recovers the
-                # service once MikroTik is back up.
                 self._connection = await asyncio.wait_for(
                     self._executor.run(self._create_connection),
-                    timeout=10.0,
+                    timeout=3.0,
                 )
                 self._api = self._connection.get_api()
                 self._connected = True
@@ -111,8 +134,11 @@ class MikroTikService:
                 self._connected = False
                 self._api = None
                 self._breaker.record_failure()
-                logger.error("mikrotik_connection_failed", error=str(e))
-                raise
+                logger.error("mikrotik_connection_failed", error=repr(e))
+                # Do NOT re-raise: the WS loop will retry on its next tick
+                # after the breaker cooldown. Re-raising here would block
+                # the lifespan startup and make the backend unavailable
+                # just because MikroTik is down.
 
     @retry(
         stop=stop_after_attempt(3),
@@ -120,14 +146,30 @@ class MikroTikService:
         retry=retry_if_exception_type((ConnectionError, OSError)),
     )
     def _create_connection(self) -> routeros_api.RouterOsApiPool:
-        """Create RouterOS API connection pool with retry logic."""
-        return routeros_api.RouterOsApiPool(
-            host=self._settings.mikrotik_host,
-            port=self._settings.mikrotik_port,
-            username=self._settings.mikrotik_user,
-            password=self._settings.mikrotik_password,
-            plaintext_login=True,  # Required for CHR lab setup
-        )
+        """
+        Create RouterOS API connection pool with retry logic.
+
+        Sets a short default socket timeout BEFORE instantiating the pool
+        so the underlying socket.connect()/handshake is capped at 2s. Without
+        this the underlying TCP socket has no timeout and the thread that
+        runs this function can hold the GIL for tens of seconds while the
+        OS waits for the unreachable host — which in turn starves every
+        other coroutine in the event loop and cascades into Wazuh Indexer
+        timeouts on unrelated requests.
+        """
+        import socket as _socket
+        original_timeout = _socket.getdefaulttimeout()
+        _socket.setdefaulttimeout(2.0)
+        try:
+            return routeros_api.RouterOsApiPool(
+                host=self._settings.mikrotik_host,
+                port=self._settings.mikrotik_port,
+                username=self._settings.mikrotik_user,
+                password=self._settings.mikrotik_password,
+                plaintext_login=True,  # Required for CHR lab setup
+            )
+        finally:
+            _socket.setdefaulttimeout(original_timeout)
 
     async def _ensure_connected(self) -> None:
         """Reconnect if connection was lost."""
@@ -137,36 +179,46 @@ class MikroTikService:
     async def _api_call(self, path: str, command: str = "print", **kwargs: Any) -> list[dict]:
         """
         Execute a RouterOS API call with automatic reconnection.
-        Runs synchronous API calls in an executor to keep async flow.
+
+        Resilience: runs sync I/O on the service's own ThreadPoolExecutor
+        (NOT the shared global pool), so a hung MikroTik cannot saturate
+        workers that other services depend on. Also checks the circuit
+        breaker up-front and skips with a clear error if the breaker is
+        open, instead of burning another connect() attempt.
+
+        Removed: the legacy "retry once after reconnection" block. The
+        circuit breaker already handles failure counting and cooldown;
+        retrying inside this method would double the work and amplify
+        the impact of an unreachable host.
         """
+        # Skip immediately when the breaker is open; the WS loop in
+        # main.py also short-circuits, but REST callers go through here.
+        if self._breaker.is_open():
+            raise MikroTikUnavailable(
+                f"mikrotik circuit open, retry in {self._breaker.seconds_until_retry:.1f}s"
+            )
+        if not self._breaker.allow_request():
+            raise MikroTikUnavailable("mikrotik half-open probe already in flight")
+
         await self._ensure_connected()
-        loop = asyncio.get_event_loop()
         try:
             async with self._api_lock:
-                result = await loop.run_in_executor(
-                    None, lambda: self._execute_api(path, command, **kwargs)
+                # Use the service's own isolated executor (not the global
+                # pool). A hung connect() in this thread cannot starve other
+                # services that share the global pool.
+                result = await self._executor.run(
+                    self._execute_api, path, command, **kwargs
                 )
+            self._breaker.record_success()
             return result
         except Exception as e:
-            logger.warning("mikrotik_api_call_failed", path=path, error=str(e))
-            # Force reconnection on next call
+            self._breaker.record_failure()
+            logger.warning("mikrotik_api_call_failed", path=path, error=repr(e))
+            # Force reconnection on next call. The breaker is already
+            # tracking the failure; opening it on its own is enough.
             self._connected = False
             self._api = None
-            # Retry once after reconnection
-            await self.connect()
-            try:
-                async with self._api_lock:
-                    result = await loop.run_in_executor(
-                        None, lambda: self._execute_api(path, command, **kwargs)
-                    )
-                return result
-            except Exception as retry_error:
-                logger.error(
-                    "mikrotik_api_call_retry_failed",
-                    path=path,
-                    error=str(retry_error),
-                )
-                raise
+            raise MikroTikUnavailable(repr(e))
 
     def _execute_api(self, path: str, command: str = "print", **kwargs: Any) -> list[dict]:
         """Synchronous API execution against RouterOS."""
@@ -379,7 +431,7 @@ class MikroTikService:
                 )
                 return rule_id
 
-            rule_id = await loop.run_in_executor(None, _add_rule)
+            rule_id = await self._executor.run(_add_rule)
             logger.info("mikrotik_ip_blocked", ip=ip, rule_id=rule_id, comment=comment)
             return {"rule_id": rule_id, "ip": ip, "action": "blocked", "comment": comment}
         except Exception as e:
@@ -411,7 +463,7 @@ class MikroTikService:
                             resource = self._api.get_resource("/ip/firewall/filter")
                             resource.remove(id=rid)
 
-                        await loop.run_in_executor(None, _remove)
+                        await self._executor.run(_remove)
                         removed.append(rule_id)
 
             logger.info("mikrotik_ip_unblocked", ip=ip, rules_removed=len(removed))
@@ -744,7 +796,7 @@ class MikroTikService:
                             resource.remove(id=rid)
 
                         async with self._api_lock:
-                            await loop.run_in_executor(None, _remove)
+                            await self._executor.run(_remove)
                         removed.append(entry_id)
 
             logger.info("mikrotik_address_list_removed", ip=ip, list=list_name, removed=len(removed))
@@ -828,7 +880,7 @@ class MikroTikService:
                             resource.remove(id=rid)
 
                         async with self._api_lock:
-                            await loop.run_in_executor(None, _remove)
+                            await self._executor.run(_remove)
                         removed.append(entry_id)
 
             logger.info("mikrotik_dns_sinkhole_removed", domain=domain, removed=len(removed))

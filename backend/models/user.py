@@ -19,7 +19,7 @@ from database import Base
 class User(Base):
     """
     Dashboard operator account.
-    Credentials are validated locally via JWT (not MikroTik Hotspot).
+    Credentials are validated locally via JWT (dashboard users stored in SQLite).
     """
 
     __tablename__ = "users"

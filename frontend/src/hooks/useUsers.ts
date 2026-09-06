@@ -2,7 +2,6 @@
  * useUsers — CRUD de usuarios del dashboard NetShield.
  *
  * Usa TanStack Query con queryKey ['auth-users'].
- * Sigue el patrón exacto de usePortalUsers y otros hooks existentes.
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

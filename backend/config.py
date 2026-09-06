@@ -66,14 +66,6 @@ class Settings(BaseSettings):
     auto_block_threshold: int = 12  # Min alert level for auto-blocking
     auto_block_enabled: bool = False  # Toggle automatic IP blocking
 
-    # ── Hotspot / Portal Cautivo ──────────────────────────────────
-    # Interface where MikroTik Hotspot will be configured.
-    # Lab: ether2 (virtualized CHR). Production: change to physical LAN interface.
-    # Change via HOTSPOT_INTERFACE env var — no code changes needed when migrating.
-    hotspot_interface: str = "ether2"
-    hotspot_server_name: str = "hotspot1"
-    hotspot_address_pool: str = "hs-pool-1"
-
     # ── GLPI Asset Management ─────────────────────────────────────────────
     glpi_url: str = "http://glpi.facultad.local"
     glpi_app_token: str = ""

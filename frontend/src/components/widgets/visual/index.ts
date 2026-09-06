@@ -10,7 +10,6 @@ export { ActivityHeatmap } from './ActivityHeatmap';
 export { ProtocolDonut } from './ProtocolDonut';
 export { AgentsThermometer } from './AgentsThermometer';
 export { BlocksTimeline } from './BlocksTimeline';
-export { PortalUsage } from './PortalUsage';
 export { PhishingStats } from './PhishingStats';
 export { AgentAlertHeatmap } from './AgentAlertHeatmap';
 export { DhcpSubnetUsage } from './DhcpSubnetUsage';

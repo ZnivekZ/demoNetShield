@@ -28,7 +28,7 @@ from starlette.requests import Request
 
 from config import get_settings
 from database import close_db, init_db
-from routers import cli, mikrotik, network, phishing, portal, reports, security, vlans, wazuh
+from routers import cli, mikrotik, network, phishing, reports, security, vlans, wazuh
 from routers import glpi as glpi_router
 from routers import crowdsec as crowdsec_router
 from routers import geoip as geoip_router
@@ -317,7 +317,6 @@ app.include_router(vlans.router)
 app.include_router(phishing.router)
 app.include_router(security.router)
 app.include_router(cli.router)
-app.include_router(portal.router)
 app.include_router(glpi_router.router)
 app.include_router(crowdsec_router.router)
 app.include_router(geoip_router.router)
@@ -862,59 +861,6 @@ async def websocket_security_alerts(websocket: WebSocket):
     except Exception as e:
         logger.error("websocket_security_alerts_error", error=str(e))
         security_alert_manager.disconnect(websocket)
-
-
-# ── WebSocket: Portal Cautivo Sessions ───────────────────────────
-
-portal_session_manager = ConnectionManager()
-
-
-@app.websocket("/ws/portal/sessions")
-async def websocket_portal_sessions(websocket: WebSocket):
-    """
-    WebSocket endpoint for real-time Portal Cautivo session updates.
-    Pushes active session state every 5 seconds.
-    """
-    await portal_session_manager.connect(websocket)
-    from services.portal_service import get_portal_service
-    portal_service = get_portal_service()
-    tick = 0
-
-    try:
-        while True:
-            try:
-                status = await portal_service.check_hotspot_status()
-                if not status["initialized"]:
-                    await websocket.send_json({
-                        "type": "portal_error",
-                        "data": {
-                            "message": "Hotspot no inicializado. Ejecutá el setup desde Configuración → Inicializar Hotspot",
-                            "code": "HOTSPOT_NOT_INITIALIZED",
-                        },
-                    })
-                else:
-                    sessions = await portal_service.get_active_sessions()
-                    chart_history = portal_service.get_session_chart_history()
-                    await websocket.send_json({
-                        "type": "portal_sessions",
-                        "data": {
-                            "sessions": sessions,
-                            "chart_history": chart_history,
-                            "timestamp": __import__("time").strftime("%Y-%m-%dT%H:%M:%S"),
-                        },
-                    })
-            except Exception as e:
-                await websocket.send_json({
-                    "type": "error",
-                    "data": {"message": f"Portal sessions error: {str(e)}"},
-                })
-            tick += 1
-            await asyncio.sleep(5)
-    except WebSocketDisconnect:
-        portal_session_manager.disconnect(websocket)
-    except Exception as e:
-        logger.error("websocket_portal_sessions_error", error=str(e))
-        portal_session_manager.disconnect(websocket)
 
 # ── WebSocket: CrowdSec Decisions ─────────────────────────────
 

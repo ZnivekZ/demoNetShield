@@ -20,7 +20,7 @@
 
 NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de red que unifica en un solo lugar:
 
-- **🌐 MikroTik CHR** — Control del router vía API RouterOS: firewall, VLANs, tráfico en tiempo real, portal cautivo
+- **🌐 MikroTik CHR** — Control del router vía API RouterOS: firewall, VLANs, tráfico en tiempo real
 - **🔍 Wazuh SIEM** — Visualización de alertas de seguridad, estado de agentes y eventos MITRE ATT&CK
 - **🛡️ CrowdSec** — Inteligencia colaborativa de amenazas: decisiones de bloqueo, reputación de IPs, escenarios, bouncers y heatmaps geográficos
 - **📡 Suricata IDS/IPS/NSM** — Motor de análisis de red: detección de amenazas en capa de red, bloqueo inline (IPS), forense de tráfico (NSM). Flujo: `Tráfico → Suricata (eve.json) → Wazuh → NetShield`
@@ -29,7 +29,6 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 - **📦 GLPI** — Inventario de activos, tickets de soporte y correlación con eventos Wazuh
 - **📄 PDF Export** — Exportación de reportes profesionales con WeasyPrint
 - **🎣 Phishing** — Detección de dominios sospechosos, sinkhole DNS, alertas de víctimas
-- **🔒 Portal Cautivo** — Gestión de hotspot MikroTik: sesiones, usuarios, perfiles de velocidad
 - **💬 Telegram Bot** — Canal de notificaciones bidireccional: alertas outbound automáticas + consultas en lenguaje natural respondidas por Claude AI (inbound)
 - **🖧 Administración DHCP** — Gestión completa de DHCP MikroTik: servidores, leases, pools, redes, alertas rogue, opciones custom, correlación GLPI y discovery de dispositivos
 - **📊 Vistas Personalizadas** — Sistema de dashboards configurables por el usuario con catálogo de **59 widgets** especializados organizados en 4 categorías
@@ -47,7 +46,6 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 | **Configuración de Seguridad** | `/security/config` | Blacklists, geo-block, DNS sinkhole, reglas de auto-bloqueo |
 | **Red & IPs** | `/network` | Tabla ARP, VLANs (CRUD + tráfico en vivo), etiquetas y grupos de IPs, búsqueda global |
 | **Firewall** | `/firewall` | Bloqueo de IPs, reglas activas, historial de acciones |
-| **Portal Cautivo** | `/portal` | Sesiones en tiempo real, usuarios CRUD, perfiles de velocidad, horarios |
 | **DHCP** | `/dhcp` | Servidores, leases, pools, redes, alertas rogue, opciones, correlación GLPI, discovery |
 | **Phishing** | `/phishing` | Alertas de phishing, víctimas, gestión de sinkhole DNS |
 | **Sistema** | `/system` | Health unificado MikroTik + Wazuh, estado GeoLite2, CLI web integrada |
@@ -348,7 +346,6 @@ netShield2/
 │   │   ├── network.py           # Labels y grupos de IPs
 │   │   ├── reports.py           # Generación de reportes IA + PDF + Telegram (11 endpoints)
 │   │   ├── glpi.py              # Inventario, tickets, cuarentena
-│   │   ├── portal.py            # Portal cautivo MikroTik Hotspot
 │   │   ├── phishing.py          # Sinkhole, alertas, víctimas
 │   │   ├── security.py          # Auto-block, geo-block, cuarentena
 │   │   ├── crowdsec.py          # Decisiones, métricas, bouncers, CTI
@@ -364,7 +361,6 @@ netShield2/
 │   │   ├── mikrotik_service.py  # Singleton con asyncio.Lock
 │   │   ├── wazuh_service.py     # JWT auth con refresh automático + enriquecimiento GeoIP
 │   │   ├── glpi_service.py      # CRUD completo de GLPI
-│   │   ├── portal_service.py    # Hotspot sessions, users, profiles
 │   │   ├── crowdsec_service.py  # LAPI + CTI + enriquecimiento GeoIP en decisions
 │   │   ├── geoip_service.py     # Singleton GeoLite2 + TTLCache(10000, ttl=3600)
 │   │   ├── suricata_service.py  # Singleton: Unix socket async, alertas vía Wazuh, flujos NSM,
@@ -410,7 +406,7 @@ netShield2/
 │       │   │   ├── visual/index.ts          # useActivityHeatmap, useThreatGauge, useSubnetUsageWidget...
 │       │   │   ├── technical/index.ts       # usePacketInspector, useFlowTable, useDhcpLeasesWidget...
 │       │   │   └── hybrid/index.ts          # useIpProfiler, useConfirmedThreats, useDhcpDiscoveryWidget...
-│       │   └── ...                          # + 21 hooks de dominio (portal, GLPI, CrowdSec, DHCP, etc.)
+│       │   └── ...                          # + 20 hooks de dominio (GLPI, CrowdSec, DHCP, etc.)
 │       └── components/          # Componentes por dominio
 │           ├── Layout.tsx               # Sidebar glassmorphic + topbar (status dots + theming + logout)
 │           ├── auth/                    # LoginPage · AuthContext · ProtectedRoute
@@ -421,7 +417,6 @@ netShield2/
 │           ├── firewall/                # Reglas y bloqueos
 │           ├── network/                 # ARP, VLANs, labels, groups
 │           ├── dhcp/                    # Administración DHCP (DhcpPage.tsx, 36KB)
-│           ├── portal/                  # Portal cautivo
 │           ├── phishing/                # Panel de phishing
 │           ├── reports/                 # Generador IA (TipTap) + Telegram Bot (9 componentes)
 │           ├── inventory/               # GLPI kanban + tickets
@@ -465,7 +460,6 @@ netShield2/
 | `WS /ws/alerts` | Stream de alertas Wazuh |
 | `WS /ws/vlans/traffic` | Tráfico por VLAN en tiempo real |
 | `WS /ws/security/alerts` | Alertas de seguridad enriquecidas |
-| `WS /ws/portal/sessions` | Sesiones del portal cautivo en vivo |
 | `WS /ws/crowdsec/decisions` | Decisiones CrowdSec en tiempo real |
 | `WS /ws/suricata/alerts` | Alertas IDS/IPS Suricata en tiempo real |
 
@@ -473,7 +467,7 @@ netShield2/
 
 - **Singleton para MikroTik** — RouterOS tiene límite bajo de sesiones. Un singleton con `asyncio.Lock` garantiza una conexión persistente compartida.
 - **`run_in_executor` para routeros-api** — La librería es síncrona y bloquearía el event loop. Se ejecuta en el thread pool del executor.
-- **WebSockets para datos en vivo** — Tráfico, alertas, VLANs, sesiones del portal, decisiones CrowdSec y alertas Suricata se transmiten vía WebSocket con reconexión automática en el frontend.
+- **WebSockets para datos en vivo** — Tráfico, alertas, VLANs, decisiones CrowdSec y alertas Suricata se transmiten vía WebSocket con reconexión automática en el frontend.
 - **SQLite → PostgreSQL ready** — Solo cambiando `DATABASE_URL` en `.env` a `postgresql+asyncpg://...` se puede migrar sin tocar código.
 - **WebSockets** — Los WebSockets viven en `main.py` y consumen los services directamente (no pasan por routers).
 - **CrowdSec como capa complementaria** — Se sincroniza con el firewall MikroTik: las decisiones de CrowdSec pueden traducirse automáticamente en reglas de bloqueo en el router.
@@ -637,9 +631,6 @@ PUT  /api/glpi/users/:id                — Actualizar usuario GLPI
 DEL  /api/glpi/users/:id                — Eliminar usuario GLPI
 GET  /api/glpi/users/:id/assets         — Activos asignados a un usuario
 GET  /api/glpi/locations                — Ubicaciones de activos
-
-# Portal Cautivo
-GET  /api/portal/*                      — Sesiones, usuarios, perfiles, config
 
 # Reportes
 POST /api/reports/generate              — Generar reporte con IA

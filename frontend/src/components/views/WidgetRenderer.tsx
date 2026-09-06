@@ -70,7 +70,6 @@ const QuarantineTracker = lazy(() => import('../widgets/hybrid/QuarantineTracker
 const SinkholeEffectiveness = lazy(() => import('../widgets/hybrid/SinkholeEffectiveness').then(m => ({ default: m.SinkholeEffectiveness })));
 
 // ── Lazy imports nuevos (visual) ──────────────────────────────────────
-const PortalUsage = lazy(() => import('../widgets/visual/PortalUsage').then(m => ({ default: m.PortalUsage })));
 const PhishingStats = lazy(() => import('../widgets/visual/PhishingStats').then(m => ({ default: m.PhishingStats })));
 const AgentAlertHeatmap = lazy(() => import('../widgets/visual/AgentAlertHeatmap').then(m => ({ default: m.AgentAlertHeatmap })));
 const DhcpSubnetUsage = lazy(() => import('../widgets/visual/DhcpSubnetUsage').then(m => ({ default: m.DhcpSubnetUsage })));
@@ -226,7 +225,6 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
         case 'visual_protocol_donut':
         case 'visual_agents_thermometer':
         case 'visual_blocks_timeline':
-        case 'visual_portal_usage':
         case 'visual_phishing_stats':
         case 'visual_agent_alert_heatmap':
         case 'visual_subnet_usage':
@@ -371,7 +369,6 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
       visual_protocol_donut: <ProtocolDonut config={cfg} />,
       visual_agents_thermometer: <AgentsThermometer config={cfg} />,
       visual_blocks_timeline: <BlocksTimeline config={cfg} />,
-      visual_portal_usage: <PortalUsage config={cfg} />,
       visual_phishing_stats: <PhishingStats config={cfg} />,
       visual_agent_alert_heatmap: <AgentAlertHeatmap config={cfg as { hours?: number }} />,
       visual_subnet_usage: <DhcpSubnetUsage config={cfg} />,

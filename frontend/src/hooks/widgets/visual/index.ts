@@ -9,7 +9,6 @@ import {
   wazuhApi,
   crowdsecApi,
   mikrotikApi,
-  portalApi,
   phishingApi,
   dhcpApi,
 } from '../../../services/api';
@@ -134,33 +133,6 @@ export function useBlocksTimeline() {
     },
     staleTime: 60_000,
     refetchInterval: 2 * 60_000,
-  });
-}
-
-/* ── Portal Usage ──────────────────────────────────────────────── */
-
-export function usePortalUsage() {
-  return useQuery({
-    queryKey: ['widget', 'portal-usage'],
-    queryFn: async () => {
-      const [sessionsRes, statsRes] = await Promise.allSettled([
-        portalApi.getActiveSessions(),
-        portalApi.getRealtimeStats(),
-      ]);
-      const sessions = sessionsRes.status === 'fulfilled' && sessionsRes.value.success
-        ? (sessionsRes.value.data ?? []) : [];
-      const stats = statsRes.status === 'fulfilled' && statsRes.value.success
-        ? statsRes.value.data : null;
-      return {
-        active: sessions.length,
-        max_sessions: (stats as { max_sessions?: number } | null)?.max_sessions ?? 100,
-        bytes_up: (stats as { bytes_up?: number } | null)?.bytes_up ?? 0,
-        bytes_down: (stats as { bytes_down?: number } | null)?.bytes_down ?? 0,
-        partial: sessionsRes.status === 'rejected' || statsRes.status === 'rejected',
-      };
-    },
-    staleTime: 15_000,
-    refetchInterval: 30_000,
   });
 }
 

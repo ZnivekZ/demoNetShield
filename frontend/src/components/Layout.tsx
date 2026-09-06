@@ -33,7 +33,6 @@ import {
   X,
   ChevronLeft,
   Activity,
-  Wifi,
   Package,
   ShieldCheck,
   Globe,
@@ -68,7 +67,6 @@ const navGroups = [
     items: [
       { to: '/network', icon: Network, label: 'Red', end: false },
       { to: '/firewall', icon: Flame, label: 'Firewall', end: false },
-      { to: '/portal', icon: Wifi, label: 'Portal Cautivo', end: false },
       { to: '/dhcp', icon: Server, label: 'DHCP', end: false },
     ],
   },

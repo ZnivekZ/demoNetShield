@@ -313,18 +313,6 @@ _WIDGETS_VISUAL = [
         "config_schema": {},
     },
     {
-        "type": "visual_portal_usage",
-        "title": "Uso del Portal Cautivo",
-        "description": "Donut de sesiones activas vs capacidad + bandwidth en tiempo real",
-        "icon": "Wifi",
-        "source": "portal",
-        "category": "visual",
-        "default_size": "small",
-        "available_sizes": ["small", "medium"],
-        "preview_color": "#06b6d4",
-        "config_schema": {},
-    },
-    {
         "type": "visual_phishing_stats",
         "title": "Estadísticas de Phishing",
         "description": "3 stat cards: alertas totales, dominios sinkholed y víctimas detectadas",

@@ -35,7 +35,6 @@ import { QuickView } from './components/security/QuickView';
 import { ConfigView } from './components/security/ConfigView';
 import { PhishingPanel } from './components/phishing/PhishingPanel';
 import { SystemHealth } from './components/system/SystemHealth';
-import { PortalPage } from './components/portal/PortalPage';
 import { InventoryPage } from './components/inventory/InventoryPage';
 // CrowdSec
 import { CrowdSecCommandCenter } from './components/crowdsec/CommandCenter';
@@ -95,7 +94,6 @@ export default function App() {
               {/* Infrastructure */}
               <Route path="/network" element={<NetworkPage />} />
               <Route path="/firewall" element={<FirewallPage />} />
-              <Route path="/portal" element={<PortalPage />} />
               <Route path="/dhcp" element={<DhcpPage />} />
 
               {/* Tools */}

@@ -68,25 +68,6 @@ from schemas.phishing import (
     PhishingBlockIPRequest,
     PhishingSimulateRequest,
 )
-from schemas.portal import (
-    PortalSession,
-    PortalSessionHistory,
-    PortalRealtimeStats,
-    PortalSummaryStats,
-    PortalUser,
-    PortalUserCreate,
-    PortalUserUpdate,
-    PortalUserBulk,
-    BulkCreateResult,
-    PortalProfile,
-    PortalProfileCreate,
-    PortalProfileUpdate,
-    UnregisteredSpeedUpdate,
-    PortalConfig,
-    ScheduleConfig,
-    ScheduleStatus,
-    HotspotSetupResult,
-)
 from schemas.glpi import (
     GlpiAsset,
     GlpiAssetDetail,

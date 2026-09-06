@@ -133,9 +133,25 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle 401 globally: clear token and redirect to login
+// Handle 401 globally: clear token and redirect to login.
+// Also reject business-level failures (HTTP 200 with {success:false}) so
+// callers go through React Query's isError path instead of receiving
+// `data: null` and crashing on `.map`/`.includes` over null/undefined.
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const body = response.data as APIResponse<unknown> | undefined;
+    if (
+      body &&
+      typeof body === 'object' &&
+      'success' in body &&
+      body.success === false
+    ) {
+      return Promise.reject(
+        new Error(body.error || 'Error en la solicitud')
+      );
+    }
+    return response;
+  },
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('netshield_token');

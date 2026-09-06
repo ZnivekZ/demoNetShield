@@ -64,7 +64,12 @@ function FilterTab() {
   const [blockDuration, setBlockDuration] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
 
-  const { data: rulesResp, isLoading } = useQuery({
+  const {
+    data: rulesResp,
+    isLoading,
+    isError,
+    error: rulesError,
+  } = useQuery({
     queryKey: ['firewall-rules'],
     queryFn: mikrotikApi.getFirewallRules,
     refetchInterval: 10000,
@@ -100,16 +105,16 @@ function FilterTab() {
     },
   });
 
-  const rules = rulesResp?.data ?? [];
-  const history = historyResp?.data ?? [];
+  const rules = Array.isArray(rulesResp?.data) ? rulesResp.data : [];
+  const history = Array.isArray(historyResp?.data) ? historyResp.data : [];
 
   const filteredRules = rules.filter(
     (r) =>
       !searchFilter ||
-      r.src_address.includes(searchFilter) ||
-      r.dst_address.includes(searchFilter) ||
-      r.comment?.toLowerCase().includes(searchFilter.toLowerCase()) ||
-      r.chain.includes(searchFilter)
+      (r.src_address ?? '').includes(searchFilter) ||
+      (r.dst_address ?? '').includes(searchFilter) ||
+      (r.comment ?? '').toLowerCase().includes(searchFilter.toLowerCase()) ||
+      (r.chain ?? '').includes(searchFilter)
   );
 
   return (
@@ -210,6 +215,15 @@ function FilterTab() {
           {isLoading ? (
             <div className="flex justify-center py-12">
               <div className="loading-spinner" />
+            </div>
+          ) : isError ? (
+            <div className="text-center py-10">
+              <p className="text-sm text-danger mb-2">
+                No se pudieron cargar las reglas de firewall
+              </p>
+              <p className="text-xs text-surface-500">
+                {(rulesError as Error)?.message || 'Error desconocido'} — verifica la conexión con MikroTik
+              </p>
             </div>
           ) : (
             <div className="overflow-auto max-h-96 rounded-lg">

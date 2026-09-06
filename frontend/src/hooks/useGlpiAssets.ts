@@ -51,6 +51,16 @@ export function useGlpiAssetStats() {
   });
 }
 
+/** GLPI connectivity status (shared cache key with InventoryPage). */
+export function useGlpiStatus() {
+  return useQuery({
+    queryKey: ['glpi', 'status'],
+    queryFn: () => glpiApi.getStatus(),
+    refetchInterval: 60_000,
+    select: (res) => res.data,
+  });
+}
+
 export function useGlpiAssetNetworkContext(id: number | null) {
   return useQuery({
     queryKey: ['glpi', 'assets', id, 'network-context'],

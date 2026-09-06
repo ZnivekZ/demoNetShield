@@ -14,7 +14,7 @@ Uso:
   cd netShield2
   python backend/scripts/download_geoip.py
 
-Una vez descargadas, cambiar MOCK_GEOIP=false en backend/.env para usar las DBs reales.
+Una vez descargadas, las DBs se usan automáticamente al reiniciar el backend.
 
 Frecuencia de actualización recomendada: mensual (MaxMind actualiza los martes).
 """
@@ -142,9 +142,8 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("Descarga completada exitosamente.")
     print("\nPróximos pasos:")
-    print("  1. Editar backend/.env")
-    print("  2. Cambiar: MOCK_GEOIP=false")
-    print("  3. Reiniciar el backend")
+    print("  1. Reiniciar el backend")
+    print("  2. Verificar en Sistema → GeoLite2 que las DBs figuren como cargadas")
     print("=" * 60)
 
 

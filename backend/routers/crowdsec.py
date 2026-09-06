@@ -6,7 +6,6 @@ Endpoints:
   Decisions:    GET/POST/DELETE (by ID, by IP)
   Alerts:       GET list + detail
   Infrastructure: bouncers, machines, scenarios, metrics, hub
-  Whitelist:    GET/POST/DELETE (local DB via MockService)
   Hybrid:       IP context (CrowdSec+MikroTik+Wazuh), full remediation, sync
 
 All destructive actions (POST/DELETE) MUST be confirmed via ConfirmModal on frontend.
@@ -26,7 +25,6 @@ from schemas.crowdsec import (
     FullRemediationRequest,
     ManualDecisionRequest,
     SyncApplyRequest,
-    WhitelistRequest,
 )
 from services.crowdsec_service import CrowdSecService, get_crowdsec_service
 from services.mikrotik_service import MikroTikService, get_mikrotik_service
@@ -268,80 +266,6 @@ async def get_hub(crowdsec: CrowdSecService = Depends(get_cs)) -> APIResponse:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# WHITELIST (local database — not CrowdSec LAPI)
-# ══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/whitelist")
-async def get_whitelist() -> APIResponse:
-    """[Local DB] List whitelisted IPs/CIDRs (not forwarded to CrowdSec LAPI)."""
-    try:
-        from services.mock_service import MockService
-        from config import get_settings
-        settings = get_settings()
-        if settings.should_mock_crowdsec:
-            return APIResponse.ok(MockService.crowdsec_get_whitelist())
-        # Production: query CrowdSecWhitelist model
-        return APIResponse.ok(MockService.crowdsec_get_whitelist())
-    except Exception as e:
-        return APIResponse.fail(f"Error fetching whitelist: {e}")
-
-
-@router.post("/whitelist")
-async def add_to_whitelist(
-    request: WhitelistRequest,
-    db: AsyncSession = Depends(get_db),
-) -> APIResponse:
-    """
-    [Local DB] Add IP/CIDR to local whitelist.
-    Requires user confirmation via ConfirmModal on frontend.
-    """
-    try:
-        from services.mock_service import MockService
-        entry = MockService.crowdsec_add_whitelist(ip=request.ip, reason=request.reason)
-        await log_action(
-            db,
-            action_type="crowdsec_whitelist_add",
-            severity="high",
-            target_ip=request.ip,
-            details={"reason": request.reason},
-            comment=f"CrowdSec whitelist add: {request.ip}",
-        )
-        logger.info("api_crowdsec_whitelist_add", ip=request.ip)
-        return APIResponse.ok(entry)
-    except Exception as e:
-        logger.error("api_crowdsec_whitelist_add_failed", ip=request.ip, error=str(e))
-        return APIResponse.fail(f"Error adding to whitelist: {e}")
-
-
-@router.delete("/whitelist/{whitelist_id}")
-async def remove_from_whitelist(
-    whitelist_id: int,
-    db: AsyncSession = Depends(get_db),
-) -> APIResponse:
-    """
-    [Local DB] Remove IP/CIDR from local whitelist.
-    Requires user confirmation via ConfirmModal on frontend.
-    """
-    try:
-        from services.mock_service import MockService
-        removed = MockService.crowdsec_delete_whitelist(whitelist_id)
-        if not removed:
-            return APIResponse.fail(f"Whitelist entry {whitelist_id} not found")
-        await log_action(
-            db,
-            action_type="crowdsec_whitelist_remove",
-            severity="high",
-            details={"whitelist_id": whitelist_id},
-            comment=f"CrowdSec whitelist remove: ID {whitelist_id}",
-        )
-        logger.info("api_crowdsec_whitelist_remove", id=whitelist_id)
-        return APIResponse.ok({"id": whitelist_id, "removed": True})
-    except Exception as e:
-        logger.error("api_crowdsec_whitelist_remove_failed", id=whitelist_id, error=str(e))
-        return APIResponse.fail(f"Error removing from whitelist: {e}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # HYBRID ENDPOINTS (CrowdSec + MikroTik + Wazuh)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -358,13 +282,6 @@ async def get_ip_context(
     Used by IpContextPanel slide-over and GlobalSearch results.
     """
     try:
-        from config import get_settings
-        settings = get_settings()
-        if settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            ctx = MockData.crowdsec.ip_context(ip)
-            return APIResponse.ok(ctx)
-
         # Real mode: query all three systems in parallel
         import asyncio
         cs_task = crowdsec.get_ip_context_crowdsec(ip)
@@ -486,12 +403,6 @@ async def get_sync_status(
     Returns list of IPs only in CrowdSec (not pushed to MikroTik yet).
     """
     try:
-        from config import get_settings
-        settings = get_settings()
-        if settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return APIResponse.ok(MockData.crowdsec.sync_status())
-
         # Real mode: fetch both lists in parallel
         import asyncio
         decisions, address_list = await asyncio.gather(

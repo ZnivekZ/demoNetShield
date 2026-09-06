@@ -2331,10 +2331,10 @@ select.input {
   color: #86efac;
 }
 
-.inventory-status-badge--mock {
-  background: rgba(245, 158, 11, 0.08);
-  border-color: rgba(245, 158, 11, 0.25);
-  color: #fcd34d;
+.inventory-status-badge--offline {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
 }
 
 /* ── Inventory Tabs ──────────────────────────────────────────── */

@@ -3,7 +3,7 @@ GeoIP schemas — Pydantic models for geolocation endpoints.
 
 All models are returned by the /api/geoip/* router.
 Fields are kept flat and nullable so they work correctly
-whether the GeoLite2 DB is loaded or in mock mode.
+whether the GeoLite2 DB is loaded or not.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ class GeoIPResult(BaseModel):
     """Geolocation result for a single IP address."""
 
     ip: str
-    # Country — always present even in mock mode
+    # Country — always present (falls back to UNKNOWN when DB has no record)
     country_code: str = ""   # ISO 3166-1 alpha-2 (e.g. "CN") or "LOCAL" / "UNKNOWN"
     country_name: str = ""   # Full name (e.g. "China")
     # City — available from GeoLite2-City DB
@@ -36,7 +36,7 @@ class GeoIPResult(BaseModel):
     is_datacenter: bool = False
     is_tor: bool = False
     # Meta
-    raw_available: bool = True   # False when using mock data
+    raw_available: bool = True   # False when no raw GeoLite2 data exists for the IP
 
 
 class BulkLookupRequest(BaseModel):
@@ -126,7 +126,6 @@ class ApplySuggestionRequest(BaseModel):
     # TODO (producción): resolver conversión country_code/ASN → rangos CIDR.
     # GeoLite2 no provee rangos CIDR por país directamente.
     # Opciones: ip2location-lite, delegated-apnic-latest, o tabla pre-calculada.
-    # En modo mock devuelve respuesta exitosa simulada.
 
 
 # ── DB status ────────────────────────────────────────────────────────────────
@@ -146,6 +145,5 @@ class GeoIPDBStatus(BaseModel):
 
     city_db: GeoIPDBEntry = Field(default_factory=GeoIPDBEntry)
     asn_db: GeoIPDBEntry = Field(default_factory=GeoIPDBEntry)
-    mock_mode: bool = True
     cache_size: int = 0   # Número de IPs en el TTLCache actualmente
     cache_ttl_seconds: int = 3600

@@ -33,30 +33,3 @@ export function useIpContext(ip: string | null) {
     fullRemediation,
   };
 }
-
-export function useWhitelist() {
-  const qc = useQueryClient();
-
-  const query = useQuery({
-    queryKey: ['crowdsec', 'whitelist'],
-    queryFn: () => crowdsecApi.getWhitelist(),
-    select: r => r.data ?? [],
-  });
-
-  const addWhitelist = useMutation({
-    mutationFn: (data: { ip: string; reason: string }) => crowdsecApi.addWhitelist(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['crowdsec', 'whitelist'] }),
-  });
-
-  const deleteWhitelist = useMutation({
-    mutationFn: (id: number) => crowdsecApi.deleteWhitelist(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['crowdsec', 'whitelist'] }),
-  });
-
-  return {
-    whitelist: query.data ?? [],
-    isLoading: query.isLoading,
-    addWhitelist,
-    deleteWhitelist,
-  };
-}

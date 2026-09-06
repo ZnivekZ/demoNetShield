@@ -426,17 +426,12 @@ async def dhcp_glpi_correlation(
     """
     try:
         from services.glpi_service import get_glpi_service  # lazy import
-        from config import get_settings; settings = get_settings()
 
         leases = await svc.get_dhcp_leases()
         glpi_svc = get_glpi_service()
 
         # Build IP→asset index from GLPI
-        if settings.should_mock_glpi:
-            from services.mock_data import MockData
-            raw_assets: list[dict] = MockData.glpi.computers()
-        else:
-            raw_assets = await glpi_svc.get_assets()
+        raw_assets = await glpi_svc.get_assets()
 
         asset_by_ip: dict[str, dict] = {
             a.get("ip", ""): a for a in raw_assets if a.get("ip")
@@ -484,17 +479,12 @@ async def dhcp_discovery(
     """
     try:
         from services.glpi_service import get_glpi_service
-        from config import get_settings; settings = get_settings()
 
         leases  = await svc.get_dhcp_leases()
         arp     = await svc.get_arp_table()
 
         glpi_svc = get_glpi_service()
-        if settings.should_mock_glpi:
-            from services.mock_data import MockData
-            raw_assets = MockData.glpi.computers()
-        else:
-            raw_assets = await glpi_svc.get_assets()
+        raw_assets = await glpi_svc.get_assets()
 
         glpi_ips  = {a.get("ip", ""): a  for a in raw_assets if a.get("ip")}
         glpi_macs = {a.get("mac", "").upper(): a for a in raw_assets if a.get("mac")}
@@ -562,14 +552,9 @@ async def wazuh_alerts_with_dhcp(
     """
     try:
         from services.wazuh_service import get_wazuh_service
-        from config import get_settings; settings = get_settings()
 
         wazuh_svc = get_wazuh_service()
-        if settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            alerts = MockData.wazuh.alerts(limit=limit, level_min=level_min)
-        else:
-            alerts = await wazuh_svc.get_alerts(limit=limit, level_min=level_min)
+        alerts = await wazuh_svc.get_alerts(limit=limit, level_min=level_min)
 
         leases = await svc.get_dhcp_leases()
         lease_by_ip: dict[str, dict] = {l.get("address", ""): l for l in leases}
@@ -610,13 +595,7 @@ async def block_rogue_dhcp(
     Records action in ActionLog.
     """
     try:
-        from config import get_settings; settings = get_settings()
-
-        if settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            alerts = MockData.dhcp.rogue_alerts()
-        else:
-            alerts = await svc.get_dhcp_rogue_alerts()
+        alerts = await svc.get_dhcp_rogue_alerts()
 
         alert = next((a for a in alerts if a.get("id") == alert_id), None)
         if not alert:
@@ -626,18 +605,10 @@ async def block_rogue_dhcp(
 
         # Block DHCP traffic (UDP dst-port 67,68) from non-valid server on that interface
         comment = f"[NetShield] Rogue DHCP block — {interface}"
-        if settings.should_mock_mikrotik:
-            result = {
-                "blocked": True,
-                "interface": interface,
-                "rule_comment": comment,
-                "mock": True,
-            }
-        else:
-            result = await svc.block_ip(
-                ip="0.0.0.0/0",   # placeholder — real impl would target the rogue MAC
-                comment=comment,
-            )
+        result = await svc.block_ip(
+            ip="0.0.0.0/0",   # placeholder — real impl would target the rogue MAC
+            comment=comment,
+        )
 
         await _log_action(
             db, "dhcp_rogue_block", interface,
@@ -666,7 +637,6 @@ async def create_ticket_for_device(
     """
     try:
         from services.glpi_service import get_glpi_service
-        from config import get_settings; settings = get_settings()
 
         leases = await svc.get_dhcp_leases()
         lease  = next((l for l in leases if l.get("address") == ip), None)
@@ -687,23 +657,12 @@ async def create_ticket_for_device(
         )
 
         glpi_svc = get_glpi_service()
-        if settings.should_mock_glpi:
-            from services.mock_service import get_mock_service
-            mock_svc = get_mock_service()
-            ticket = mock_svc.glpi_create_ticket({
-                "title":       title,
-                "description": description,
-                "priority":    3,
-                "category":    "inventario",
-                "is_netshield": True,
-            })
-        else:
-            ticket = await glpi_svc.create_ticket({
-                "name":    title,
-                "content": description,
-                "priority": 3,
-                "itilcategories_id": 0,
-            })
+        ticket = await glpi_svc.create_ticket({
+            "name":    title,
+            "content": description,
+            "priority": 3,
+            "itilcategories_id": 0,
+        })
 
         await _log_action(db, "dhcp_glpi_ticket_created", ip,
                           f"mac={mac} ticket_id={ticket.get('id', '?')}")

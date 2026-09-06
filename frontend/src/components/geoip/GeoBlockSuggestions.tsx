@@ -65,8 +65,7 @@ export function GeoBlockSuggestions() {
 
       {/* Disclaimer */}
       <p className="text-[0.65rem] text-surface-600 leading-relaxed">
-        * En modo mock, los bloqueos son simulados. En producción se requiere configurar
-        la resolución de rangos CIDR por país/ASN.
+        En producción, los bloqueos por país/ASN requieren resolución real de rangos CIDR.
       </p>
     </div>
   );

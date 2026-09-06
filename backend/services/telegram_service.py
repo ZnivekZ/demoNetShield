@@ -3,7 +3,6 @@ Telegram Service — Singleton client for Telegram Bot API.
 
 Follows the same pattern as crowdsec_service.py:
  - Singleton via __new__
- - Mock guards at the start of every public method
  - Retry with tenacity on transient network errors
  - structlog for all logging — never print()
  - Rate limiting via asyncio.Semaphore (30 msgs/sec)
@@ -65,17 +64,14 @@ class TelegramService:
         self._bot = None  # telegram.Bot instance (real mode only)
         self._semaphore = asyncio.Semaphore(30)  # Rate limit: 30 msg/sec
         self._initialized = True
-        logger.info("telegram_service_created", mock=self._settings.should_mock_telegram)
+        logger.info("telegram_service_created")
 
     # ── Connection lifecycle ──────────────────────────────────────────────
 
     async def connect(self) -> None:
         """Initialize the Telegram Bot client. Called from main.py lifespan."""
-        if self._settings.should_mock_telegram:
-            logger.info("telegram_mock_mode_active")
-            return
         if not self._settings.telegram_bot_token:
-            logger.warning("telegram_no_token", msg="Bot token not configured, staying in mock mode")
+            logger.warning("telegram_no_token", msg="Bot token not configured")
             return
         try:
             from telegram import Bot
@@ -100,10 +96,6 @@ class TelegramService:
 
     async def get_status(self) -> dict:
         """Return bot connection status."""
-        if self._settings.should_mock_telegram:
-            from services.mock_data import MockData
-            return MockData.telegram.bot_status()
-
         pending = await self._count_pending_messages()
         last_msg = await self._get_last_message_time()
         connected = self._bot is not None
@@ -121,7 +113,6 @@ class TelegramService:
             "chat_id": self._settings.telegram_chat_id or None,
             "pending_messages": pending,
             "last_message_at": last_msg,
-            "mock": False,
         }
 
     # ── Send Message (core) ───────────────────────────────────────────────
@@ -141,12 +132,6 @@ class TelegramService:
     ) -> dict:
         """Send a text message to a Telegram chat. Core sending method."""
         target_chat = chat_id or self._settings.telegram_chat_id
-
-        if self._settings.should_mock_telegram:
-            from services.mock_data import MockData
-            result = MockData.telegram.send_message(text)
-            await self._log_message("outbound", target_chat, message_type, text[:200], "sent")
-            return result
 
         if not self._bot:
             error_msg = "Bot not connected"
@@ -210,20 +195,6 @@ class TelegramService:
 
     async def send_status_summary(self, sources: list[str] | None = None, chat_id: str | None = None) -> dict:
         """Collect data from configured sources and send a summary."""
-        if self._settings.should_mock_telegram:
-            text = (
-                "📊 <b>Resumen del Sistema NetShield</b>\n\n"
-                "🖥️ <b>MikroTik:</b> CPU 23% | RAM 50% | Uptime 45d\n"
-                "🛡️ <b>Wazuh:</b> 12 agentes activos | 45 alertas (3 críticas)\n"
-                "🔒 <b>CrowdSec:</b> 5 decisiones activas | 23 alertas 24h\n"
-                "📡 <b>Suricata:</b> IDS mode | 1.2K pps | 8 alertas\n\n"
-                f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
-            )
-            from services.mock_data import MockData
-            result = MockData.telegram.send_message(text)
-            await self._log_message("outbound", chat_id or self._settings.telegram_chat_id, "summary", text[:200], "sent")
-            return result
-
         # Real mode: collect data from services
         sections = []
         selected = sources or ["wazuh", "mikrotik", "crowdsec", "suricata"]
@@ -318,12 +289,6 @@ class TelegramService:
 
     async def answer_query(self, query: str, chat_id: str) -> str:
         """Answer a query using the AI service and send the response."""
-        if self._settings.should_mock_telegram or self._settings.should_mock_ai:
-            from services.mock_data import MockData
-            response = MockData.telegram.bot_query_response(query)
-            await self.send_message(chat_id=chat_id, text=response, message_type="bot_response")
-            return response
-
         try:
             from services.ai_service import AIService
             ai = AIService()
@@ -361,9 +326,6 @@ class TelegramService:
 
     async def retry_pending_messages(self) -> int:
         """Retry all pending messages. Returns count of messages retried."""
-        if self._settings.should_mock_telegram:
-            return 0
-
         from sqlalchemy import select, delete
         from database import async_session_factory
         from models.telegram import TelegramPendingMessage

@@ -526,13 +526,6 @@ async def send_telegram_test(db: AsyncSession = Depends(get_db)) -> APIResponse:
 async def get_telegram_configs(db: AsyncSession = Depends(get_db)) -> APIResponse:
     """List all Telegram report configurations."""
     try:
-        from config import get_settings
-        settings = get_settings()
-
-        if settings.should_mock_telegram:
-            from services.mock_data import MockData
-            return APIResponse.ok(MockData.telegram.report_configs())
-
         from sqlalchemy import select
         from models.telegram import TelegramReportConfig
 
@@ -722,18 +715,6 @@ async def get_telegram_logs(
 ) -> APIResponse:
     """Get Telegram message history."""
     try:
-        from config import get_settings
-        settings = get_settings()
-
-        if settings.should_mock_telegram:
-            from services.mock_data import MockData
-            logs = MockData.telegram.message_logs(limit=limit)
-            if direction:
-                logs = [l for l in logs if l["direction"] == direction]
-            if message_type:
-                logs = [l for l in logs if l["message_type"] == message_type]
-            return APIResponse.ok(logs[:limit])
-
         from sqlalchemy import select
         from models.telegram import TelegramMessageLog
 

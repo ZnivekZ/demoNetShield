@@ -2,8 +2,6 @@
 GLPI Router - Endpoints for Asset Management / Inventory.
 Prefix: /api/glpi
 
-All endpoints delegate mock logic to GLPIService (via should_mock_glpi from config).
-No mock logic in this router — service layer handles it.
 Destructive actions (quarantine) are logged in action_logs + quarantine_logs.
 """
 
@@ -61,18 +59,10 @@ def get_wz() -> WazuhService:
 async def get_glpi_status(
     glpi: GLPIService = Depends(get_glpi),
 ) -> APIResponse:
-    """[GLPI API] Check if GLPI is reachable (or if mock mode is active)."""
+    """[GLPI API] Check if GLPI is reachable."""
     try:
         from config import get_settings
         settings = get_settings()
-        if settings.should_mock_glpi:
-            return APIResponse.ok(
-                GlpiAvailability(
-                    available=True,
-                    message="Modo demo — datos simulados activos",
-                    url=settings.glpi_url,
-                ).model_dump()
-            )
 
         # Detectar si los tokens no están configurados
         tokens_missing = not settings.glpi_app_token or not settings.glpi_user_token
@@ -114,7 +104,7 @@ async def get_assets(
     offset: int = Query(default=0, ge=0),
     glpi: GLPIService = Depends(get_glpi),
 ) -> APIResponse:
-    """[GLPI API] Get computer inventory. Mock-aware via GLPIService."""
+    """[GLPI API] Get computer inventory."""
     try:
         computers = await glpi.get_computers(
             search=search, location=location_id, status=status, limit=limit, offset=offset
@@ -218,18 +208,19 @@ async def get_asset_full_detail(
     asset_id: int,
 ) -> APIResponse:
     """
-    [GLPI Collector] Get full parsed detail of an asset from the collector cache.
-    Includes: identification, location, status, network, hardware, disks, software,
-    audit logs, tickets, and relationships.
+    [GLPI Collector] Full parsed detail of an asset — fetched on demand from
+    GLPI on first access and cached in memory (TTL + date_mod change detection).
+    Includes: identification, location, status, network, hardware, disks,
+    software, audit logs, tickets, and relationships.
     """
     try:
         from services.glpi_collector import get_glpi_collector
         collector = get_glpi_collector()
-        detail = collector.get_full_detail(asset_id)
+        detail = await collector.ensure_detail(asset_id)
         if detail is None:
             return APIResponse.fail(
-                f"Activo #{asset_id} no encontrado en cache del collector. "
-                f"Espere al próximo ciclo de sincronización."
+                f"Activo #{asset_id} no encontrado o sin respuesta de GLPI. "
+                f"Verifique que el activo exista y que GLPI esté accesible."
             )
         return APIResponse.ok({
             **detail,

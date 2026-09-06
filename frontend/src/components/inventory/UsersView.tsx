@@ -154,7 +154,6 @@ export function UsersView() {
   const deleteUser = useDeleteGlpiUser();
 
   const users = data?.users ?? [];
-  const isMock = data?.mock;
 
   function handleDelete(user: GlpiUser) {
     if (deletingId === user.id) {
@@ -178,7 +177,6 @@ export function UsersView() {
           <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>
             Usuarios y Equipos Asignados
           </span>
-          {isMock && <span className="badge badge-warning" style={{ fontSize: '0.62rem' }}>Demo</span>}
         </div>
 
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>

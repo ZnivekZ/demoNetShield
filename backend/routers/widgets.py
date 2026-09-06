@@ -51,16 +51,8 @@ async def get_threat_level() -> APIResponse:
       - Decisiones CrowdSec activas        → 30%
       - Alertas Suricata severity=1 últ. 1h→ 30%
 
-    En mock mode devuelve score=72 con breakdown realista.
     """
-    from config import get_settings
-    settings = get_settings()
-
     try:
-        if settings.should_mock_wazuh or settings.should_mock_crowdsec or settings.should_mock_suricata:
-            from services.mock_data import MockData
-            return APIResponse.ok(MockData.widgets.threat_level())
-
         # Real mode: agregar datos de los 3 servicios
         from services.wazuh_service import get_wazuh_service
         from services.crowdsec_service import get_crowdsec_service
@@ -112,16 +104,8 @@ async def get_activity_heatmap() -> APIResponse:
     [Wazuh API] Retorna una matrix 7x24 con cantidad de alertas agrupadas por día y hora.
 
     Días: 0=lunes … 6=domingo  |  Horas: 0-23
-    En mock mode devuelve datos realistas con picos a las 10am y 8pm.
     """
-    from config import get_settings
-    settings = get_settings()
-
     try:
-        if settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return APIResponse.ok(MockData.widgets.activity_heatmap())
-
         # Real mode: consultar alertas de los últimos 7 días y agrupar
         from services.wazuh_service import get_wazuh_service
         from datetime import datetime, timedelta, timezone
@@ -163,16 +147,8 @@ async def get_correlation_timeline(
     Las series son: alertas Wazuh por minuto, alertas Suricata por minuto,
     nuevas decisiones CrowdSec por hora (eje secundario).
 
-    En mock mode retorna datos con un pico sincronizado hace 20 minutos.
     """
-    from config import get_settings
-    settings = get_settings()
-
     try:
-        if settings.should_mock_wazuh or settings.should_mock_suricata or settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return APIResponse.ok(MockData.widgets.correlation_timeline(minutes=minutes))
-
         # Real mode: agregar datos de los 3 servicios
         from services.wazuh_service import get_wazuh_service
         from services.suricata_service import get_suricata_service
@@ -239,14 +215,7 @@ async def get_confirmed_threats() -> APIResponse:
 
     Devuelve lista ordenada por nivel de confirmación (3 fuentes primero).
     """
-    from config import get_settings
-    settings = get_settings()
-
     try:
-        if settings.should_mock_suricata or settings.should_mock_crowdsec or settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return APIResponse.ok(MockData.widgets.confirmed_threats())
-
         # Real mode: cruzar datos de las 3 fuentes
         from services.suricata_service import get_suricata_service
         from services.crowdsec_service import get_crowdsec_service
@@ -325,16 +294,7 @@ async def get_incident_lifecycle(
 
     Los hitos no ocurridos se marcan como "pending" (no se ocultan).
     """
-    from config import get_settings
-    settings = get_settings()
-
     try:
-        any_mock = (settings.should_mock_wazuh or settings.should_mock_crowdsec
-                    or settings.should_mock_mikrotik or settings.should_mock_glpi)
-        if any_mock:
-            from services.mock_data import MockData
-            return APIResponse.ok(MockData.widgets.incident_lifecycle(ip=ip))
-
         # Real mode: consultar cada fuente en paralelo
         from services.wazuh_service import get_wazuh_service
         from services.crowdsec_service import get_crowdsec_service
@@ -421,14 +381,7 @@ async def get_suricata_asset_correlation(
 
     Permite saber "este equipo de Juan Pérez en Aula 301 fue atacado".
     """
-    from config import get_settings
-    settings = get_settings()
-
     try:
-        if settings.should_mock_suricata or settings.should_mock_glpi:
-            from services.mock_data import MockData
-            return APIResponse.ok(MockData.widgets.suricata_asset_correlation())
-
         from services.suricata_service import get_suricata_service
         from services.glpi_service import get_glpi_service
 
@@ -496,18 +449,8 @@ async def get_world_threat_map(
       - Alertas Wazuh con src_ip de ese país (peso 35%)
       - Alertas Suricata con src_ip de ese país (peso 25%)
 
-    En mock mode devuelve 6 países con actividad + el resto con score=0.
     """
-    from config import get_settings
-    settings = get_settings()
-
     try:
-        any_mock = (settings.should_mock_geoip or settings.should_mock_wazuh
-                    or settings.should_mock_crowdsec or settings.should_mock_suricata)
-        if any_mock:
-            from services.mock_data import MockData
-            return APIResponse.ok(MockData.widgets.world_threat_map())
-
         # Real mode: reusar el endpoint de top-countries con source=all
         from services.geoip_service import get_geoip_service
         geoip_svc = get_geoip_service()
@@ -536,22 +479,7 @@ async def generate_view_report(request: GenerateViewReportRequest) -> APIRespons
 
     Deduplica consultas si varios widgets del mismo servicio están activos.
     """
-    from config import get_settings
-    settings = get_settings()
-
     try:
-        if settings.should_mock_ai:
-            from services.mock_data import MockData
-            await asyncio.sleep(2.5)  # Simular latencia de IA
-            result = MockData.widgets.view_report_mock(
-                view_id=request.view_id,
-                widget_ids=request.widget_ids,
-                audience=request.audience,
-                title=request.report_title,
-                output=request.output,
-            )
-            return APIResponse.ok(result)
-
         # Real mode: use existing AIService.generate_report() with contextual prompt
         from services.ai_service import get_ai_service
 

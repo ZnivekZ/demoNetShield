@@ -55,7 +55,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 | **Inventario (GLPI)** | `/inventory` | Activos (kanban + eliminar), tickets, usuarios GLPI (CRUD), asignaciones equipo↔usuario, cuarentena |
 | **CrowdSec — Centro de Comando** | `/crowdsec` | Decisiones activas + bandera/ciudad/tipo de red por IP, métricas, bouncers, top atacantes |
 | **CrowdSec — Inteligencia** | `/crowdsec/intelligence` | Top países atacantes (cross-source), sugerencias de geo-bloqueo, escenarios, heatmap |
-| **CrowdSec — Configuración** | `/crowdsec/config` | Whitelist, gestión de bouncers, sincronización con MikroTik firewall |
+| **CrowdSec — Configuración** | `/crowdsec/config` | Bouncers, collections del hub, sincronización con MikroTik firewall |
 | **Suricata — Motor** | `/suricata` | Estado del motor IDS/IPS, métricas en tiempo real, categorías de alertas, circuito de auto-response |
 | **Suricata — Alertas** | `/suricata/alerts` | Alertas IDS/IPS con live feed WebSocket, timeline, top firmas, filtros avanzados |
 | **Suricata — Red NSM** | `/suricata/network` | Flujos de red, consultas DNS, transacciones HTTP, handshakes TLS capturados |
@@ -215,7 +215,7 @@ python main.py
 # → Swagger UI:  http://localhost:8000/docs
 
 # Alternativa sin activar el venv:
-cd backend && MOCK_ALL=true ../.venv/bin/python main.py
+cd backend && ../.venv/bin/python main.py
 ```
 
 ### Frontend
@@ -227,37 +227,6 @@ npm run dev
 ```
 
 > El proxy de Vite redirige automáticamente `/api/*` → `localhost:8000` y `/ws/*` → `ws://localhost:8000`. El backend debe estar corriendo antes que el frontend.
-
----
-
-## 🧪 Modo Mock (Sin infraestructura externa)
-
-NetShield incluye un sistema completo de datos simulados que permite usar **todas las funcionalidades sin tener MikroTik, Wazuh, GLPI, CrowdSec, Suricata, GeoLite2 ni una API key de Anthropic**.
-
-```bash
-# Activar mock total
-cd backend
-MOCK_ALL=true ../.venv/bin/python main.py
-
-# O activar servicios específicos en mock
-MOCK_WAZUH=true MOCK_GLPI=true ../.venv/bin/python main.py
-```
-
-| Variable | Efecto |
-|----------|--------|
-| `MOCK_ALL=true` | Activa mock en todos los servicios |
-| `MOCK_MIKROTIK=true` | Solo MikroTik en mock |
-| `MOCK_WAZUH=true` | Solo Wazuh en mock |
-| `MOCK_GLPI=true` | Solo GLPI en mock |
-| `MOCK_ANTHROPIC=true` | Solo generación de reportes en mock |
-| `MOCK_CROWDSEC=true` | Solo CrowdSec en mock |
-| `MOCK_GEOIP=true` | Solo GeoIP en mock (default: `true`) |
-| `MOCK_SURICATA=true` | Solo Suricata en mock (default: `true`) |
-| `MOCK_TELEGRAM=true` | Solo Telegram Bot en mock (default: `true`) |
-
-> **Retrocompatibilidad:** `APP_ENV=lab` sigue funcionando como alias de `MOCK_ALL=true`.
-
-Cuando algún servicio está en mock, el frontend muestra un **badge amarillo** visible en la barra superior indicando qué servicios son simulados.
 
 ---
 
@@ -303,7 +272,6 @@ Cuando Suricata detecta una amenaza que supera el umbral configurado, el circuit
 
 ```bash
 # Variables en backend/.env:
-MOCK_SURICATA=false
 SURICATA_SOCKET=/var/run/suricata/suricata.socket
 SURICATA_EVE_LOG=/var/log/suricata/eve.json
 # SURICATA_HOST=192.168.88.1  # Si corre en host remoto
@@ -352,10 +320,7 @@ MAXMIND_LICENSE_KEY=tu_clave_aqui
 # 3. Descargar las bases de datos:
 python backend/scripts/download_geoip.py
 
-# 4. Activar modo real:
-#    En backend/.env: MOCK_GEOIP=false
-
-# 5. Reiniciar el backend
+# 4. Reiniciar el backend
 ```
 
 > Las DBs se descargan en `backend/data/geoip/`. MaxMind actualiza GeoLite2 los martes. Se recomienda automatizar la descarga mensualmente.
@@ -409,8 +374,6 @@ netShield2/
 │   │   ├── telegram_scheduler.py # APScheduler AsyncIOScheduler: sync de jobs desde DB cada minuto
 │   │   ├── ai_service.py        # Claude function calling + TELEGRAM_SYSTEM_PROMPT + answer_telegram_query()
 │   │   ├── pdf_service.py       # WeasyPrint + Jinja2
-│   │   ├── mock_data.py         # Datos simulados reproducibles (seed=42)
-│   │   └── mock_service.py      # CRUD en memoria + estado de mock por servicio
 │   ├── models/                  # Modelos SQLAlchemy (11 modelos, incluye User y CustomView)
 │   ├── schemas/                 # Schemas Pydantic v2 (18 archivos, incluye auth.py y dhcp.py)
 │   └── templates/               # Plantilla HTML para PDF
@@ -512,7 +475,7 @@ netShield2/
 - **`run_in_executor` para routeros-api** — La librería es síncrona y bloquearía el event loop. Se ejecuta en el thread pool del executor.
 - **WebSockets para datos en vivo** — Tráfico, alertas, VLANs, sesiones del portal, decisiones CrowdSec y alertas Suricata se transmiten vía WebSocket con reconexión automática en el frontend.
 - **SQLite → PostgreSQL ready** — Solo cambiando `DATABASE_URL` en `.env` a `postgresql+asyncpg://...` se puede migrar sin tocar código.
-- **Mock guards en servicios, no en routers** — Los WebSockets no pasan por los routers, así que los guards deben estar en la capa de servicio para funcionar correctamente en modo mock.
+- **WebSockets** — Los WebSockets viven en `main.py` y consumen los services directamente (no pasan por routers).
 - **CrowdSec como capa complementaria** — Se sincroniza con el firewall MikroTik: las decisiones de CrowdSec pueden traducirse automáticamente en reglas de bloqueo en el router.
 - **Suricata como capa de red** — Complementa a Wazuh (host) y CrowdSec (comunidad). Sus alertas se correlacionan con decisiones CrowdSec para identificar amenazas confirmadas por múltiples fuentes.
 - **GeoIP enriquecimiento silencioso** — `geoip_service` usa `try/except` alrededor de cada lookup en las capas de servicio. Si falla, los endpoints devuelven el dato original sin el campo `geo`, nunca un error 500.
@@ -541,7 +504,6 @@ DEL  /api/auth/users/:id                — Eliminar usuario
 
 # Sistema
 GET  /api/health                        — Estado del sistema
-GET  /api/system/mock-status            — Estado actual de cada servicio (real o mock)
 
 # MikroTik
 GET  /api/mikrotik/*                    — Interfaces, ARP, firewall, tráfico
@@ -704,7 +666,7 @@ GET  /api/phishing/*                    — Alertas, víctimas, sinkhole
 POST /api/security/*                    — Auto-block, geo-block, cuarentena
 ```
 
-> La carpeta `/postman/` incluye una colección con **120+ requests** y 3 entornos preconfigurados (mock, local real, lab).
+> La carpeta `/postman/` incluye una colección con **120+ requests** y entornos preconfigurados.
 
 # Audit
 GET  /api/actions/history              — Historial paginado de acciones (ActionLog)
@@ -734,7 +696,6 @@ GET  /api/actions/history              — Historial paginado de acciones (Actio
 postman/NetShield.postman_collection.json
 
 # Entornos disponibles:
-# - env_local_mock.json    → localhost:8000 con MOCK_ALL=true
 # - env_local_real.json    → localhost:8000 con servicios reales
 # - env_lab.json           → IP remota del laboratorio
 ```

@@ -270,9 +270,6 @@ class WazuhService:
         Get all Wazuh agents with their status.
         Returns normalized agent data.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.agents()
         try:
             data = await self._api_request("GET", "/agents", params={"limit": 500})
             agents = data.get("data", {}).get("affected_items", [])
@@ -307,42 +304,38 @@ class WazuhService:
         Get recent alerts from Wazuh.
         Queries the /alerts endpoint with optional severity filtering.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            alerts = MockData.wazuh.alerts(limit=limit, level_min=level_min)
+        # Prefer the Wazuh Indexer (OpenSearch :9200) — Server API has no /alerts
+        from services.wazuh_indexer import get_indexer_client
+        indexer = get_indexer_client()
+        if indexer.is_configured():
+            try:
+                raw_alerts = await indexer.get_alerts(
+                    limit=limit, level_min=level_min
+                )
+                # Indexer returns nested format (agent.name, rule.level).
+                # Flatten to match the rest of the dashboard's flat schema
+                # (agent_name, rule_level, rule_description, ...).
+                alerts = self._normalize_alerts(raw_alerts)
+            except Exception as e:
+                logger.error("wazuh_get_alerts_indexer_failed", error=str(e))
+                raise
         else:
-            # Prefer the Wazuh Indexer (OpenSearch :9200) — Server API has no /alerts
-            from services.wazuh_indexer import get_indexer_client
-            indexer = get_indexer_client()
-            if indexer.is_configured():
-                try:
-                    raw_alerts = await indexer.get_alerts(
-                        limit=limit, level_min=level_min
-                    )
-                    # Indexer returns nested format (agent.name, rule.level).
-                    # Flatten to match the rest of the dashboard's flat schema
-                    # (agent_name, rule_level, rule_description, ...).
-                    alerts = self._normalize_alerts(raw_alerts)
-                except Exception as e:
-                    logger.error("wazuh_get_alerts_indexer_failed", error=str(e))
-                    raise
-            else:
-                # Fallback to Server API (will 404 on Wazuh 4.14.6 but kept for compat)
-                try:
-                    params: dict[str, Any] = {
-                        "limit": limit,
-                        "offset": offset,
-                        "sort": "-timestamp",
-                    }
-                    if level_min is not None:
-                        params["q"] = f"rule.level>={level_min}"
+            # Fallback to Server API (will 404 on Wazuh 4.14.6 but kept for compat)
+            try:
+                params: dict[str, Any] = {
+                    "limit": limit,
+                    "offset": offset,
+                    "sort": "-timestamp",
+                }
+                if level_min is not None:
+                    params["q"] = f"rule.level>={level_min}"
 
-                    data = await self._api_request("GET", "/alerts", params=params)
-                    raw_alerts = data.get("data", {}).get("affected_items", [])
-                    alerts = self._normalize_alerts(raw_alerts)
-                except Exception as e:
-                    logger.error("wazuh_get_alerts_failed", error=str(e))
-                    raise
+                data = await self._api_request("GET", "/alerts", params=params)
+                raw_alerts = data.get("data", {}).get("affected_items", [])
+                alerts = self._normalize_alerts(raw_alerts)
+            except Exception as e:
+                logger.error("wazuh_get_alerts_failed", error=str(e))
+                raise
 
         # ── GeoIP enrichment (silencioso — nunca rompe el endpoint) ──────
         # Enriquece alertas con src_ip externas: ciudad, lat/lon, tipo de red.
@@ -379,9 +372,6 @@ class WazuhService:
         self, agent_id: str, limit: int = 50, offset: int = 0
     ) -> list[dict]:
         """Get alerts filtered by a specific agent."""
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.alerts(limit=limit, agent_id=agent_id)
         try:
             params: dict[str, Any] = {
                 "limit": limit,
@@ -407,8 +397,6 @@ class WazuhService:
         Send an active response command to a specific agent.
         Example: firewall-drop0, restart-wazuh0
         """
-        if self._settings.should_mock_wazuh:
-            return {"agent_id": agent_id, "command": command, "success": True, "mock": True}
         try:
             body: dict[str, Any] = {
                 "command": command,
@@ -495,9 +483,6 @@ class WazuhService:
         [Wazuh API] Get alerts with level > 10 (critical).
         Includes MITRE technique data with rule_groups fallback.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.critical_alerts(limit=limit)
         try:
             params: dict[str, Any] = {
                 "offset": offset,
@@ -518,9 +503,6 @@ class WazuhService:
         [Wazuh API] Get alert count grouped by minute for the last N minutes.
         Useful for detecting attack spikes in real-time.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.alerts_timeline(level_min=level_min, minutes=minutes)
         # Prefer Indexer native bucketing (hourly buckets, last N hours)
         from services.wazuh_indexer import get_indexer_client
         indexer = get_indexer_client()
@@ -583,9 +565,6 @@ class WazuhService:
         [Wazuh API] Get top N agents by alert count.
         Includes last alert timestamp and most frequent MITRE technique.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.top_agents(limit=limit)
         try:
             params: dict[str, Any] = {
                 "limit": 500,
@@ -638,9 +617,6 @@ class WazuhService:
         which excludes the manager (id `000`) and produced a confusing
         mismatch where the page showed 1 active agent but the summary said 2.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.agents_summary()
         try:
             agents = await asyncio.wait_for(self.get_agents(), timeout=8.0)
         except Exception as e:
@@ -670,9 +646,6 @@ class WazuhService:
         [Wazuh API] Get detected MITRE ATT&CK techniques grouped by frequency.
         Falls back to rule_groups when MITRE data is not available.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.mitre_summary()
         try:
             params: dict[str, Any] = {
                 "limit": 500,
@@ -743,9 +716,6 @@ class WazuhService:
         services = []
         version = ""
         cluster_enabled = False
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.health()
         try:
             # Manager status (list of daemons)
             status_data = await self._api_request("GET", "/manager/status")
@@ -791,9 +761,6 @@ class WazuhService:
         Wazuh endpoint: GET /vulnerability/{agent_id} or GET /vulnerabilities
         Returns normalized vulnerability items with severity scoring.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.vulnerabilities(agent_id=agent_id, limit=limit)
         try:
             params: dict[str, Any] = {"limit": limit, "offset": offset}
             if agent_id:
@@ -823,18 +790,12 @@ class WazuhService:
             return out
         except Exception as e:
             logger.warning("wazuh_get_vulnerabilities_failed", error=str(e))
-            # Fallback to mock so the UI keeps working
-            from services.mock_data import MockData
-            return MockData.wazuh.vulnerabilities(agent_id=agent_id, limit=limit)
 
     async def get_agent_detail(self, agent_id: str) -> dict:
         """
         [Wazuh API] Get detail of a single agent.
         Wazuh endpoints: GET /agents/{agent_id} and GET /agents/{agent_id}/group/is_sync.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.agent_detail(agent_id)
         try:
             data = await self._api_request("GET", f"/agents/{agent_id}")
             items = data.get("data", {}).get("affected_items", [])
@@ -857,8 +818,6 @@ class WazuhService:
             return {"id": agent_id, "error": "not_found"}
         except Exception as e:
             logger.warning("wazuh_get_agent_detail_failed", agent_id=agent_id, error=str(e))
-            from services.mock_data import MockData
-            return MockData.wazuh.agent_detail(agent_id)
 
     async def get_agent_alerts(
         self, agent_id: str, limit: int = 25, level_min: int = 0
@@ -867,26 +826,18 @@ class WazuhService:
         [Wazuh API] Get recent alerts from one specific agent.
         Falls back to get_alerts + filter by agent_id if Wazuh lacks a dedicated endpoint.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.agent_alerts(agent_id, limit=limit)
         try:
             return await self.get_alerts_by_agent(
                 agent_id=agent_id, limit=limit, offset=0
             )
         except Exception as e:
             logger.warning("wazuh_get_agent_alerts_failed", agent_id=agent_id, error=str(e))
-            from services.mock_data import MockData
-            return MockData.wazuh.agent_alerts(agent_id, limit=limit)
 
     async def get_agent_syscheck(self, agent_id: str, limit: int = 50) -> list[dict]:
         """
         [Wazuh API] Get recent file integrity monitoring (syscheck) events for an agent.
         Endpoint: GET /syscheck/{agent_id}
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.agent_syscheck(agent_id, limit=limit)
         try:
             data = await self._api_request(
                 "GET", f"/syscheck/{agent_id}", params={"limit": limit}
@@ -905,17 +856,12 @@ class WazuhService:
             return out
         except Exception as e:
             logger.warning("wazuh_get_agent_syscheck_failed", agent_id=agent_id, error=str(e))
-            from services.mock_data import MockData
-            return MockData.wazuh.agent_syscheck(agent_id, limit=limit)
 
     async def get_agent_syscollector(self, agent_id: str) -> dict:
         """
         [Wazuh API] Get hardware/software inventory (syscollector) for one agent.
         Endpoints: GET /syscollector/{agent_id}/hardware, GET /.../os, GET /.../packages.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.agent_syscollector(agent_id)
         result: dict[str, Any] = {"agent_id": agent_id}
         try:
             hw = await self._api_request("GET", f"/syscollector/{agent_id}/hardware")
@@ -966,9 +912,6 @@ class WazuhService:
         [Wazuh API] Get MITRE ATT&CK matrix counts (tactics → techniques → count).
         Uses the existing mitre summary and groups techniques under their tactic.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.mitre_matrix()
         try:
             summary = await self.get_mitre_summary()
             # Group by tactic (TA00XX codes)
@@ -986,16 +929,11 @@ class WazuhService:
             return {"tactics": list(tactics.values())}
         except Exception as e:
             logger.warning("wazuh_get_mitre_matrix_failed", error=str(e))
-            from services.mock_data import MockData
-            return MockData.wazuh.mitre_matrix()
 
     async def get_stats_summary(self) -> dict:
         """
         [Wazuh API] Global aggregate stats: agents counts, alerts in last 24h, critical alerts, vulnerabilities count, top tactic.
         """
-        if self._settings.should_mock_wazuh:
-            from services.mock_data import MockData
-            return MockData.wazuh.stats_summary()
         # Schema matches WazuhDashboard.tsx expectations
         # (total_alerts_24h, critical_alerts_24h, vulnerabilities_count)
         result: dict[str, Any] = {

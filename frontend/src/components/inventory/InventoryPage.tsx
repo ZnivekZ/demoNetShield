@@ -10,8 +10,7 @@ import { AssetsView } from './AssetsView';
 import { TicketsView } from './TicketsView';
 import { UsersView } from './UsersView';
 import { AssignmentsView } from './AssignmentsView';
-import { useQuery } from '@tanstack/react-query';
-import { glpiApi } from '../../services/api';
+import { useGlpiStatus } from '../../hooks/useGlpiAssets';
 
 type Tab = 'health' | 'assets' | 'tickets' | 'users' | 'assignments';
 
@@ -27,12 +26,7 @@ export function InventoryPage() {
   const [activeTab, setActiveTab] = useState<Tab>('health');
 
   // GLPI status check
-  const { data: glpiStatus } = useQuery({
-    queryKey: ['glpi', 'status'],
-    queryFn: () => glpiApi.getStatus(),
-    refetchInterval: 60_000,
-    select: (res) => res.data,
-  });
+  const { data: glpiStatus } = useGlpiStatus();
 
   return (
     <div className="inventory-page">
@@ -58,7 +52,7 @@ export function InventoryPage() {
               <span>GLPI Conectado</span>
             </div>
           ) : (
-            <div className="inventory-status-badge inventory-status-badge--live" style={{ opacity: 0.7 }}>
+            <div className="inventory-status-badge inventory-status-badge--offline">
               <span className="status-dot disconnected" />
               <span>GLPI Sin conexión</span>
             </div>

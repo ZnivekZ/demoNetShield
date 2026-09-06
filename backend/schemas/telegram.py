@@ -114,7 +114,6 @@ class TelegramStatusResponse(BaseModel):
     chat_id: Optional[str] = None
     pending_messages: int = 0
     last_message_at: Optional[str] = None
-    mock: bool = True
 
 
 # ── Send Summary Request ────────────────────────────────────────────────

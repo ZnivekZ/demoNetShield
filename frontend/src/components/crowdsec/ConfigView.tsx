@@ -1,13 +1,10 @@
 /**
  * ConfigView — CrowdSec configuration sub-view.
- * Bouncer status, machine info, whitelist CRUD, hub collections, connection status panel.
+ * Bouncer status, machine info, hub collections, connection status panel.
  */
 import { Settings2, Server, Package, Info } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
 import { useCrowdSecBouncers, useCrowdSecHub } from '../../hooks/useCrowdSecMetrics';
 import { BouncerStatus } from './BouncerStatus';
-import { WhitelistManager } from './WhitelistManager';
-import { systemApi } from '../../services/api';
 
 function Section({ title, icon: Icon, children }: { title: string; icon: React.ComponentType<any>; children: React.ReactNode }) {
   return (
@@ -26,14 +23,6 @@ function Section({ title, icon: Icon, children }: { title: string; icon: React.C
 export function CrowdSecConfig() {
   const bouncersQuery = useCrowdSecBouncers();
   const hubQuery = useCrowdSecHub();
-  const { data: mockStatus } = useQuery({
-    queryKey: ['mock-status'],
-    queryFn: async () => { const r = await systemApi.getMockStatus(); return r.data; },
-    refetchInterval: 30_000,
-    retry: false,
-    throwOnError: false,
-  });
-  const isMock = mockStatus?.services?.crowdsec ?? false;
 
   const bouncers = bouncersQuery.data ?? [];
   const hub = hubQuery.data;
@@ -59,14 +48,9 @@ export function CrowdSecConfig() {
             CrowdSec — Configuración
           </h1>
           <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-400)', margin: 0 }}>
-            Bouncers · Hub · Whitelist · Estado de conexión
+            Bouncers · Hub · Estado de conexión
           </p>
         </div>
-        {isMock && (
-          <span className="badge badge-warning" style={{ marginLeft: 'auto', fontSize: '0.62rem' }}>
-            MOCK MODE
-          </span>
-        )}
       </div>
 
       {/* Connection status panel */}
@@ -74,31 +58,18 @@ export function CrowdSecConfig() {
         className="glass-card"
         style={{
           padding: '1rem 1.25rem',
-          borderLeft: `3px solid ${isMock ? 'var(--color-warning)' : 'var(--color-success)'}`,
+          borderLeft: '3px solid var(--color-success)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-          <Info size={14} style={{ color: isMock ? 'var(--color-warning)' : 'var(--color-success)' }} />
-          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: isMock ? 'var(--color-warning)' : 'var(--color-success)' }}>
-            {isMock ? 'Modo demostración (datos simulados)' : 'Conectado a CrowdSec LAPI'}
+          <Info size={14} style={{ color: 'var(--color-success)' }} />
+          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-success)' }}>
+            Conectado a CrowdSec LAPI
           </span>
         </div>
-        {isMock ? (
-          <div style={{ fontSize: '0.72rem', color: 'var(--color-surface-400)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-            <p style={{ margin: 0 }}>Para activar CrowdSec real:</p>
-            <ol style={{ margin: '0.25rem 0 0 1.2rem', display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-              <li>Instalar CrowdSec en el servidor: <code>curl -s https://install.crowdsec.net | sudo sh</code></li>
-              <li>Registrar bouncer: <code>sudo cscli bouncers add netshield-bouncer</code></li>
-              <li>Copiar API key a <code>CROWDSEC_API_KEY</code> en <code>.env</code></li>
-              <li>Cambiar <code>MOCK_CROWDSEC=false</code> (o remover si <code>MOCK_ALL=false</code>)</li>
-              <li>Reiniciar el backend</li>
-            </ol>
-          </div>
-        ) : (
-          <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-400)', margin: 0 }}>
-            URL: {import.meta.env.VITE_CROWDSEC_URL ?? 'http://localhost:8080'} · API Key configurada ✓
-          </p>
-        )}
+        <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-400)', margin: 0 }}>
+          URL: {import.meta.env.VITE_CROWDSEC_URL ?? 'http://localhost:8080'} · API Key configurada ✓
+        </p>
       </div>
 
       {/* Bouncers */}
@@ -132,11 +103,6 @@ export function CrowdSecConfig() {
           </div>
         </Section>
       )}
-
-      {/* Whitelist */}
-      <Section title="Whitelist local" icon={Settings2}>
-        <WhitelistManager />
-      </Section>
     </div>
   );
 }

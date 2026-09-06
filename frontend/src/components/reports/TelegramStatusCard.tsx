@@ -3,7 +3,7 @@
  * pending messages, and a collapsible setup guide.
  */
 import { useState } from 'react';
-import { Bot, CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronRight, Clock } from 'lucide-react';
+import { Bot, CheckCircle, XCircle, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import { useTelegramStatus } from '../../hooks/useTelegramStatus';
 import { formatDistanceToNow } from '../utils/time';
 
@@ -31,17 +31,14 @@ export function TelegramStatusCard() {
     );
   }
 
-  const isMock = status.mock;
   const isConnected = status.connected;
 
-  const statusColor = isMock
-    ? 'var(--color-warning)'
-    : isConnected
-      ? 'var(--color-success)'
-      : 'var(--color-danger)';
+  const statusColor = isConnected
+    ? 'var(--color-success)'
+    : 'var(--color-danger)';
 
-  const StatusIcon = isMock ? AlertCircle : isConnected ? CheckCircle : XCircle;
-  const statusLabel = isMock ? 'MODO DEMO' : isConnected ? 'CONECTADO' : 'DESCONECTADO';
+  const StatusIcon = isConnected ? CheckCircle : XCircle;
+  const statusLabel = isConnected ? 'CONECTADO' : 'DESCONECTADO';
 
   return (
     <div className="glass-card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -98,7 +95,7 @@ export function TelegramStatusCard() {
           }}
         >
           {guideOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          {isMock ? 'Cómo configurar el bot real' : 'Guía de configuración'}
+          Guía de configuración
         </button>
         {guideOpen && (
           <div style={{
@@ -111,7 +108,7 @@ export function TelegramStatusCard() {
               <li>Abrir <strong>@BotFather</strong> en Telegram → <code>/newbot</code></li>
               <li>Guardar el token en <code>TELEGRAM_BOT_TOKEN</code></li>
               <li>Agregar el bot al canal/grupo y obtener el chat ID</li>
-              <li>Configurar <code>TELEGRAM_CHAT_ID</code> y <code>MOCK_TELEGRAM=false</code></li>
+              <li>Configurar <code>TELEGRAM_CHAT_ID</code></li>
               <li>Reiniciar el backend — el bot se conectará automáticamente</li>
             </ol>
           </div>

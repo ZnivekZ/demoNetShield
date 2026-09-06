@@ -1,25 +1,28 @@
 """
-GLPI Collector — Periodic background task that syncs assets from GLPI API.
+GLPI Collector — periodic lightweight sync + on-demand full detail.
 
-Design:
-- Runs every 5 minutes as an asyncio background task
-- Uses `requests` (sync) via asyncio.to_thread() to not block the event loop
-- Saves raw GLPI data to `Integraciones/glpi_full_assets.json`
-- Keeps a parsed in-memory cache for fast reads by GLPIService
-- Normalizes the rich GLPI data (_devices, _softwares, _networkports, etc.)
-  into a structured format consumable by the frontend
+Design (rediseño escala — sin persistencia):
+- LISTA liviana (cada COLLECT_INTERVAL, 5 min): por itemtype, GET /<T> paginado
+  con `expand_dropdowns` + `with_networkports` (campos base + IP/MAC, ~1-3 KB por
+  activo). Mantiene `_raw_assets` en memoria con la MISMA forma de "raw" que
+  consumía antes `GLPIService` (que normaliza con `_normalize_computer`) → el
+  contrato de datos del grid no cambia y `glpi_service.get_computers` no se toca.
+- DETALLE completo bajo demanda: `ensure_detail(asset_id)` fetchea
+  GET /<T>/{id} con todos los `with_*` SOLO la primera vez que se pide (o cuando
+  el TTL venció o el `date_mod` del activo cambió en la lista) y lo cachea en
+  memoria. El ciclo periódico NUNCA mueve el payload pesado.
+- Sin persistencia: al reiniciar el backend la lista arranca vacía y el primer
+  ciclo la repuebla (no hay JSON que leer/escribir).
 
-Credential source: config.py (GLPI_URL, GLPI_APP_TOKEN, GLPI_USER_TOKEN)
+Resiliencia (se conserva): circuit breaker + executor dedicado (los requests
+sync corren en thread para no bloquear el event loop) + timeout duro por ciclo.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
-import math
-import os
+import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 import requests
@@ -30,12 +33,9 @@ from services.resilience import make_resilience
 
 logger = structlog.get_logger(__name__)
 
-# Path to the JSON cache file (same dir as the original glpi.py script)
-_INTEGRACIONES_DIR = Path(__file__).parent / "Integraciones"
-_CACHE_FILE = _INTEGRACIONES_DIR / "glpi_full_assets.json"
-
 ITEM_TYPES = ["Computer", "NetworkEquipment", "Peripheral", "Phone", "Printer"]
 
+# Params del fetch de DETALLE completo (solo on-demand)
 DETAIL_PARAMS = {
     "expand_dropdowns": "true",
     "with_devices": "true",
@@ -53,18 +53,29 @@ DETAIL_PARAMS = {
     "with_logs": "true",
 }
 
-# Interval in seconds between collection cycles
-COLLECT_INTERVAL = 180
-# Hard cap on each collection cycle. Without this, a hung GLPI host
-# (192.168.0.88 in this lab) makes the sync thread hang 15s+ per attempt,
-# which accumulates zombies and degrades the asyncio event loop —
-# manifesting as ConnectTimeout errors on unrelated Wazuh Indexer calls.
-COLLECT_TIMEOUT_SECONDS = 30.0  # 3 minutes
+# Lista liviana: campos base + dropdowns expandidos + networkports (IP/MAC).
+# Sin with_devices/softwares/tickets/logs → payload de 1-3 KB por activo.
+LIST_PARAMS = {
+    "expand_dropdowns": "true",
+    "with_networkports": "true",
+}
+
+# Intervalo entre ciclos de lista (segundos)
+COLLECT_INTERVAL = 300  # 5 min
+# Timeout duro de un ciclo completo de lista (muchos requests paginados)
+COLLECT_TIMEOUT_SECONDS = 90.0
+# Timeout del fetch de detalle individual
+DETAIL_TIMEOUT_SECONDS = 30.0
+# TTL del detalle cacheado en memoria
+DETAIL_TTL_SECONDS = 1800  # 30 min
+# Tamaño de página del GET de lista
+_LIST_PAGE = 100
 
 
 class GlpiCollector:
     """
-    Singleton service that periodically fetches full asset data from GLPI.
+    Singleton service that keeps a lightweight in-memory mirror of the GLPI
+    inventory (list columns) and fetches full asset detail on demand.
     """
 
     _instance: GlpiCollector | None = None
@@ -82,46 +93,23 @@ class GlpiCollector:
         self._settings = get_settings()
         # Per-service resilience: own executor (so a hung GLPI host can't
         # starve MikroTik/Wazuh workers), circuit breaker to skip cycles
-        # when the GLPI server has been failing, and a hard 30s timeout on
-        # the whole collection cycle.
+        # when the GLPI server has been failing, and a hard timeout per cycle.
         self._breaker, self._executor = make_resilience(
             name="glpi",
             failure_threshold=3,
-            cooldown_seconds=120.0,  # longer cooldown than the others —
-                                     # GLPI changes rarely and the cost of
-                                     # hammering a dead host is high
+            cooldown_seconds=120.0,  # GLPI changes rarely; don't hammer a dead host
             max_workers=2,
         )
         self._task: asyncio.Task | None = None
+        # Lista liviana (raws normalizables por GLPIService._normalize_computer)
         self._raw_assets: list[dict] = []
-        self._parsed_cache: dict[int, dict] = {}  # asset_id → parsed full detail
+        # Índice glpi_id → raw (para date_mod/name en refresco de detalle)
+        self._raw_by_id: dict[int, dict] = {}
+        # Detalle completo on-demand: {asset_id: {"detail", "fetched_at", "date_mod"}}
+        self._details_cache: dict[int, dict[str, Any]] = {}
         self._last_sync: str | None = None
-        # Cache load happens in start() (async)
 
-    def _load_existing_cache_sync(self) -> None:
-        """Sync: just read the JSON file from disk (fast). The parsed-cache
-        rebuild happens later in _load_existing_cache_async (threaded)."""
-        if _CACHE_FILE.exists():
-            try:
-                with open(_CACHE_FILE, "r", encoding="utf-8") as f:
-                    self._raw_assets = json.load(f)
-            except Exception as e:
-                logger.warning("glpi_collector_cache_load_failed", error=str(e))
-                self._raw_assets = []
-
-    async def _load_existing_cache(self) -> None:
-        """Async: load disk cache and rebuild parsed cache in a thread."""
-        self._load_existing_cache_sync()
-        if self._raw_assets:
-            await self._rebuild_parsed_cache_async()
-            logger.info(
-                "glpi_collector_cache_loaded",
-                assets=len(self._raw_assets),
-                file=str(_CACHE_FILE),
-            )
-
-
-    # ── Sync GLPI (runs in thread) ────────────────────────────────
+    # ── Session helpers (sync, corren en el executor) ─────────────
 
     def _get_headers(self) -> dict[str, str]:
         return {
@@ -156,107 +144,79 @@ class GlpiCollector:
         except Exception as e:
             logger.warning("glpi_collector_kill_session_failed", error=str(e))
 
-    def _get_asset_ids_sync(self, session_token: str, itemtype: str) -> list[int]:
+    def _request(self, session_token: str, path: str, params: dict | None = None) -> Any:
         headers = self._get_headers()
         headers["Session-Token"] = session_token
-        asset_ids: list[int] = []
-        start = 0
-        step = 50
-        total_count = 1
-
-        while start < total_count:
-            end = start + step - 1
-            url = f"{self._settings.glpi_base_url}/search/{itemtype}/?range={start}-{end}&forcedisplay[0]=2"
-            response = requests.get(url, headers=headers, timeout=30)
-            if response.status_code not in (200, 206):
-                break
-            data = response.json()
-            total_count = data.get("totalcount", 0)
-            for row in data.get("data", []):
-                item_id = row.get("2")
-                if item_id:
-                    asset_ids.append(int(item_id))
-            start += step
-
-        return asset_ids
-
-    def _get_detailed_items_sync(
-        self, session_token: str, assets_to_fetch: list[dict]
-    ) -> list[dict]:
-        headers = self._get_headers()
-        headers["Session-Token"] = session_token
-        params = dict(DETAIL_PARAMS)
-        for idx, asset in enumerate(assets_to_fetch):
-            params[f"items[{idx}][itemtype]"] = asset["itemtype"]
-            params[f"items[{idx}][items_id]"] = asset["items_id"]
-
         response = requests.get(
-            f"{self._settings.glpi_base_url}/getMultipleItems",
+            f"{self._settings.glpi_base_url}{path}",
             headers=headers,
             params=params,
-            timeout=60,
+            timeout=30,
         )
-        if response.status_code == 200:
-            return response.json()
-        logger.warning(
-            "glpi_collector_detail_fetch_failed",
-            status=response.status_code,
-        )
-        return []
+        response.raise_for_status()
+        return response.json()
 
-    def _collect_sync(self) -> list[dict]:
-        """Full collection cycle (synchronous). Returns raw asset list."""
+    # ── Ciclo de LISTA liviana (sync) ─────────────────────────────
+
+    def _collect_list_sync(self) -> list[dict]:
+        """Lightweight list sync across itemtypes. Returns raw items."""
         session_token = self._init_session_sync()
         try:
-            assets_to_fetch: list[dict] = []
+            all_items: list[dict] = []
             for itemtype in ITEM_TYPES:
-                ids = self._get_asset_ids_sync(session_token, itemtype)
-                for item_id in ids:
-                    assets_to_fetch.append(
-                        {"itemtype": itemtype, "items_id": item_id}
-                    )
-
-            total = len(assets_to_fetch)
-            logger.info("glpi_collector_found_assets", total=total)
-
-            all_detailed: list[dict] = []
-            batch_size = 50
-            for i in range(0, total, batch_size):
-                batch = assets_to_fetch[i : i + batch_size]
-                detailed = self._get_detailed_items_sync(session_token, batch)
-                all_detailed.extend(detailed)
-
-            # Save to file
-            _INTEGRACIONES_DIR.mkdir(parents=True, exist_ok=True)
-            with open(_CACHE_FILE, "w", encoding="utf-8") as f:
-                json.dump(all_detailed, f, indent=4, ensure_ascii=False)
-
-            return all_detailed
+                start = 0
+                while True:
+                    params = dict(LIST_PARAMS)
+                    params["range"] = f"{start}-{start + _LIST_PAGE - 1}"
+                    try:
+                        data = self._request(
+                            session_token, f"/{itemtype}", params=params
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "glpi_collector_list_page_failed",
+                            itemtype=itemtype,
+                            start=start,
+                            error=str(e),
+                        )
+                        break
+                    items = data if isinstance(data, list) else []
+                    all_items.extend(items)
+                    if len(items) < _LIST_PAGE:
+                        break
+                    start += _LIST_PAGE
+            logger.info(
+                "glpi_collector_list_complete",
+                total=len(all_items),
+                types=len(ITEM_TYPES),
+            )
+            return all_items
         finally:
             self._kill_session_sync(session_token)
 
-    # ── Parsed cache ──────────────────────────────────────────────
+    # ── Detalle COMPLETO (sync, bajo demanda) ─────────────────────
 
-    def _rebuild_parsed_cache(self) -> None:
-        """Parse raw GLPI assets into structured detail format."""
-        cache: dict[int, dict] = {}
-        for raw in self._raw_assets:
-            asset_id = raw.get("id")
-            if asset_id is None:
-                continue
-            cache[int(asset_id)] = self._parse_full_detail(raw)
-        self._parsed_cache = cache
+    def _fetch_detail_sync(self, asset_id: int, itemtype: str) -> dict | None:
+        """Fetch and parse the full detail of a single asset."""
+        session_token = self._init_session_sync()
+        try:
+            data = self._request(
+                session_token,
+                f"/{itemtype}/{asset_id}",
+                params=dict(DETAIL_PARAMS),
+            )
+            if not isinstance(data, dict):
+                logger.warning(
+                    "glpi_collector_detail_unexpected",
+                    asset_id=asset_id,
+                    type=type(data).__name__,
+                )
+                return None
+            return self._parse_full_detail(data)
+        finally:
+            self._kill_session_sync(session_token)
 
-
-
-    async def _rebuild_parsed_cache_async(self) -> None:
-        """Async wrapper: run the cache rebuild in the dedicated glpi
-        executor so it does not block the asyncio event loop. With a
-        1.4MB raw_assets payload the parse may take several seconds —
-        enough to time out downstream httpx calls (Wazuh Indexer polls)
-        and produce spurious ConnectTimeout errors.
-        """
-        await self._executor.run(self._rebuild_parsed_cache)
+    # ── Parsed detail helpers ─────────────────────────────────────
 
     def _parse_full_detail(self, raw: dict) -> dict[str, Any]:
         """Transform a raw GLPI asset into the structured full-detail format."""
@@ -551,25 +511,76 @@ class GlpiCollector:
     # ── Public API ────────────────────────────────────────────────
 
     def get_cached_assets(self) -> list[dict]:
-        """Return the raw GLPI assets from the last collection."""
+        """Return the lightweight raw assets from the last list sync."""
         return self._raw_assets
 
-    def get_full_detail(self, asset_id: int) -> dict | None:
-        """Return parsed full detail for a specific asset."""
-        return self._parsed_cache.get(asset_id)
-
-    def get_all_parsed(self) -> dict[int, dict]:
-        """Return all parsed asset details."""
-        return self._parsed_cache
+    def get_assets_count(self) -> int:
+        """Number of assets in the current list mirror."""
+        return len(self._raw_assets)
 
     def get_last_sync(self) -> str | None:
-        """Timestamp of the last successful sync."""
+        """ISO timestamp of the last successful list sync."""
         return self._last_sync
+
+    def get_full_detail(self, asset_id: int) -> dict | None:
+        """Sync accessor: return cached detail only if already fetched (no I/O)."""
+        entry = self._details_cache.get(int(asset_id))
+        return entry["detail"] if entry else None
+
+    async def ensure_detail(self, asset_id: int, itemtype: str = "Computer") -> dict | None:
+        """
+        Return the full parsed detail for an asset, fetching from GLPI on
+        first access (or when the cached copy is stale: TTL expired or the
+        asset's date_mod changed in the list mirror). Never raises — returns
+        None if the fetch fails so callers can degrade gracefully.
+        """
+        asset_id = int(asset_id)
+        entry = self._details_cache.get(asset_id)
+        now = time.time()
+
+        if entry and (now - entry["fetched_at"]) < DETAIL_TTL_SECONDS:
+            # Refrescar si el activo cambió en GLPI (date_mod del mirror cambió)
+            mirror = self._raw_by_id.get(asset_id)
+            if mirror is None or mirror.get("date_mod") == entry.get("date_mod"):
+                return entry["detail"]
+
+        if self._breaker.is_open():
+            logger.debug(
+                "glpi_detail_circuit_open_skip",
+                asset_id=asset_id,
+                seconds_until_retry=round(self._breaker.seconds_until_retry, 1),
+            )
+            return entry["detail"] if entry else None
+
+        try:
+            raw = await asyncio.wait_for(
+                self._executor.run(self._fetch_detail_sync, asset_id, itemtype),
+                timeout=DETAIL_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            self._breaker.record_failure()
+            logger.warning("glpi_detail_fetch_timeout", asset_id=asset_id)
+            return entry["detail"] if entry else None
+        except Exception as e:
+            self._breaker.record_failure()
+            logger.warning("glpi_detail_fetch_failed", asset_id=asset_id, error=str(e))
+            return entry["detail"] if entry else None
+
+        if raw is None:
+            return None
+        self._breaker.record_success()
+        self._details_cache[asset_id] = {
+            "detail": raw,
+            "fetched_at": now,
+            "date_mod": self._raw_by_id.get(asset_id, {}).get("date_mod"),
+        }
+        logger.debug("glpi_detail_cached", asset_id=asset_id)
+        return raw
 
     # ── Background task lifecycle ─────────────────────────────────
 
     async def start(self) -> None:
-        """Start the periodic collection background task."""
+        """Start the periodic lightweight list sync."""
         settings = self._settings
         if not settings.glpi_app_token or not settings.glpi_user_token:
             logger.warning(
@@ -577,13 +588,7 @@ class GlpiCollector:
                 reason="GLPI_APP_TOKEN or GLPI_USER_TOKEN not configured",
             )
             return
-        if settings.should_mock_glpi:
-            logger.info("glpi_collector_skipped_mock_mode")
-            return
 
-        # Load any previously cached GLPI assets before starting the loop
-        # (so the UI has data immediately, even if the GLPI host is down)
-        await self._load_existing_cache()
         self._task = asyncio.create_task(self._loop())
         logger.info("glpi_collector_started", interval_s=COLLECT_INTERVAL)
 
@@ -598,12 +603,10 @@ class GlpiCollector:
         logger.info("glpi_collector_stopped")
 
     async def collect_now(self) -> int:
-        """Run a collection cycle immediately. Returns asset count.
+        """Run a list-sync cycle immediately. Returns asset count.
 
         Resilience: skip immediately when the circuit is open (the GLPI
-        host has been failing). Otherwise run the sync collection in our
-        dedicated executor with a hard timeout, and update the breaker
-        based on the outcome. Never raises — returns 0 if anything fails.
+        host has been failing). Never raises — returns 0 if anything fails.
         """
         if self._breaker.is_open():
             logger.debug(
@@ -616,13 +619,17 @@ class GlpiCollector:
             return 0
         try:
             raw_assets = await asyncio.wait_for(
-                self._executor.run(self._collect_sync),
+                self._executor.run(self._collect_list_sync),
                 timeout=COLLECT_TIMEOUT_SECONDS,
             )
             self._raw_assets = raw_assets
-            # Parsing 1.4MB of nested GLPI data can take seconds. Run in a
-            # thread (also dedicated) so it cannot block the asyncio event loop.
-            await self._rebuild_parsed_cache_async()
+            self._raw_by_id = {
+                int(a["id"]): a for a in raw_assets if isinstance(a, dict) and a.get("id") is not None
+            }
+            # Evictar detalles de activos que ya no están en el mirror
+            self._details_cache = {
+                k: v for k, v in self._details_cache.items() if k in self._raw_by_id
+            }
             self._last_sync = datetime.now(timezone.utc).isoformat()
             self._breaker.record_success()
             logger.info(
@@ -646,7 +653,7 @@ class GlpiCollector:
             return 0
 
     async def _loop(self) -> None:
-        """Background loop: collect every COLLECT_INTERVAL seconds."""
+        """Background loop: sync the lightweight list every COLLECT_INTERVAL."""
         # First run immediately
         await self.collect_now()
         while True:

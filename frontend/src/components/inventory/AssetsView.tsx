@@ -216,9 +216,6 @@ export function AssetsView() {
                         >
                           <td style={{ fontWeight: 500, color: 'var(--color-surface-100)' }}>
                             {asset.name}
-                            {asset.mock && (
-                              <span style={{ fontSize: '0.6rem', marginLeft: 4, color: 'var(--color-surface-500)' }}>[demo]</span>
-                            )}
                           </td>
                           <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{asset.serial || '—'}</td>
                           <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{asset.ip || '—'}</td>
@@ -283,7 +280,6 @@ export function AssetsView() {
               {assets.length > 0 && (
                 <div style={{ padding: '0.5rem 1rem', fontSize: '0.72rem', color: 'var(--color-surface-500)', borderTop: '1px solid rgba(148,163,184,0.06)' }}>
                   {assets.length} equipo{assets.length !== 1 ? 's' : ''} encontrado{assets.length !== 1 ? 's' : ''}
-                  {data?.mock && ' (datos de demo)'}
                 </div>
               )}
             </div>

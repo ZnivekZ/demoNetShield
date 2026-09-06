@@ -1,6 +1,6 @@
 /**
  * MessagePreview — Real-time preview of how a Telegram message will look.
- * Uses mock data always — shows formatted Telegram-style message bubble.
+ * Uses sample data to preview the formatted Telegram-style message bubble.
  */
 import type { TelegramReportConfig } from '../../types';
 

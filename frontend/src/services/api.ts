@@ -66,7 +66,6 @@ import type {
   GlpiQuarantineRequest,
   GlpiAvailability,
   GlpiAssetFullDetail,
-  MockStatus,
   // GeoIP
   GeoIPResult,
   GeoIPDBStatus,
@@ -939,7 +938,7 @@ export const glpiApi = {
     limit?: number;
     offset?: number;
   }) =>
-    api.get<APIResponse<{ assets: GlpiAsset[]; total: number; mock: boolean }>>(
+    api.get<APIResponse<{ assets: GlpiAsset[]; total: number }>>(
       '/glpi/assets',
       { params }
     ).then(r => r.data),
@@ -948,7 +947,7 @@ export const glpiApi = {
     api.get<APIResponse<GlpiAsset>>(`/glpi/assets/${id}`).then(r => r.data),
 
   searchAssets: (q: string) =>
-    api.get<APIResponse<{ results: GlpiAsset[]; query: string; mock: boolean }>>(
+    api.get<APIResponse<{ results: GlpiAsset[]; query: string }>>(
       '/glpi/assets/search',
       { params: { q } }
     ).then(r => r.data),
@@ -957,12 +956,12 @@ export const glpiApi = {
     api.get<APIResponse<GlpiAssetStats>>('/glpi/assets/stats').then(r => r.data),
 
   getAssetHealth: () =>
-    api.get<APIResponse<{ assets: GlpiAssetHealth[]; summary: GlpiHealthSummary; mock: boolean }>>(
+    api.get<APIResponse<{ assets: GlpiAssetHealth[]; summary: GlpiHealthSummary }>>(
       '/glpi/assets/health'
     ).then(r => r.data),
 
   getAssetsByLocation: (locationId: number) =>
-    api.get<APIResponse<{ assets: GlpiAsset[]; location_id: number; mock: boolean }>>(
+    api.get<APIResponse<{ assets: GlpiAsset[]; location_id: number }>>(
       `/glpi/assets/by-location/${locationId}`
     ).then(r => r.data),
 
@@ -992,7 +991,7 @@ export const glpiApi = {
 
   // ── Tickets ─────────────────────────────────────────────
   getTickets: (params?: { priority?: number; status?: string; limit?: number }) =>
-    api.get<APIResponse<{ tickets: GlpiTicket[]; kanban: GlpiTicketKanban; mock: boolean }>>(
+    api.get<APIResponse<{ tickets: GlpiTicket[]; kanban: GlpiTicketKanban }>>(
       '/glpi/tickets',
       { params }
     ).then(r => r.data),
@@ -1013,13 +1012,13 @@ export const glpiApi = {
 
   // ── Users ────────────────────────────────────────────────
   getUsers: (params?: { search?: string; limit?: number }) =>
-    api.get<APIResponse<{ users: GlpiUser[]; mock: boolean }>>(
+    api.get<APIResponse<{ users: GlpiUser[] }>>(
       '/glpi/users',
       { params }
     ).then(r => r.data),
 
   getUserAssets: (userId: number) =>
-    api.get<APIResponse<{ user_id: number; assets: GlpiAsset[]; mock: boolean }>>(
+    api.get<APIResponse<{ user_id: number; assets: GlpiAsset[] }>>(
       `/glpi/users/${userId}/assets`
     ).then(r => r.data),
 
@@ -1037,14 +1036,7 @@ export const glpiApi = {
 
   // ── Locations ────────────────────────────────────────────
   getLocations: () =>
-    api.get<APIResponse<{ locations: GlpiLocation[]; mock: boolean }>>('/glpi/locations').then(r => r.data),
-};
-
-/* ── System ─────────────────────────────────────────────────────── */
-
-export const systemApi = {
-  getMockStatus: () =>
-    api.get<APIResponse<MockStatus>>('/system/mock-status').then(r => r.data),
+    api.get<APIResponse<{ locations: GlpiLocation[] }>>('/glpi/locations').then(r => r.data),
 };
 
 /* ── CrowdSec ───────────────────────────────────────────────────── */
@@ -1056,12 +1048,10 @@ import type {
   CrowdSecMachine,
   CrowdSecScenario,
   CrowdSecMetrics,
-  CrowdSecWhitelistEntry,
   CrowdSecSyncStatus,
   CrowdSecHub,
   IpContext,
   ManualDecisionRequest,
-  WhitelistRequest,
   FullRemediationRequest,
   SyncApplyRequest,
 } from '../types';
@@ -1107,16 +1097,6 @@ export const crowdsecApi = {
 
   getHub: () =>
     api.get<APIResponse<CrowdSecHub>>('/crowdsec/hub').then(r => r.data),
-
-  // ── Whitelist ─────────────────────────────────────────────
-  getWhitelist: () =>
-    api.get<APIResponse<CrowdSecWhitelistEntry[]>>('/crowdsec/whitelist').then(r => r.data),
-
-  addWhitelist: (data: WhitelistRequest) =>
-    api.post<APIResponse<CrowdSecWhitelistEntry>>('/crowdsec/whitelist', data).then(r => r.data),
-
-  deleteWhitelist: (id: number) =>
-    api.delete<APIResponse>(`/crowdsec/whitelist/${id}`).then(r => r.data),
 
   // ── Hybrid ────────────────────────────────────────────────
   getIpContext: (ip: string) =>

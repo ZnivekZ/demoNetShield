@@ -12,10 +12,6 @@ interface Props {
   onRowClick: (ip: string) => void;
 }
 
-// IPs shared with existing MikroTik/Wazuh mock data
-const WAZUH_IPS = new Set(['203.0.113.45', '198.51.100.22', '203.0.113.99']);
-const MIKROTIK_IPS = new Set(['203.0.113.45', '198.51.100.22']);
-
 export function TopAttackers({ decisions, onBlock, onRowClick }: Props) {
   // Deduplicate by IP and take top 10 by score
   const seen = new Set<string>();
@@ -52,12 +48,6 @@ export function TopAttackers({ decisions, onBlock, onRowClick }: Props) {
               {d.ip}
             </span>
             <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
-              {WAZUH_IPS.has(d.ip) && (
-                <span className="badge badge-danger" style={{ fontSize: '0.55rem' }}>Wazuh</span>
-              )}
-              {MIKROTIK_IPS.has(d.ip) && (
-                <span className="badge badge-success" style={{ fontSize: '0.55rem' }}>MikroTik</span>
-              )}
               <span className="badge badge-warning" style={{ fontSize: '0.55rem' }}>CrowdSec</span>
             </div>
             <div style={{ width: 60, flexShrink: 0 }}>

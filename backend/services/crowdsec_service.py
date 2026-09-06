@@ -3,7 +3,6 @@ CrowdSec Service — Singleton client for the CrowdSec Local API (LAPI).
 
 Follows the same pattern as mikrotik_service.py:
  - Singleton via __new__
- - Mock guards at the start of every public method
  - httpx.AsyncClient (async, like wazuh_service.py)
  - Retry with tenacity on transient network errors
  - structlog for all logging — never print()
@@ -33,8 +32,7 @@ logger = structlog.get_logger(__name__)
 
 
 class CrowdSecUnavailable(Exception):
-    """Raised when the CrowdSec breaker is open or the call failed. Callers
-    fall back to mock data when they see this."""
+    """Raised when the CrowdSec breaker is open or the call failed."""
     pass
 
 
@@ -90,9 +88,6 @@ class CrowdSecService:
         On connect failure we leave _client = None so that subsequent callers
         raise immediately (rather than hanging on a request that goes nowhere).
         """
-        if self._settings.should_mock_crowdsec:
-            logger.info("crowdsec_mock_mode_active")
-            return
         self._client = httpx.AsyncClient(
             base_url=self._settings.crowdsec_url,
             headers={
@@ -150,8 +145,7 @@ class CrowdSecService:
     ) -> dict | list:
         if not self._client:
             raise RuntimeError("CrowdSec client not initialized. Call connect() first.")
-        # Short-circuit when the breaker is open; the caller will fall back
-        # to mock data (the methods above all have a mock branch).
+        # Short-circuit when the breaker is open.
         if self._breaker.is_open():
             raise CrowdSecUnavailable(
                 f"crowdsec circuit open, retry in {self._breaker.seconds_until_retry:.1f}s"
@@ -183,45 +177,30 @@ class CrowdSecService:
     ) -> list[dict]:
         """[LAPI] GET /v1/decisions — list active bans and captchas.
 
-        On real CrowdSec failure or circuit-open, fall back to mock data so
+        On real CrowdSec failure or circuit-open, return an empty list so
         the UI keeps working.
         """
-        if self._settings.should_mock_crowdsec:
-            from services.mock_service import MockService
-            decisions = MockService.crowdsec_get_decisions()
-        else:
-            try:
-                params = {}
-                if ip:
-                    params["ip"] = ip
-                if scenario:
-                    params["scenario"] = scenario
-                if type_:
-                    params["type"] = type_
-                result = await self._request("GET", "/v1/decisions", params=params)
-                decisions = result if isinstance(result, list) else []
-            except (CrowdSecUnavailable, Exception):
-                # Any failure (including breaker-open) → return empty list
-                # rather than escalating. The WS endpoint still works.
-                return []  # type: ignore[return-value]  # only enrich below if real
-        # If we got here from real CrowdSec the list is `decisions`; the
-        # mock branch above returns after assigning. Apply filters for the
-        # mock path:
-        if self._settings.should_mock_crowdsec:
+        try:
+            params = {}
             if ip:
-                decisions = [d for d in decisions if d["ip"] == ip]
+                params["ip"] = ip
             if scenario:
-                decisions = [d for d in decisions if scenario in d.get("scenario", "")]
+                params["scenario"] = scenario
             if type_:
-                decisions = [d for d in decisions if d["type"] == type_]  # type: ignore[operator]
-        # Apply the same filters to the real path too
-        else:
-            if ip:
-                decisions = [d for d in decisions if d.get("ip") == ip]
-            if scenario:
-                decisions = [d for d in decisions if scenario in str(d.get("scenario", ""))]
-            if type_:
-                decisions = [d for d in decisions if d.get("type") == type_]  # type: ignore[operator]  # noqa: E501
+                params["type"] = type_
+            result = await self._request("GET", "/v1/decisions", params=params)
+            decisions = result if isinstance(result, list) else []
+        except (CrowdSecUnavailable, Exception):
+            # Any failure (including breaker-open) → return empty list
+            # rather than escalating. The WS endpoint still works.
+            return []  # type: ignore[return-value]  # only enrich below if real
+        # Apply filters
+        if ip:
+            decisions = [d for d in decisions if d.get("ip") == ip]
+        if scenario:
+            decisions = [d for d in decisions if scenario in str(d.get("scenario", ""))]
+        if type_:
+            decisions = [d for d in decisions if d.get("type") == type_]  # type: ignore[operator]  # noqa: E501
 
         # ── GeoIP enrichment (silencioso, never breaks the endpoint) ──────
         # CrowdSec ya provee country y as_name. GeoIP agrega city, lat/lon,
@@ -252,9 +231,6 @@ class CrowdSecService:
 
     async def get_decisions_stream(self, startup: bool = False) -> dict:
         """[LAPI] GET /v1/decisions/stream — incremental decision updates."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return MockData.crowdsec.decisions_stream(startup=startup)
         params = {"startup": "true"} if startup else {}
         result = await self._request("GET", "/v1/decisions/stream", params=params)
         return result if isinstance(result, dict) else {"new": [], "deleted": []}
@@ -267,9 +243,6 @@ class CrowdSecService:
         type_: str = "ban",
     ) -> dict:
         """[LAPI] POST /v1/decisions — add a manual decision."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_service import MockService
-            return MockService.crowdsec_add_decision(ip=ip, duration=duration, reason=reason, type_=type_)
         payload = [
             {
                 "duration": duration,
@@ -287,19 +260,11 @@ class CrowdSecService:
 
     async def delete_decision(self, decision_id: str) -> dict:
         """[LAPI] DELETE /v1/decisions/{id} — delete a decision by ID."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_service import MockService
-            removed = MockService.crowdsec_delete_decision(decision_id)
-            return {"id": decision_id, "deleted": removed}
         await self._request("DELETE", f"/v1/decisions/{decision_id}")
         return {"id": decision_id, "deleted": True}
 
     async def delete_decisions_by_ip(self, ip: str) -> dict:
         """[LAPI] DELETE /v1/decisions — delete all decisions for an IP."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_service import MockService
-            count = MockService.crowdsec_delete_decisions_by_ip(ip)
-            return {"ip": ip, "deleted_count": count}
         await self._request("DELETE", "/v1/decisions", params={"ip": ip})
         return {"ip": ip, "deleted_count": -1}  # LAPI doesn't return count
 
@@ -312,9 +277,6 @@ class CrowdSecService:
         ip: str | None = None,
     ) -> list[dict]:
         """[LAPI] GET /v1/alerts — detected attack alerts."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return MockData.crowdsec.alerts(limit=limit, scenario=scenario, ip=ip)
         params: dict = {"limit": str(limit)}
         if scenario:
             params["scenario"] = scenario
@@ -325,9 +287,6 @@ class CrowdSecService:
 
     async def get_alert_detail(self, alert_id: str) -> dict | None:
         """[LAPI] GET /v1/alerts/{id} — full alert detail with events."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return MockData.crowdsec.alert_detail(alert_id)
         try:
             result = await self._request("GET", f"/v1/alerts/{alert_id}")
             return result if isinstance(result, dict) else None
@@ -340,17 +299,11 @@ class CrowdSecService:
 
     async def get_bouncers(self) -> list[dict]:
         """[LAPI] GET /v1/bouncers — registered bouncer agents."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return MockData.crowdsec.bouncers()
         result = await self._request("GET", "/v1/bouncers")
         return result if isinstance(result, list) else []
 
     async def get_machines(self) -> list[dict]:
         """[LAPI] GET /v1/machines — registered CrowdSec agents."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return MockData.crowdsec.machines()
         result = await self._request("GET", "/v1/machines")
         return result if isinstance(result, list) else []
 
@@ -358,9 +311,6 @@ class CrowdSecService:
 
     async def get_scenarios(self) -> list[dict]:
         """Returns aggregated scenario stats derived from alerts."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return MockData.crowdsec.scenarios()
         # Parse scenarios from alerts when using real LAPI
         alerts = await self.get_alerts(limit=500)
         scenario_map: dict[str, dict] = {}
@@ -379,9 +329,6 @@ class CrowdSecService:
 
     async def get_metrics(self) -> dict:
         """Aggregated attack metrics computed from decisions + alerts."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return MockData.crowdsec.metrics()
         decisions = await self.get_decisions()
         alerts = await self.get_alerts(limit=500)
         bouncers = await self.get_bouncers()
@@ -409,9 +356,6 @@ class CrowdSecService:
 
     async def get_cti_score(self, ip: str) -> dict:
         """Community Threat Intelligence score for an IP address."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return MockData.crowdsec.cti_ip(ip)
         # CrowdSec CTI public API (no auth needed for basic lookup)
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -439,9 +383,6 @@ class CrowdSecService:
 
     async def get_hub_status(self) -> dict:
         """[cscli] Hub collections and parsers status (read from LAPI where available)."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return MockData.crowdsec.hub()
         # Real LAPI doesn't have a hub endpoint — returns static info
         return {
             "collections": [],
@@ -453,9 +394,6 @@ class CrowdSecService:
 
     async def get_sync_status(self, mikrotik_ips: set[str]) -> dict:
         """Compare CrowdSec decisions with MikroTik blacklist."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            return MockData.crowdsec.sync_status()
         decisions = await self.get_decisions()
         crowdsec_ips = {d["ip"] for d in decisions if d["type"] == "ban"}
         only_crowdsec = sorted(crowdsec_ips - mikrotik_ips)
@@ -475,10 +413,6 @@ class CrowdSecService:
 
     async def get_ip_context_crowdsec(self, ip: str) -> dict:
         """CrowdSec portion of the unified IP context response."""
-        if self._settings.should_mock_crowdsec:
-            from services.mock_data import MockData
-            ctx = MockData.crowdsec.ip_context(ip)
-            return ctx["crowdsec"]
         decisions = await self.get_decisions(ip=ip)
         alerts = await self.get_alerts(ip=ip, limit=5)
         cti = await self.get_cti_score(ip)

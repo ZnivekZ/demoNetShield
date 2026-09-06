@@ -2,7 +2,6 @@
 Auth Service — JWT authentication and user management for NetShield Dashboard.
 
 Singleton pattern: module-level variable + get_auth_service().
-No mock guard: authentication is local (SQLite), not dependent on external services.
 
 Responsibilities:
 - Password hashing with bcrypt via passlib

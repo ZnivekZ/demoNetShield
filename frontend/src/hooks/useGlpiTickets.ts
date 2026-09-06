@@ -20,7 +20,6 @@ export function useGlpiTickets(params?: {
     select: (res) => ({
       tickets: res.data?.tickets ?? [],
       kanban: res.data?.kanban ?? { pendiente: [], en_progreso: [], resuelto: [] },
-      mock: res.data?.mock ?? false,
     }),
   });
 }

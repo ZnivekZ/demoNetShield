@@ -972,7 +972,6 @@ export interface GlpiAsset {
   status: GlpiAssetStatus;
   comment: string;
   last_update: string;
-  mock?: boolean;
 }
 
 export interface GlpiAssetDetail extends GlpiAsset {
@@ -1019,7 +1018,6 @@ export interface GlpiAssetHealth {
   network_visible: boolean;
   health: GlpiHealth;
   health_reason: string;
-  mock?: boolean;
 }
 
 export interface GlpiHealthSummary {
@@ -1063,7 +1061,6 @@ export interface GlpiTicket {
   created_at: string;
   due_date: string;
   is_netshield: boolean;
-  mock?: boolean;
 }
 
 export interface GlpiTicketCreate {
@@ -1264,24 +1261,6 @@ export interface GlpiAssetFullDetail {
   relationships: GlpiRelationship[];
 }
 
-// ── Mock Status ────────────────────────────────────────────────────────────
-
-export interface MockServiceStatus {
-  mikrotik: boolean;
-  wazuh: boolean;
-  glpi: boolean;
-  ai: boolean;
-  crowdsec: boolean;
-  geoip: boolean;
-  suricata: boolean;
-  telegram: boolean;
-}
-
-export interface MockStatus {
-  mock_all: boolean;
-  services: MockServiceStatus;
-  any_mock_active: boolean;
-}
 
 /* ── CrowdSec Types ──────────────────────────────────────────────── */
 
@@ -1299,7 +1278,6 @@ export interface CrowdSecDecision {
   community_score: number;
   reported_by: number;
   is_known_attacker: boolean;
-  mock?: boolean;
   // GeoIP enrichment (injected by backend geoip_service)
   geo?: {
     city: string | null;
@@ -1370,15 +1348,6 @@ export interface CrowdSecMetrics {
   top_countries: CrowdSecCountry[];
   top_scenario: { name: string; count: number };
   decisions_per_hour: { hour: string; count: number }[];
-}
-
-export interface CrowdSecWhitelistEntry {
-  id: number;
-  ip: string;
-  reason: string;
-  added_by: string;
-  created_at: string;
-  mock?: boolean;
 }
 
 export interface CrowdSecSyncStatus {
@@ -1468,11 +1437,6 @@ export interface ManualDecisionRequest {
   type: 'ban' | 'captcha';
 }
 
-export interface WhitelistRequest {
-  ip: string;
-  reason: string;
-}
-
 export interface FullRemediationRequest {
   ip: string;
   duration?: string;
@@ -1500,7 +1464,7 @@ export interface GeoIPResult {
   network_type: string | null;  // "ISP" | "Hosting" | "Business" | "Residential" | "Local"
   is_datacenter: boolean;
   is_tor: boolean;
-  raw_available: boolean;  // false when using mock data
+  raw_available: boolean;
 }
 
 /** Enrichment sub-object injected into existing Wazuh alerts */
@@ -1574,7 +1538,6 @@ export interface GeoIPDBEntry {
 export interface GeoIPDBStatus {
   city_db: GeoIPDBEntry;
   asn_db: GeoIPDBEntry;
-  mock_mode: boolean;
   cache_size: number;
   cache_ttl_seconds: number;
 }
@@ -1607,7 +1570,6 @@ export interface SuricataAlert {
   wazuh_alert_id: string | null;
   crowdsec_decision_id: string | null;
   geo: SuricataGeo | null;
-  mock?: boolean;
 }
 
 export interface NetworkFlow {
@@ -1711,7 +1673,6 @@ export interface EngineStats {
   rules_loaded: number;
   rules_failed: number;
   last_reload: string | null;
-  mock?: boolean;
 }
 
 export interface EngineStatPoint {
@@ -1800,7 +1761,6 @@ export interface AutoResponseHistoryEntry {
   mikrotik_rule_id?: string;
   duration: string;
   reason: string;
-  mock?: boolean;
 }
 
 export interface AutoResponseTriggerResult {
@@ -1831,7 +1791,6 @@ export interface TelegramStatus {
   chat_id: string | null;
   pending_messages: number;
   last_message_at: string | null;
-  mock: boolean;
 }
 
 export interface TelegramReportConfig {
@@ -1880,7 +1839,6 @@ export interface TelegramSendResult {
   message_id?: number;
   chat_id?: string;
   error?: string;
-  mock?: boolean;
 }
 
 /* ── Custom Views Types ──────────────────────────────── */
@@ -2084,7 +2042,6 @@ export interface ViewReportResult {
   view_id: string;
   widget_ids: string[];
   audience: string;
-  mock?: boolean;
 }
 
 /* ── DHCP Types ──────────────────────────────────────────────── */

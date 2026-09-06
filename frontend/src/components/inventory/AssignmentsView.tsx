@@ -141,7 +141,6 @@ export function AssignmentsView() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Link2 size={16} style={{ color: 'var(--color-brand-400)' }} />
           <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>Asignaciones Equipo → Usuario</span>
-          {data?.mock && <span className="badge badge-warning" style={{ fontSize: '0.62rem' }}>Demo</span>}
         </div>
 
         {/* Stats */}

@@ -27,7 +27,6 @@ export function TicketsView() {
 
   const tickets = data?.tickets ?? [];
   const kanban = data?.kanban ?? { pendiente: [], en_progreso: [], resuelto: [] };
-  const isMock = data?.mock;
 
   return (
     <div className="tickets-view">
@@ -52,9 +51,6 @@ export function TicketsView() {
               Lista
             </button>
           </div>
-          {isMock && (
-            <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>Demo</span>
-          )}
         </div>
 
         <div className="tickets-toolbar__right">

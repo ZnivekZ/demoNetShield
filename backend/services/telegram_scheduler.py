@@ -54,10 +54,6 @@ class TelegramScheduler:
 
     async def start(self) -> None:
         """Start the APScheduler and load all enabled scheduled configs."""
-        if self._settings.should_mock_telegram:
-            logger.info("telegram_scheduler_mock_mode_active")
-            return
-
         try:
             from apscheduler.schedulers.asyncio import AsyncIOScheduler
             from apscheduler.triggers.cron import CronTrigger

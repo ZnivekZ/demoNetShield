@@ -15,7 +15,6 @@ export function useGlpiUsers(params?: { search?: string; limit?: number }) {
     staleTime: 60_000,
     select: (res) => ({
       users: res.data?.users ?? [],
-      mock: res.data?.mock ?? false,
     }),
   });
 }

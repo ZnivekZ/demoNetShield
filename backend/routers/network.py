@@ -337,27 +337,14 @@ async def network_search(
     except Exception as e:
         logger.warning("network_search_alerts_failed", error=str(e))
 
-    # Search GLPI inventory (non-blocking — GLPI may be unavailable in lab)
+    # Search GLPI inventory (non-blocking — GLPI may be unavailable)
     try:
-        settings = get_settings()
-        is_lab = settings.app_env in ("lab", "development")
         glpi_available = await glpi_service.is_available()
 
         if glpi_available:
             glpi_results = await glpi_service.search_computers(query)
             if glpi_results:
                 result["glpi_match"] = glpi_results[0]
-        elif is_lab:
-            # Mock: try to match against mock computers
-            from services.mock_data import MockData
-            mock_computers = MockData.glpi.computers(limit=20) if hasattr(MockData.glpi, 'computers') else MockData.glpi.get_assets()[:20]
-            ql = query.lower()
-            for c in mock_computers:
-                name = c.get("name", "") if isinstance(c, dict) else ""
-                ip_val = c.get("ip", "") if isinstance(c, dict) else ""
-                if ql in name.lower() or ql in ip_val.lower():
-                    result["glpi_match"] = {**(c if isinstance(c, dict) else {}), "mock": True}
-                    break
     except Exception as e:
         logger.warning("network_search_glpi_failed", error=str(e))
 

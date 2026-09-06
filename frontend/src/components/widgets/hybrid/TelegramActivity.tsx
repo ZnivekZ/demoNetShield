@@ -2,7 +2,7 @@ import { useTelegramActivity } from '../../../hooks/widgets/hybrid';
 import { WidgetSkeleton, WidgetErrorState, WidgetHeader } from '../common';
 
 interface MsgLog { direction?: string; text?: string; timestamp?: string; username?: string }
-interface TelegramStatusData { connected?: boolean; username?: string; mock?: boolean }
+interface TelegramStatusData { connected?: boolean; username?: string }
 
 /**
  * Timeline compacta de mensajes Telegram + contadores de hoy.

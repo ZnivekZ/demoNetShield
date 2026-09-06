@@ -141,15 +141,12 @@ async def lifespan(app: FastAPI):
     # is bad UX and unnecessary — the WS loop and REST endpoints will
     # catch the broken connection via the circuit breaker.
     mt_service = get_mikrotik_service()
-    if settings.should_mock_mikrotik:
-        logger.info("mikrotik_mock_mode_active")
-    else:
-        logger.info(
-            "mikrotik_lazy_connect",
-            msg="MikroTik connections are established on first use, not at startup",
-        )
+    logger.info(
+        "mikrotik_lazy_connect",
+        msg="MikroTik connections are established on first use, not at startup",
+    )
 
-    # Initialize GeoIP service (loads .mmdb readers into memory, or sets mock mode)
+    # Initialize GeoIP service (loads .mmdb readers into memory)
     GeoIPService.initialize()
 
     # Initialize Telegram bot and scheduler
@@ -353,13 +350,6 @@ async def health_check():
     }
 
 
-@app.get("/api/system/mock-status")
-async def get_mock_status():
-    """Return which services are running in mock mode. Used by the frontend MockModeBadge."""
-    from services.mock_service import MockService
-    return {"success": True, "data": MockService.get_mock_status(), "error": None}
-
-
 @app.get("/api/health/services")
 async def get_services_health():
     """
@@ -367,28 +357,17 @@ async def get_services_health():
     and ThreadPoolExecutor registered with `services.resilience`.
 
     Useful when the dashboard looks empty: hit this endpoint and you'll
-    see which service has its breaker open (= short-circuiting calls)
-    and which is in mock mode (silent fallback).
+    see which service has its breaker open (= short-circuiting calls).
     """
     from services.resilience import get_resilience_registry
-    from services.mock_service import MockService
 
     registry = get_resilience_registry()
     breakers = registry.breakers
     executors = registry.executors
 
-    # Mark breakers that align with currently-mocked services. This lets the
-    # operator distinguish "service is down, breaker tripped" from "we're in
-    # mock mode for that service".
-    mock_status = MockService.get_mock_status()
-    # mock_status shape from mock_service: per-service booleans like
-    # {"mikrotik": True, "glpi": False, ...}. Normalise to a set.
-    mocked = {k for k, v in mock_status.items() if v} if isinstance(mock_status, dict) else set()
-
     breaker_payload = {}
     for name, breaker in breakers.items():
         snap = breaker.snapshot()
-        snap["mocked"] = name in mocked
         breaker_payload[name] = snap
 
     executor_payload = {
@@ -412,7 +391,6 @@ async def get_services_health():
             "overall": overall,
             "breakers": breaker_payload,
             "executors": executor_payload,
-            "mocked_services": sorted(mocked),
         },
         "error": None,
     }
@@ -636,21 +614,16 @@ async def websocket_traffic(websocket: WebSocket):
     try:
         while True:
             try:
-                if settings.should_mock_mikrotik:
-                    from services.mock_data import MockData
-                    payload = MockData.websocket.traffic_tick(tick)
-                    await websocket.send_json({"type": "traffic", "data": payload})
-                else:
-                    traffic = await mt_service.get_traffic()
-                    connections = await mt_service.get_connections()
-                    await websocket.send_json({
-                        "type": "traffic",
-                        "data": {
-                            "traffic": traffic,
-                            "active_connections": len(connections),
-                            "timestamp": __import__("time").strftime("%Y-%m-%dT%H:%M:%S"),
-                        },
-                    })
+                traffic = await mt_service.get_traffic()
+                connections = await mt_service.get_connections()
+                await websocket.send_json({
+                    "type": "traffic",
+                    "data": {
+                        "traffic": traffic,
+                        "active_connections": len(connections),
+                        "timestamp": __import__("time").strftime("%Y-%m-%dT%H:%M:%S"),
+                    },
+                })
             except Exception as e:
                 await websocket.send_json({
                     "type": "error",
@@ -679,16 +652,10 @@ async def websocket_alerts(websocket: WebSocket):
     try:
         while True:
             try:
-                if settings.should_mock_wazuh:
-                    from services.mock_data import MockData
-                    alert = MockData.websocket.alerts_tick(tick)
-                    if alert:
-                        await websocket.send_json({"type": "alerts", "data": {"alerts": [alert]}})
-                else:
-                    alerts = await wazuh_service.get_alerts(limit=10)
-                    if alerts and alerts[0].get("id") != last_alert_id:
-                        last_alert_id = alerts[0].get("id")
-                        await websocket.send_json({"type": "alerts", "data": {"alerts": alerts}})
+                alerts = await wazuh_service.get_alerts(limit=10)
+                if alerts and alerts[0].get("id") != last_alert_id:
+                    last_alert_id = alerts[0].get("id")
+                    await websocket.send_json({"type": "alerts", "data": {"alerts": alerts}})
             except Exception as e:
                 await websocket.send_json({
                     "type": "error",
@@ -726,46 +693,41 @@ async def websocket_vlan_traffic(websocket: WebSocket):
     try:
         while True:
             try:
-                if settings.should_mock_mikrotik:
-                    from services.mock_data import MockData
-                    payload = MockData.websocket.vlan_traffic_tick(tick)
-                    await websocket.send_json({"type": "vlan_traffic", "data": payload})
-                else:
-                    vlan_traffic = await mt_service.get_vlan_traffic()
-                    vlan_addresses = await mt_service.get_vlan_addresses()
-                    iface_subnets: dict[str, list] = {}
-                    for addr in vlan_addresses:
-                        iface = addr["interface"]
+                vlan_traffic = await mt_service.get_vlan_traffic()
+                vlan_addresses = await mt_service.get_vlan_addresses()
+                iface_subnets: dict[str, list] = {}
+                for addr in vlan_addresses:
+                    iface = addr["interface"]
+                    try:
+                        network = ipaddress.ip_network(addr["address"], strict=False)
+                        iface_subnets.setdefault(iface, []).append(network)
+                    except ValueError:
+                        pass
+                alert_ips: set[str] = set()
+                try:
+                    alerts = await wazuh_service.get_alerts(limit=50)
+                    for alert in alerts:
+                        for ip_field in ["src_ip", "dst_ip", "agent_ip"]:
+                            ip_str = alert.get(ip_field, "")
+                            if ip_str:
+                                alert_ips.add(ip_str)
+                except Exception:
+                    pass
+                for vt in vlan_traffic:
+                    vlan_name = vt["name"]
+                    subnets = iface_subnets.get(vlan_name, [])
+                    for ip_str in alert_ips:
                         try:
-                            network = ipaddress.ip_network(addr["address"], strict=False)
-                            iface_subnets.setdefault(iface, []).append(network)
+                            ip = ipaddress.ip_address(ip_str)
+                            if any(ip in subnet for subnet in subnets):
+                                vt["status"] = "alert"
+                                break
                         except ValueError:
                             pass
-                    alert_ips: set[str] = set()
-                    try:
-                        alerts = await wazuh_service.get_alerts(limit=50)
-                        for alert in alerts:
-                            for ip_field in ["src_ip", "dst_ip", "agent_ip"]:
-                                ip_str = alert.get(ip_field, "")
-                                if ip_str:
-                                    alert_ips.add(ip_str)
-                    except Exception:
-                        pass
-                    for vt in vlan_traffic:
-                        vlan_name = vt["name"]
-                        subnets = iface_subnets.get(vlan_name, [])
-                        for ip_str in alert_ips:
-                            try:
-                                ip = ipaddress.ip_address(ip_str)
-                                if any(ip in subnet for subnet in subnets):
-                                    vt["status"] = "alert"
-                                    break
-                            except ValueError:
-                                pass
-                    await websocket.send_json({
-                        "type": "vlan_traffic",
-                        "data": {"timestamp": _time.strftime("%Y-%m-%dT%H:%M:%S"), "vlans": vlan_traffic},
-                    })
+                await websocket.send_json({
+                    "type": "vlan_traffic",
+                    "data": {"timestamp": _time.strftime("%Y-%m-%dT%H:%M:%S"), "vlans": vlan_traffic},
+                })
             except Exception as e:
                 await websocket.send_json({
                     "type": "error",
@@ -798,7 +760,6 @@ async def websocket_security_alerts(websocket: WebSocket):
     WebSocket endpoint for real-time security notifications.
     Polls Wazuh every 15s for high-severity alerts and phishing detections.
     Polls MikroTik every 10s for interface status changes.
-    In mock mode: emits MockData.websocket.security_alert(tick) events.
     """
     await security_alert_manager.connect(websocket)
     wazuh_service = get_wazuh_service()
@@ -813,85 +774,78 @@ async def websocket_security_alerts(websocket: WebSocket):
         while True:
             notifications = []
 
-            if settings.should_mock_wazuh and settings.should_mock_mikrotik:
-                # Full mock: emit a security notification on schedule
-                from services.mock_data import MockData
-                notif = MockData.websocket.security_alert(tick)
-                if notif:
-                    notifications.append(notif)
-            else:
-                # ── Wazuh polling (every 15s = tick % 3 == 0, each tick is 5s)
-                if tick % 3 == 0 and not settings.should_mock_wazuh:
-                    try:
-                        alerts = await wazuh_service.get_alerts(limit=20, level_min=threshold)
-                        for alert in alerts:
-                            alert_id = alert.get("id", "")
-                            if alert_id == last_wazuh_alert_id:
-                                break
-                            level = int(alert.get("rule_level", 0))
-                            groups = set(g.lower() for g in alert.get("rule_groups", []))
-                            is_phishing = bool(groups & _PHISHING_GROUPS)
-                            if is_phishing:
-                                notifications.append({
-                                    "type": "phishing_detected",
-                                    "level": "critical" if level >= 12 else "high",
-                                    "title": f"Phishing detectado: {alert.get('agent_name', '')}",
-                                    "detail": alert.get("rule_description", ""),
-                                    "actions": ["block_ip", "sinkhole_domain", "dismiss"],
-                                    "data": {"alert_id": alert_id, "agent_name": alert.get("agent_name", ""),
-                                             "src_ip": alert.get("src_ip", ""), "dst_url": alert.get("dst_url", ""),
-                                             "rule_level": level},
-                                })
-                            elif level > threshold:
-                                severity = "critical" if level >= 12 else "high" if level >= 8 else "medium"
-                                notifications.append({
-                                    "type": "wazuh_alert",
-                                    "level": severity,
-                                    "title": f"Alerta nivel {level}: {alert.get('agent_name', '')}",
-                                    "detail": alert.get("rule_description", ""),
-                                    "actions": ["block_ip", "quarantine", "dismiss"],
-                                    "data": {"alert_id": alert_id, "agent_name": alert.get("agent_name", ""),
-                                             "agent_id": alert.get("agent_id", ""), "src_ip": alert.get("src_ip", ""),
-                                             "rule_level": level, "mitre_technique": alert.get("mitre_technique", "")},
-                                })
-                        if alerts:
-                            last_wazuh_alert_id = alerts[0].get("id", "")
-                    except Exception as e:
-                        logger.warning("ws_security_wazuh_poll_failed", error=str(e))
+            # ── Wazuh polling (every 15s = tick % 3 == 0, each tick is 5s)
+            if tick % 3 == 0:
+                try:
+                    alerts = await wazuh_service.get_alerts(limit=20, level_min=threshold)
+                    for alert in alerts:
+                        alert_id = alert.get("id", "")
+                        if alert_id == last_wazuh_alert_id:
+                            break
+                        level = int(alert.get("rule_level", 0))
+                        groups = set(g.lower() for g in alert.get("rule_groups", []))
+                        is_phishing = bool(groups & _PHISHING_GROUPS)
+                        if is_phishing:
+                            notifications.append({
+                                "type": "phishing_detected",
+                                "level": "critical" if level >= 12 else "high",
+                                "title": f"Phishing detectado: {alert.get('agent_name', '')}",
+                                "detail": alert.get("rule_description", ""),
+                                "actions": ["block_ip", "sinkhole_domain", "dismiss"],
+                                "data": {"alert_id": alert_id, "agent_name": alert.get("agent_name", ""),
+                                         "src_ip": alert.get("src_ip", ""), "dst_url": alert.get("dst_url", ""),
+                                         "rule_level": level},
+                            })
+                        elif level > threshold:
+                            severity = "critical" if level >= 12 else "high" if level >= 8 else "medium"
+                            notifications.append({
+                                "type": "wazuh_alert",
+                                "level": severity,
+                                "title": f"Alerta nivel {level}: {alert.get('agent_name', '')}",
+                                "detail": alert.get("rule_description", ""),
+                                "actions": ["block_ip", "quarantine", "dismiss"],
+                                "data": {"alert_id": alert_id, "agent_name": alert.get("agent_name", ""),
+                                         "agent_id": alert.get("agent_id", ""), "src_ip": alert.get("src_ip", ""),
+                                         "rule_level": level, "mitre_technique": alert.get("mitre_technique", "")},
+                            })
+                    if alerts:
+                        last_wazuh_alert_id = alerts[0].get("id", "")
+                except Exception as e:
+                    logger.warning("ws_security_wazuh_poll_failed", error=str(e))
 
-                # ── MikroTik polling (every 10s = tick % 2 == 0)
-                if tick % 2 == 0 and not settings.should_mock_mikrotik:
-                    # Skip MikroTik polling when the breaker is open.
-                    # Prevents the WS loop from initiating a connect() that
-                    # would saturate the thread pool and starve the rest of
-                    # the backend.
-                    if mt_service._breaker.is_open():
-                        if tick % 30 == 0:  # log only occasionally
-                            logger.warning(
-                                "ws_mikrotik_circuit_open_skip",
-                                seconds_until_retry=round(
-                                    mt_service._breaker.seconds_until_retry, 1
-                                ),
-                            )
-                    else:
-                        try:
-                            interfaces = await mt_service.get_interfaces()
-                            for iface in interfaces:
-                                name = iface.get("name", "")
-                                running = iface.get("running", False)
-                                was_running = last_interface_state.get(name)
-                                if was_running is True and not running:
-                                    notifications.append({
-                                        "type": "interface_down",
-                                        "level": "critical",
-                                        "title": f"Interfaz caída: {name}",
-                                        "detail": f"La interfaz {name} ({iface.get('type', '')}) dejó de responder.",
-                                        "actions": ["dismiss"],
-                                        "data": {"interface": name, "type": iface.get("type", "")},
-                                    })
-                                last_interface_state[name] = running
-                        except Exception as e:
-                            logger.warning("ws_security_mikrotik_poll_failed", error=str(e))
+            # ── MikroTik polling (every 10s = tick % 2 == 0)
+            if tick % 2 == 0:
+                # Skip MikroTik polling when the breaker is open.
+                # Prevents the WS loop from initiating a connect() that
+                # would saturate the thread pool and starve the rest of
+                # the backend.
+                if mt_service._breaker.is_open():
+                    if tick % 30 == 0:  # log only occasionally
+                        logger.warning(
+                            "ws_mikrotik_circuit_open_skip",
+                            seconds_until_retry=round(
+                                mt_service._breaker.seconds_until_retry, 1
+                            ),
+                        )
+                else:
+                    try:
+                        interfaces = await mt_service.get_interfaces()
+                        for iface in interfaces:
+                            name = iface.get("name", "")
+                            running = iface.get("running", False)
+                            was_running = last_interface_state.get(name)
+                            if was_running is True and not running:
+                                notifications.append({
+                                    "type": "interface_down",
+                                    "level": "critical",
+                                    "title": f"Interfaz caída: {name}",
+                                    "detail": f"La interfaz {name} ({iface.get('type', '')}) dejó de responder.",
+                                    "actions": ["dismiss"],
+                                    "data": {"interface": name, "type": iface.get("type", "")},
+                                })
+                            last_interface_state[name] = running
+                    except Exception as e:
+                        logger.warning("ws_security_mikrotik_poll_failed", error=str(e))
 
             if notifications:
                 for notif in notifications:
@@ -920,7 +874,6 @@ async def websocket_portal_sessions(websocket: WebSocket):
     """
     WebSocket endpoint for real-time Portal Cautivo session updates.
     Pushes active session state every 5 seconds.
-    In mock mode: emits MockData.websocket.portal_session(tick) without calling MikroTik.
     """
     await portal_session_manager.connect(websocket)
     from services.portal_service import get_portal_service
@@ -930,31 +883,26 @@ async def websocket_portal_sessions(websocket: WebSocket):
     try:
         while True:
             try:
-                if settings.should_mock_mikrotik:
-                    from services.mock_data import MockData
-                    payload = MockData.websocket.portal_session(tick)
-                    await websocket.send_json({"type": "portal_sessions", "data": payload})
+                status = await portal_service.check_hotspot_status()
+                if not status["initialized"]:
+                    await websocket.send_json({
+                        "type": "portal_error",
+                        "data": {
+                            "message": "Hotspot no inicializado. Ejecutá el setup desde Configuración → Inicializar Hotspot",
+                            "code": "HOTSPOT_NOT_INITIALIZED",
+                        },
+                    })
                 else:
-                    status = await portal_service.check_hotspot_status()
-                    if not status["initialized"]:
-                        await websocket.send_json({
-                            "type": "portal_error",
-                            "data": {
-                                "message": "Hotspot no inicializado. Ejecutá el setup desde Configuración → Inicializar Hotspot",
-                                "code": "HOTSPOT_NOT_INITIALIZED",
-                            },
-                        })
-                    else:
-                        sessions = await portal_service.get_active_sessions()
-                        chart_history = portal_service.get_session_chart_history()
-                        await websocket.send_json({
-                            "type": "portal_sessions",
-                            "data": {
-                                "sessions": sessions,
-                                "chart_history": chart_history,
-                                "timestamp": __import__("time").strftime("%Y-%m-%dT%H:%M:%S"),
-                            },
-                        })
+                    sessions = await portal_service.get_active_sessions()
+                    chart_history = portal_service.get_session_chart_history()
+                    await websocket.send_json({
+                        "type": "portal_sessions",
+                        "data": {
+                            "sessions": sessions,
+                            "chart_history": chart_history,
+                            "timestamp": __import__("time").strftime("%Y-%m-%dT%H:%M:%S"),
+                        },
+                    })
             except Exception as e:
                 await websocket.send_json({
                     "type": "error",
@@ -977,7 +925,6 @@ crowdsec_decision_manager = ConnectionManager()
 async def websocket_crowdsec_decisions(websocket: WebSocket):
     """
     WebSocket endpoint for real-time CrowdSec decision stream.
-    - Mock mode: emits a new decision every ~60s via crowdsec_decision_tick.
     - Real mode: polls GET /v1/decisions/stream every 10s.
     Frontend NotificationPanel subscribes to receive real-time block events.
     """
@@ -988,45 +935,36 @@ async def websocket_crowdsec_decisions(websocket: WebSocket):
     try:
         while True:
             try:
-                if settings.should_mock_crowdsec:
-                    from services.mock_data import MockData
-                    decision = MockData.websocket.crowdsec_decision_tick(tick)
-                    if decision:
+                # Skip CrowdSec call entirely if the breaker is open.
+                # Prevents the WS loop from issuing a useless network request
+                # every 10s when CrowdSec is unreachable.
+                if cs_service._breaker.is_open():
+                    if tick % 30 == 0:  # emit a warning only occasionally
+                        logger.warning(
+                            "ws_crowdsec_circuit_open_skip",
+                            seconds_until_retry=round(
+                                cs_service._breaker.seconds_until_retry, 1
+                            ),
+                        )
+                    stream = None
+                else:
+                    # Bound the CrowdSec stream call to 6s so an unresponsive
+                    # server can't block the WS polling loop for 30s+.
+                    try:
+                        stream = await asyncio.wait_for(
+                            cs_service.get_decisions_stream(startup=(tick == 0)),
+                            timeout=6.0,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning("ws_crowdsec_poll_timeout")
+                        stream = None
+                if stream:
+                    new_decisions = stream.get("new", [])
+                    if new_decisions:
                         await websocket.send_json({
                             "type": "crowdsec_decision",
-                            "data": decision,
+                            "data": {"decisions": new_decisions, "count": len(new_decisions)},
                         })
-                else:
-                    # Skip CrowdSec call entirely if the breaker is open.
-                    # Prevents the WS loop from issuing a useless network request
-                    # every 10s when CrowdSec is unreachable.
-                    if cs_service._breaker.is_open():
-                        if tick % 30 == 0:  # emit a warning only occasionally
-                            logger.warning(
-                                "ws_crowdsec_circuit_open_skip",
-                                seconds_until_retry=round(
-                                    cs_service._breaker.seconds_until_retry, 1
-                                ),
-                            )
-                        stream = None
-                    else:
-                        # Bound the CrowdSec stream call to 6s so an unresponsive
-                        # server can't block the WS polling loop for 30s+.
-                        try:
-                            stream = await asyncio.wait_for(
-                                cs_service.get_decisions_stream(startup=(tick == 0)),
-                                timeout=6.0,
-                            )
-                        except asyncio.TimeoutError:
-                            logger.warning("ws_crowdsec_poll_timeout")
-                            stream = None
-                    if stream:
-                        new_decisions = stream.get("new", [])
-                        if new_decisions:
-                            await websocket.send_json({
-                                "type": "crowdsec_decision",
-                                "data": {"decisions": new_decisions, "count": len(new_decisions)},
-                            })
             except Exception as e:
                 try:
                     if websocket.client_state.value == 1:  # CONNECTED
@@ -1054,7 +992,6 @@ suricata_alert_manager = ConnectionManager()
 async def websocket_suricata_alerts(websocket: WebSocket):
     """
     WebSocket endpoint para alertas Suricata en tiempo real.
-    - Mock mode: emite una alerta cada ~4 ticks (~20s) via suricata_alert_tick.
     - Real mode: consulta el Wazuh API cada 10s filtrando rule.groups=suricata.
     Frontend suricata/AlertsView se suscribe para recibir alertas sin polling.
     """
@@ -1066,24 +1003,15 @@ async def websocket_suricata_alerts(websocket: WebSocket):
     try:
         while True:
             try:
-                if settings.should_mock_suricata:
-                    from services.mock_data import MockData
-                    alert = MockData.websocket.suricata_alert_tick(tick)
-                    if alert:
-                        await websocket.send_json({
-                            "type": "suricata_alert",
-                            "data": alert,
-                        })
-                else:
-                    # Real: consultar Wazuh con rule.groups=suricata
-                    sur_service = get_suricata_service()
-                    alerts = await sur_service.get_alerts(limit=10)
-                    if alerts and alerts[0].get("id") != last_alert_id:
-                        last_alert_id = alerts[0].get("id")
-                        await websocket.send_json({
-                            "type": "suricata_alert",
-                            "data": alerts[0],
-                        })
+                # Real: consultar Wazuh con rule.groups=suricata
+                sur_service = get_suricata_service()
+                alerts = await sur_service.get_alerts(limit=10)
+                if alerts and alerts[0].get("id") != last_alert_id:
+                    last_alert_id = alerts[0].get("id")
+                    await websocket.send_json({
+                        "type": "suricata_alert",
+                        "data": alerts[0],
+                    })
             except Exception as e:
                 await websocket.send_json({
                     "type": "error",

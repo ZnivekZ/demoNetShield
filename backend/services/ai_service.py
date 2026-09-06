@@ -650,10 +650,6 @@ class AIService:
 
         Returns: {html_content, title, summary, data_sources_used, tokens_used, model_used}
         """
-        if self._settings.should_mock_ai:
-            from services.mock_data import MockData
-            return MockData.ai.mock_report(prompt=prompt, audience=audience)
-
         client = self._get_client()
         model = self._settings.openrouter_model  # Fixed: openrouter/auto
         system_prompt = SYSTEM_PROMPTS.get(audience, SYSTEM_PROMPTS["technical"])
@@ -802,10 +798,6 @@ class AIService:
 
     async def answer_telegram_query(self, query: str, chat_id: str) -> str:
         """Answer a Telegram bot query using OpenRouter with all tools available."""
-        if self._settings.should_mock_ai:
-            from services.mock_data import MockData
-            return MockData.telegram.bot_query_response(query)
-
         client = self._get_client()
         messages: list[dict] = [
             {"role": "system", "content": TELEGRAM_SYSTEM_PROMPT},

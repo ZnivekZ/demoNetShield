@@ -99,10 +99,6 @@ class MikroTikService:
         too long when MikroTik was down and the worker thread was
         also contending on the GIL.
         """
-        if self._settings.should_mock_mikrotik:
-            self._connected = True
-            logger.info("mikrotik_mock_mode_active_skipping_connection")
-            return
 
         # Skip early if the breaker is open. The WS loop already gates
         # on this, but the lifespan startup also calls connect() once
@@ -247,9 +243,6 @@ class MikroTikService:
         Get all network interfaces with status.
         Returns: list of interface dicts with name, type, running, rx/tx bytes.
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.interfaces()
         try:
             interfaces = await self._api_call("/interface")
             result = []
@@ -278,9 +271,6 @@ class MikroTikService:
         Get active connection tracking table.
         Returns: list of active connections with src/dst, protocol, state.
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.connections()
         try:
             connections = await self._api_call("/ip/firewall/connection")
             result = []
@@ -309,9 +299,6 @@ class MikroTikService:
 
     async def get_arp_table(self) -> list[dict]:
         """Get the ARP table."""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.arp_table()
         try:
             entries = await self._api_call("/ip/arp")
             result = []
@@ -335,9 +322,6 @@ class MikroTikService:
         with previously stored values. Returns bytes/sec and packets/sec
         per interface.
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.traffic()
         try:
             interfaces = await self._api_call("/interface")
             current_time = time.time()
@@ -384,9 +368,6 @@ class MikroTikService:
 
     async def get_firewall_rules(self) -> list[dict]:
         """Get all firewall filter rules."""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.firewall_rules()
         try:
             rules = await self._api_call("/ip/firewall/filter")
             result = []
@@ -414,9 +395,6 @@ class MikroTikService:
         Add a drop rule in chain=forward with src-address=ip.
         Returns the created rule info.
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_service import MockService
-            return MockService.mikrotik_block_ip(ip, comment)
         try:
             loop = asyncio.get_event_loop()
             await self._ensure_connected()
@@ -442,9 +420,6 @@ class MikroTikService:
         """
         Remove all drop rules matching src-address=ip in chain=forward.
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_service import MockService
-            return MockService.mikrotik_unblock_ip(ip)
         try:
             rules = await self._api_call("/ip/firewall/filter")
             removed = []
@@ -474,9 +449,6 @@ class MikroTikService:
 
     async def get_logs(self, limit: int = 50) -> list[dict]:
         """Get recent system logs from RouterOS."""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.logs(limit)
         try:
             logs = await self._api_call("/log")
             result = []
@@ -497,9 +469,6 @@ class MikroTikService:
 
     async def get_vlans(self) -> list[dict]:
         """Get all VLAN interfaces from RouterOS."""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.vlans()
         try:
             vlans = await self._api_call("/interface/vlan")
             result = []
@@ -525,8 +494,6 @@ class MikroTikService:
         self, vlan_id: int, name: str, interface: str, comment: str = ""
     ) -> dict:
         """Create a new VLAN interface on RouterOS."""
-        if self._settings.should_mock_mikrotik:
-            return {"vlan_id": vlan_id, "name": name, "interface": interface, "comment": comment, "mock": True, "action": "created"}
         try:
             kwargs = {
                 "vlan_id": str(vlan_id),
@@ -558,8 +525,6 @@ class MikroTikService:
         self, vlan_ros_id: str, name: str | None = None, comment: str | None = None
     ) -> dict:
         """Update an existing VLAN interface (name and/or comment)."""
-        if self._settings.should_mock_mikrotik:
-            return {"id": vlan_ros_id, "name": name, "comment": comment, "mock": True, "action": "updated"}
         try:
             kwargs: dict[str, Any] = {"id": vlan_ros_id}
             if name is not None:
@@ -583,8 +548,6 @@ class MikroTikService:
 
     async def delete_vlan(self, vlan_ros_id: str) -> dict:
         """Delete a VLAN interface from RouterOS."""
-        if self._settings.should_mock_mikrotik:
-            return {"id": vlan_ros_id, "action": "deleted", "mock": True}
         try:
             await self._api_call("/interface/vlan", command="remove", id=vlan_ros_id)
             logger.info("mikrotik_vlan_deleted", ros_id=vlan_ros_id)
@@ -601,9 +564,7 @@ class MikroTikService:
         Uses the same delta-based approach as get_traffic() but with
         a separate tracking dict (_last_vlan_traffic).
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.vlan_traffic()
+
         try:
             interfaces = await self._api_call("/interface")
             current_time = time.time()
@@ -654,9 +615,7 @@ class MikroTikService:
         Get IP addresses assigned to VLAN interfaces.
         Used to map VLAN → subnet for alert correlation.
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.vlan_addresses()
+
         try:
             vlans = await self._api_call("/interface/vlan")
             vlan_iface_names = {v.get("name", "") for v in vlans}
@@ -684,9 +643,7 @@ class MikroTikService:
         [MikroTik API] Get system resource metrics.
         Resource: /system/resource
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.system_health()
+
         try:
             resources = await self._api_call("/system/resource")
             if resources:
@@ -714,14 +671,7 @@ class MikroTikService:
         [MikroTik API] Search ARP table by IP or MAC.
         Resource: /ip/arp
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            arp = MockData.mikrotik.arp_table()
-            if ip:
-                arp = [a for a in arp if ip.lower() in a["ip_address"].lower()]
-            if mac:
-                arp = [a for a in arp if mac.lower() in a["mac_address"].lower()]
-            return arp
+
         try:
             entries = await self._api_call("/ip/arp")
             result = []
@@ -752,8 +702,7 @@ class MikroTikService:
         [MikroTik API] Add IP to an address list with optional expiration.
         Resource: /ip/firewall/address-list
         """
-        if self._settings.should_mock_mikrotik:
-            return {"id": "mock-addr", "ip": ip, "list": list_name, "timeout": timeout, "mock": True}
+
         try:
             kwargs = {
                 "address": ip,
@@ -780,8 +729,7 @@ class MikroTikService:
         [MikroTik API] Remove IP from an address list.
         Resource: /ip/firewall/address-list
         """
-        if self._settings.should_mock_mikrotik:
-            return {"ip": ip, "list": list_name, "entries_removed": ["mock-id"], "mock": True}
+
         try:
             entries = await self._api_call("/ip/firewall/address-list")
             removed = []
@@ -810,9 +758,7 @@ class MikroTikService:
         [MikroTik API] Get entries from address lists.
         Resource: /ip/firewall/address-list
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.address_lists()
+
         try:
             entries = await self._api_call("/ip/firewall/address-list")
             result = []
@@ -842,8 +788,7 @@ class MikroTikService:
         [MikroTik API] Add a static DNS entry (sinkhole).
         Resource: /ip/dns/static
         """
-        if self._settings.should_mock_mikrotik:
-            return {"id": "mock-dns", "domain": domain, "address": address, "mock": True}
+
         try:
             kwargs = {
                 "name": domain,
@@ -864,8 +809,7 @@ class MikroTikService:
         [MikroTik API] Remove a static DNS entry by domain name.
         Resource: /ip/dns/static
         """
-        if self._settings.should_mock_mikrotik:
-            return {"domain": domain, "entries_removed": ["mock-dns-id"], "mock": True}
+
         try:
             entries = await self._api_call("/ip/dns/static")
             removed = []
@@ -894,9 +838,7 @@ class MikroTikService:
         [MikroTik API] Get all static DNS entries (sinkhole list).
         Resource: /ip/dns/static
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.dns_static()
+
         try:
             entries = await self._api_call("/ip/dns/static")
             result = []
@@ -919,9 +861,7 @@ class MikroTikService:
 
     async def get_dhcp_servers(self) -> list[dict]:
         """[DHCP] Get all DHCP server instances. Resource: /ip/dhcp-server"""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.dhcp.servers()
+
         try:
             entries = await self._api_call("/ip/dhcp-server")
             result = []
@@ -947,8 +887,7 @@ class MikroTikService:
         lease_time: str = "1d", authoritative: str = "after-2sec", comment: str = ""
     ) -> dict:
         """[DHCP] Create a DHCP server instance. Resource: /ip/dhcp-server add"""
-        if self._settings.should_mock_mikrotik:
-            return {"id": "mock-dhcp-srv", "name": name, "interface": interface, "mock": True, "action": "created"}
+
         try:
             kwargs = {"name": name, "interface": interface, "address_pool": address_pool,
                       "lease_time": lease_time, "authoritative": authoritative}
@@ -963,8 +902,7 @@ class MikroTikService:
 
     async def toggle_dhcp_server(self, server_id: str, disabled: bool) -> dict:
         """[DHCP] Enable or disable a DHCP server. Resource: /ip/dhcp-server set"""
-        if self._settings.should_mock_mikrotik:
-            return {"id": server_id, "disabled": disabled, "mock": True, "action": "toggled"}
+
         try:
             await self._api_call("/ip/dhcp-server", command="set", id=server_id,
                                  disabled="yes" if disabled else "no")
@@ -976,12 +914,7 @@ class MikroTikService:
 
     async def get_dhcp_leases(self, server: str | None = None) -> list[dict]:
         """[DHCP] Get all DHCP leases (dynamic + static). Resource: /ip/dhcp-server/lease"""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            leases = MockData.dhcp.leases()
-            if server:
-                leases = [l for l in leases if l.get("server") == server]
-            return leases
+
         try:
             entries = await self._api_call("/ip/dhcp-server/lease")
             result = []
@@ -1016,9 +949,7 @@ class MikroTikService:
         comment: str = "", rate_limit: str = ""
     ) -> dict:
         """[DHCP] Create a static DHCP lease (reservation). Resource: /ip/dhcp-server/lease add"""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_service import MockService
-            return MockService.dhcp_create_lease(address, mac_address, server, comment)
+
         try:
             kwargs = {"address": address, "mac_address": mac_address, "server": server}
             if comment:
@@ -1037,8 +968,7 @@ class MikroTikService:
         rate_limit: str | None = None, disabled: bool | None = None
     ) -> dict:
         """[DHCP] Update lease comment, rate-limit, or disabled state."""
-        if self._settings.should_mock_mikrotik:
-            return {"id": lease_id, "action": "updated", "mock": True}
+
         try:
             kwargs: dict = {"id": lease_id}
             if comment is not None:
@@ -1056,9 +986,7 @@ class MikroTikService:
 
     async def delete_dhcp_lease(self, lease_id: str) -> dict:
         """[DHCP] Delete a DHCP lease. Resource: /ip/dhcp-server/lease remove"""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_service import MockService
-            return MockService.dhcp_delete_lease(lease_id)
+
         try:
             await self._api_call("/ip/dhcp-server/lease", command="remove", id=lease_id)
             logger.info("mikrotik_dhcp_lease_deleted", id=lease_id)
@@ -1069,9 +997,7 @@ class MikroTikService:
 
     async def make_lease_static(self, lease_id: str) -> dict:
         """[DHCP] Convert a dynamic lease to static (permanent reservation)."""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_service import MockService
-            return MockService.dhcp_make_static(lease_id)
+
         try:
             # RouterOS: set dynamic=no makes it static
             await self._api_call("/ip/dhcp-server/lease", command="set",
@@ -1084,8 +1010,7 @@ class MikroTikService:
 
     async def set_dhcp_lease_block(self, lease_id: str, block: bool) -> dict:
         """[DHCP] Block or unblock DHCP access for a client (block-access flag)."""
-        if self._settings.should_mock_mikrotik:
-            return {"id": lease_id, "blocked": block, "mock": True}
+
         try:
             await self._api_call("/ip/dhcp-server/lease", command="set",
                                  id=lease_id, **{"block_access": "yes" if block else "no"})
@@ -1097,9 +1022,7 @@ class MikroTikService:
 
     async def get_dhcp_networks(self) -> list[dict]:
         """[DHCP] Get DHCP network configurations. Resource: /ip/dhcp-server/network"""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.dhcp.networks()
+
         try:
             entries = await self._api_call("/ip/dhcp-server/network")
             result = []
@@ -1125,8 +1048,7 @@ class MikroTikService:
         domain: str = "", ntp_server: str = "", comment: str = ""
     ) -> dict:
         """[DHCP] Create DHCP network config. Resource: /ip/dhcp-server/network add"""
-        if self._settings.should_mock_mikrotik:
-            return {"id": "mock-net", "address": address, "mock": True, "action": "created"}
+
         try:
             kwargs = {"address": address}
             if gateway: kwargs["gateway"] = gateway
@@ -1143,8 +1065,7 @@ class MikroTikService:
 
     async def update_dhcp_network(self, network_id: str, **fields) -> dict:
         """[DHCP] Update DHCP network config fields."""
-        if self._settings.should_mock_mikrotik:
-            return {"id": network_id, "action": "updated", "mock": True}
+
         try:
             await self._api_call("/ip/dhcp-server/network", command="set", id=network_id, **fields)
             logger.info("mikrotik_dhcp_network_updated", id=network_id)
@@ -1155,9 +1076,7 @@ class MikroTikService:
 
     async def get_ip_pools(self) -> list[dict]:
         """[DHCP] Get all IP pools. Resource: /ip/pool"""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.dhcp.pools()
+
         try:
             entries = await self._api_call("/ip/pool")
             result = []
@@ -1176,8 +1095,7 @@ class MikroTikService:
 
     async def create_ip_pool(self, name: str, ranges: str, next_pool: str = "") -> dict:
         """[DHCP] Create an IP pool. Resource: /ip/pool add"""
-        if self._settings.should_mock_mikrotik:
-            return {"id": "mock-pool", "name": name, "ranges": ranges, "mock": True, "action": "created"}
+
         try:
             kwargs = {"name": name, "ranges": ranges}
             if next_pool:
@@ -1191,8 +1109,7 @@ class MikroTikService:
 
     async def update_ip_pool(self, pool_id: str, ranges: str | None = None, next_pool: str | None = None) -> dict:
         """[DHCP] Update an IP pool's ranges or next-pool."""
-        if self._settings.should_mock_mikrotik:
-            return {"id": pool_id, "action": "updated", "mock": True}
+
         try:
             kwargs: dict = {"id": pool_id}
             if ranges is not None:
@@ -1211,9 +1128,7 @@ class MikroTikService:
         [DHCP] Calculate subnet utilization per pool.
         Compares pool IP range size vs number of bound leases.
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.dhcp.subnet_usage()
+
         try:
             pools = await self.get_ip_pools()
             leases = await self.get_dhcp_leases()
@@ -1266,9 +1181,7 @@ class MikroTikService:
 
     async def get_dhcp_rogue_alerts(self) -> list[dict]:
         """[DHCP] Get rogue DHCP server alert configurations. Resource: /ip/dhcp-server/alert"""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.dhcp.rogue_alerts()
+
         try:
             entries = await self._api_call("/ip/dhcp-server/alert")
             result = []
@@ -1293,8 +1206,7 @@ class MikroTikService:
         alert_timeout: str = "1h", on_alert: str = ""
     ) -> dict:
         """[DHCP] Create a rogue DHCP alert config. Resource: /ip/dhcp-server/alert add"""
-        if self._settings.should_mock_mikrotik:
-            return {"id": "mock-alert", "interface": interface, "mock": True, "action": "created"}
+
         try:
             kwargs = {"interface": interface, "alert_timeout": alert_timeout}
             if valid_server: kwargs["valid_server"] = valid_server
@@ -1308,9 +1220,7 @@ class MikroTikService:
 
     async def get_dhcp_options(self) -> list[dict]:
         """[DHCP] Get custom DHCP options. Resource: /ip/dhcp-server/option"""
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.dhcp.options()
+
         try:
             entries = await self._api_call("/ip/dhcp-server/option")
             result = []
@@ -1330,8 +1240,7 @@ class MikroTikService:
 
     async def create_dhcp_option(self, name: str, code: int, value: str, raw: bool = False) -> dict:
         """[DHCP] Create a custom DHCP option. Resource: /ip/dhcp-server/option add"""
-        if self._settings.should_mock_mikrotik:
-            return {"id": "mock-opt", "name": name, "code": code, "mock": True, "action": "created"}
+
         try:
             rid = await self._api_call("/ip/dhcp-server/option", command="add",
                                        name=name, code=str(code), value=value,
@@ -1405,9 +1314,7 @@ class MikroTikService:
         [MikroTik API] Get all NAT rules (src-nat, dst-nat, masquerade).
         Resource: /ip/firewall/nat
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.nat_rules()
+
         try:
             entries = await self._api_call("/ip/firewall/nat")
             result = []
@@ -1445,9 +1352,7 @@ class MikroTikService:
         [MikroTik API] Get routing table (static + dynamic).
         Resource: /ip/route
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.routes()
+
         try:
             entries = await self._api_call("/ip/route")
             result = []
@@ -1480,9 +1385,7 @@ class MikroTikService:
         [MikroTik API] Get all IP addresses assigned to interfaces.
         Resource: /ip/address
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.ip_addresses()
+
         try:
             entries = await self._api_call("/ip/address")
             result = []
@@ -1509,9 +1412,7 @@ class MikroTikService:
         [MikroTik API] Get bridge ports configuration.
         Resource: /interface/bridge/port
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.bridge_ports()
+
         try:
             entries = await self._api_call("/interface/bridge/port")
             result = []
@@ -1545,9 +1446,7 @@ class MikroTikService:
         [MikroTik API] Get all simple queues (bandwidth limiters).
         Resource: /queue/simple
         """
-        if self._settings.should_mock_mikrotik:
-            from services.mock_data import MockData
-            return MockData.mikrotik.queues()
+
         try:
             entries = await self._api_call("/queue/simple")
             result = []
@@ -1591,15 +1490,7 @@ class MikroTikService:
         Resource: /queue/simple add
         max_limit format: 'upload/download' e.g. '5M/10M'
         """
-        if self._settings.should_mock_mikrotik:
-            return {
-                "id": "mock-queue-1",
-                "name": name,
-                "target": target,
-                "max_limit": max_limit,
-                "mock": True,
-                "action": "created",
-            }
+
         try:
             kwargs: dict = {"name": name, "target": target, "max_limit": max_limit}
             if burst_limit != "0/0":
@@ -1623,8 +1514,7 @@ class MikroTikService:
         [MikroTik API] Update a simple queue.
         Resource: /queue/simple set
         """
-        if self._settings.should_mock_mikrotik:
-            return {"id": queue_id, "action": "updated", "mock": True}
+
         try:
             kwargs: dict = {"id": queue_id}
             if name is not None:
@@ -1647,8 +1537,7 @@ class MikroTikService:
         [MikroTik API] Delete a simple queue.
         Resource: /queue/simple remove
         """
-        if self._settings.should_mock_mikrotik:
-            return {"id": queue_id, "action": "deleted", "mock": True}
+
         try:
             await self._api_call("/queue/simple", command="remove", id=queue_id)
             logger.info("mikrotik_queue_deleted", id=queue_id)

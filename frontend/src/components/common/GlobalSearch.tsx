@@ -194,9 +194,6 @@ export function GlobalSearch({ onBlockIP, onShowIpContext }: GlobalSearchProps) 
               <div className="search-result-section">
                 <div className="search-result-section__title">
                   <Package size={13} /> GLPI Inventario
-                  {result.glpi_match.mock && (
-                    <span className="badge badge-warning" style={{ fontSize: '0.58rem', marginLeft: 4 }}>demo</span>
-                  )}
                 </div>
                 <div className="search-result-card">
                   <div className="search-result-row">

@@ -50,7 +50,6 @@ import { GlobalSearch } from './common/GlobalSearch';
 import { NotificationPanel } from './security/NotificationPanel';
 import { ConfirmModal } from './common/ConfirmModal';
 import { useBlockIP } from '../hooks/useSecurityActions';
-import { MockModeBadge } from './common/MockModeBadge';
 import { IpContextPanel } from './crowdsec/IpContextPanel';
 import { SettingsDrawer } from './common/SettingsDrawer';
 import { useAuthContext } from './auth/AuthContext';
@@ -266,9 +265,8 @@ export default function Layout() {
             />
           </div>
 
-          {/* MockModeBadge + Notification Bell */}
+          {/* Notification Bell */}
           <div className="flex items-center gap-3 text-xs text-surface-400">
-            <MockModeBadge />
             <NotificationPanel
               onBlockIP={ip => setBlockIPTarget(ip)}
               onShowIpContext={ip => setIpContextTarget(ip)}

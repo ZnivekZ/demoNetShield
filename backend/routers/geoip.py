@@ -2,9 +2,6 @@
 GeoIP Router — IP geolocation endpoints using MaxMind GeoLite2.
 Prefix: /api/geoip
 
-All endpoints work in mock mode (default) and with real GeoLite2 DBs
-when they are downloaded and MOCK_GEOIP=false.
-
 Endpoints:
   GET  /lookup/{ip}             — Single IP lookup
   POST /lookup/bulk             — Batch IP lookup (up to 200 IPs)
@@ -22,7 +19,6 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from services.audit_service import log_action
 from schemas.common import APIResponse
 from schemas.geoip import (
     GeoIPResult,
@@ -34,7 +30,6 @@ from schemas.geoip import (
     GeoIPDBStatus,
 )
 from services.geoip_service import GeoIPService, get_geoip_service
-from config import get_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -54,7 +49,6 @@ async def lookup_ip(
 
     Returns country, city, coordinates, ASN, and network classification.
     IPs privadas devuelven country_code="LOCAL".
-    En mock mode, los datos son simulados (raw_available=False).
     """
     try:
         result = svc.lookup(ip)
@@ -98,24 +92,13 @@ async def get_top_countries(
     """
     [GeoLite2 + CrowdSec + Wazuh + MikroTik] Top attacking countries.
 
-    Agrega IPs de múltiples fuentes y las geolocalizará para construir el
-    ranking. En mock mode devuelve datos del _GeoIPMockData.top_countries().
+    TODO (producción): agregar IPs reales de CrowdSec + Wazuh + MikroTik
+    (ya enriquecidas con GeoIP por los services) y agruparlas por país.
     """
-    settings = get_settings()
-    try:
-        if settings.should_mock_geoip:
-            from services.mock_data import MockData
-            data = MockData.geoip.top_countries(limit=limit, source=source)
-        else:
-            # TODO (producción): agregar IPs reales de CrowdSec + Wazuh + MikroTik
-            # y geolocalizarlas con lookup_bulk, luego agrupar por país.
-            from services.mock_data import MockData
-            data = MockData.geoip.top_countries(limit=limit, source=source)
-
-        return APIResponse.ok(data)
-    except Exception as e:
-        logger.error("geoip.top_countries_error", error=str(e))
-        return APIResponse.fail(f"Error obteniendo top países: {e}")
+    raise HTTPException(
+        status_code=501,
+        detail="Top países no implementado en modo real. Ver TODO en el código.",
+    )
 
 
 @router.get("/stats/top-asns", response_model=APIResponse)
@@ -125,20 +108,14 @@ async def get_top_asns(
 ) -> APIResponse:
     """
     [GeoLite2 + CrowdSec + Wazuh + MikroTik] Top attacking ASNs.
-    """
-    settings = get_settings()
-    try:
-        if settings.should_mock_geoip:
-            from services.mock_data import MockData
-            data = MockData.geoip.top_asns(limit=limit)
-        else:
-            from services.mock_data import MockData
-            data = MockData.geoip.top_asns(limit=limit)
 
-        return APIResponse.ok(data)
-    except Exception as e:
-        logger.error("geoip.top_asns_error", error=str(e))
-        return APIResponse.fail(f"Error obteniendo top ASNs: {e}")
+    TODO (producción): agregar IPs reales de CrowdSec + Wazuh + MikroTik
+    (ya enriquecidas con GeoIP por los services) y agruparlas por ASN.
+    """
+    raise HTTPException(
+        status_code=501,
+        detail="Top ASNs no implementado en modo real. Ver TODO en el código.",
+    )
 
 
 # ── Geo-block suggestions ─────────────────────────────────────────────────────
@@ -151,22 +128,13 @@ async def get_geo_block_suggestions(
     """
     [GeoLite2 + CrowdSec + Wazuh] Automatic geo-block suggestions.
 
-    Analiza las decisiones CrowdSec activas y alertas Wazuh para sugerir
-    bloqueos regionales (por país o ASN) que reducirían la superficie de ataque.
+    TODO (producción): analizar decisiones CrowdSec activas y alertas Wazuh
+    (enriquecidas con GeoIP) para sugerir bloqueos regionales por país/ASN.
     """
-    settings = get_settings()
-    try:
-        if settings.should_mock_geoip:
-            from services.mock_data import MockData
-            data = MockData.geoip.geo_block_suggestions()
-        else:
-            from services.mock_data import MockData
-            data = MockData.geoip.geo_block_suggestions()
-
-        return APIResponse.ok(data)
-    except Exception as e:
-        logger.error("geoip.suggestions_error", error=str(e))
-        return APIResponse.fail(f"Error obteniendo sugerencias: {e}")
+    raise HTTPException(
+        status_code=501,
+        detail="Sugerencias geo-block no implementado en modo real. Ver TODO en el código.",
+    )
 
 
 @router.post("/suggestions/{suggestion_id}/apply", response_model=APIResponse)
@@ -186,33 +154,7 @@ async def apply_geo_block_suggestion(
       - ip2location-lite CIDR blocks dataset
       - delegated-apnic-latest de IANA
       - Tabla pre-calculada por país/ASN actualizada mensualmente
-
-    En mock mode devuelve una respuesta exitosa simulada.
     """
-    settings = get_settings()
-    if settings.should_mock_geoip:
-        logger.info(
-            "geoip.suggestion_applied_mock",
-            suggestion_id=suggestion_id,
-            duration=body.duration,
-        )
-        await log_action(
-            db,
-            action_type="geo_block_suggestion_applied",
-            severity="medium",
-            target_ip=suggestion_id if len(suggestion_id) <= 45 else None,
-            details={"suggestion_id": suggestion_id, "duration": body.duration, "mock": True},
-            comment=f"Sugerencia geo-block aplicada: {suggestion_id}",
-        )
-        return APIResponse.ok({
-            "suggestion_id": suggestion_id,
-            "duration": body.duration,
-            "applied": True,
-            "mock": True,
-            "message": f"Sugerencia {suggestion_id!r} aplicada (modo mock). "
-                       "En producción se requiere resolución de rangos CIDR.",
-        })
-
     # TODO (producción): implementar resolución real de rangos CIDR
     raise HTTPException(
         status_code=501,

@@ -4,7 +4,7 @@
  */
 import { CheckCircle, AlertTriangle, XCircle, Monitor } from 'lucide-react';
 import { useGlpiHealth } from '../../hooks/useGlpiHealth';
-import { useGlpiAssetStats } from '../../hooks/useGlpiAssets';
+import { useGlpiAssetStats, useGlpiStatus } from '../../hooks/useGlpiAssets';
 import { AssetHealthTable } from './AssetHealthTable';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -14,6 +14,9 @@ const STATUS_COLORS = { activo: '#22c55e', reparacion: '#f59e0b', retirado: '#94
 export function HealthView() {
   const { data: health, isLoading: healthLoading } = useGlpiHealth();
   const { data: stats, isLoading: statsLoading } = useGlpiAssetStats();
+  const { data: glpiStatus } = useGlpiStatus();
+
+  const glpiOffline = glpiStatus?.available === false;
 
   const healthChartData = health
     ? [
@@ -23,14 +26,18 @@ export function HealthView() {
       ].filter((d) => d.value > 0)
     : [];
 
-  const statusChartData = stats
-    ? [
-        { name: 'Activo', value: stats.activo, color: STATUS_COLORS.activo },
-        { name: 'Reparación', value: stats.reparacion, color: STATUS_COLORS.reparacion },
-        { name: 'Retirado', value: stats.retirado, color: STATUS_COLORS.retirado },
-        { name: 'Pendiente', value: stats.pendiente, color: STATUS_COLORS.pendiente },
-      ].filter((d) => d.value > 0)
-    : [];
+  // "Estado GLPI" reflects connectivity: offline → single red "Sin conexión" slice;
+  // online → inventory status breakdown.
+  const statusChartData = glpiOffline
+    ? [{ name: 'Sin conexión', value: 1, color: HEALTH_COLORS.critical }]
+    : stats
+      ? [
+          { name: 'Activo', value: stats.activo, color: STATUS_COLORS.activo },
+          { name: 'Reparación', value: stats.reparacion, color: STATUS_COLORS.reparacion },
+          { name: 'Retirado', value: stats.retirado, color: STATUS_COLORS.retirado },
+          { name: 'Pendiente', value: stats.pendiente, color: STATUS_COLORS.pendiente },
+        ].filter((d) => d.value > 0)
+      : [];
 
   return (
     <div className="health-view">
@@ -123,8 +130,15 @@ export function HealthView() {
 
         {/* Status pie chart */}
         <div className="glass-card health-chart-card">
-          <div className="health-chart-card__title">Estado GLPI</div>
-          {statsLoading ? (
+          <div className="health-chart-card__title">
+            Estado GLPI
+            {glpiOffline && (
+              <span className="badge badge-danger" style={{ marginLeft: 8, fontSize: '0.6rem' }}>
+                Sin conexión
+              </span>
+            )}
+          </div>
+          {!glpiOffline && statsLoading ? (
             <div className="health-chart-card__loading">
               <span className="loading-spinner" />
             </div>
@@ -170,11 +184,6 @@ export function HealthView() {
           <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-surface-200)' }}>
             Detalle por Equipo
           </span>
-          {health?.mock && (
-            <span className="badge badge-warning" style={{ fontSize: '0.65rem' }}>
-              Datos de demo
-            </span>
-          )}
         </div>
         <AssetHealthTable
           assets={health?.assets ?? []}

@@ -4,7 +4,6 @@ GeoIP Service — Geolocalización local de IPs con MaxMind GeoLite2.
 Arquitectura:
 - Singleton: los readers se cargan una vez en startup via initialize()
 - TTLCache (cachetools): caché en memoria, expira a 1h, maxsize=10000
-- Mock guard: si should_mock_geoip → datos desde MockData.geoip
 - Silencia errores: si la DB falla → devuelve resultado vacío (no rompe endpoints)
 - IPs privadas: detectadas sin DB, devuelven country_code="LOCAL"
 
@@ -96,16 +95,11 @@ class GeoIPService:
         """
         Carga los readers de GeoLite2 en memoria.
         Llamar una sola vez en el lifespan startup de FastAPI.
-        En mock mode, no hace nada (los readers quedan None).
         """
         settings = get_settings()
-        if settings.should_mock_geoip:
-            logger.info("geoip.mock_mode", message="GeoIP en modo mock — DB no requerida")
-            cls._initialized = True
-            return
 
         try:
-            import geoip2.database  # lazy import — solo si no está en mock
+            import geoip2.database  # lazy import
 
             city_path = settings.geoip_city_db
             asn_path = settings.geoip_asn_db
@@ -137,7 +131,6 @@ class GeoIPService:
 
         Returns a GeoIPResult-compatible dict. Never raises:
         - IP privada → country_code="LOCAL"
-        - Mock mode → MockData.geoip.lookup(ip)
         - DB error → empty result (todos los campos None/vacíos)
         - Cache hit → respuesta instantánea sin consultar la DB
         """
@@ -151,16 +144,7 @@ class GeoIPService:
             _CACHE[ip] = result
             return result
 
-        settings = get_settings()
-
-        # 3. Mock mode
-        if settings.should_mock_geoip:
-            from services.mock_data import MockData
-            result = MockData.geoip.lookup(ip)
-            _CACHE[ip] = result
-            return result
-
-        # 4. Real DB lookup
+        # 3. Real DB lookup
         result = cls._lookup_real(ip)
         _CACHE[ip] = result
         return result
@@ -220,11 +204,6 @@ class GeoIPService:
         Geolocalize multiple IPs. Deduplicates and uses cache.
         Returns results in the same order as the input list.
         """
-        settings = get_settings()
-        if settings.should_mock_geoip:
-            from services.mock_data import MockData
-            return MockData.geoip.lookup_bulk(ips)
-
         seen: set[str] = set()
         results = []
         for ip in ips:
@@ -237,9 +216,6 @@ class GeoIPService:
     def get_db_status(cls) -> dict:
         """Return current status of the GeoLite2 DB readers and cache."""
         settings = get_settings()
-        if settings.should_mock_geoip:
-            from services.mock_data import MockData
-            return MockData.geoip.db_status()
 
         city_loaded = cls._city_reader is not None
         asn_loaded = cls._asn_reader is not None
@@ -265,7 +241,6 @@ class GeoIPService:
         return {
             "city_db": city_info,
             "asn_db": asn_info,
-            "mock_mode": False,
             "cache_size": len(_CACHE),
             "cache_ttl_seconds": 3600,
         }

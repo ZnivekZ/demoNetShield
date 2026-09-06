@@ -4,7 +4,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { Database, RefreshCw, CheckCircle, XCircle, Info } from 'lucide-react';
+import { Database, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import { geoipApi } from '../../services/api';
 import type { GeoIPDBStatus } from '../../types';
 
@@ -62,11 +62,6 @@ export function GeoIPStatus() {
         <div className="flex items-center gap-2">
           <Database size={16} className="text-brand-400" />
           <h3 className="text-sm font-semibold text-surface-200">GeoLite2 — Bases de Datos</h3>
-          {data && (
-            <span className={`badge text-[0.6rem] ${data.mock_mode ? 'badge-medium' : 'badge-success'}`}>
-              {data.mock_mode ? 'MOCK' : 'REAL'}
-            </span>
-          )}
         </div>
         <button
           onClick={() => refetch()}
@@ -92,31 +87,10 @@ export function GeoIPStatus() {
             <DBRow label="GeoLite2-ASN (redes, proveedores)" db={data.asn_db} />
 
             {/* Cache info */}
-            {!data.mock_mode && (
-              <div className="mt-3 pt-3 border-t border-surface-700/30 flex gap-4 text-xs text-surface-500">
-                <span>Caché: <strong className="text-surface-300">{data.cache_size}</strong> IPs en memoria</span>
-                <span>TTL: <strong className="text-surface-300">{data.cache_ttl_seconds / 3600}h</strong></span>
-              </div>
-            )}
-
-            {/* Mock mode instructions */}
-            {data.mock_mode && (
-              <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                <div className="flex items-start gap-2">
-                  <Info size={14} className="text-amber-400 mt-0.5 shrink-0" />
-                  <div className="text-xs text-amber-200/80 space-y-1">
-                    <p className="font-medium text-amber-300">Modo mock activo</p>
-                    <p>Para usar datos reales:</p>
-                    <ol className="list-decimal list-inside space-y-0.5 text-amber-200/70">
-                      <li>Registrarse en <code className="font-mono">maxmind.com/en/geolite2/signup</code></li>
-                      <li>Agregar <code className="font-mono">MAXMIND_LICENSE_KEY</code> al <code className="font-mono">.env</code></li>
-                      <li>Ejecutar <code className="font-mono">python backend/scripts/download_geoip.py</code></li>
-                      <li>Cambiar <code className="font-mono">MOCK_GEOIP=false</code> y reiniciar</li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-            )}
+            <div className="mt-3 pt-3 border-t border-surface-700/30 flex gap-4 text-xs text-surface-500">
+              <span>Caché: <strong className="text-surface-300">{data.cache_size}</strong> IPs en memoria</span>
+              <span>TTL: <strong className="text-surface-300">{data.cache_ttl_seconds / 3600}h</strong></span>
+            </div>
           </>
         )}
       </div>

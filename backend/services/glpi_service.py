@@ -8,7 +8,6 @@ Design decisions:
 - Exponential backoff retries for transient failures (tenacity)
 - SSL verification disabled for lab (self-signed / HTTP on local network)
 - All responses normalized to consistent format matching GlpiAsset schema
-- Mock data enabled when APP_ENV=lab and GLPI is unreachable (same as Wazuh pattern)
 
 [GLPI API] docs: https://glpi-project.org/DOC/en/restapi.html
 """
@@ -189,8 +188,6 @@ class GLPIService:
 
     async def is_available(self) -> bool:
         """Quick ping to check if GLPI is reachable."""
-        if self._settings.should_mock_glpi:
-            return True  # Always available in mock mode
         try:
             client = self._get_client()
             response = await client.get(
@@ -217,9 +214,6 @@ class GLPIService:
         GET /apirest.php/Computer
         Supports filtering by name/IP, location, status.
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_get_assets(search=search, status=status, location_id=location, limit=limit, offset=offset)
         try:
             # Try to use collector cache first (populated every 5 min)
             try:
@@ -284,12 +278,6 @@ class GLPIService:
         GET /apirest.php/Computer/{id}
         Includes network ports, software, tickets, disks.
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            asset = MockService.glpi_get_asset(computer_id)
-            if asset is None:
-                raise ValueError(f"Asset #{computer_id} not found in mock data")
-            return asset
         try:
             data = await self._api_request(
                 "GET",
@@ -314,9 +302,6 @@ class GLPIService:
 
     async def search_computers(self, query: str) -> list[dict]:
         """[GLPI API] Full-text search across computers by name, serial, IP."""
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_get_assets(search=query)
         try:
             # Criteria: search in name (field 1), serial (field 5), IP (networkports)
             params: dict[str, Any] = {
@@ -348,9 +333,6 @@ class GLPIService:
         [GLPI API] Register a new computer in GLPI.
         POST /apirest.php/Computer
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_create_asset(data)
         try:
             payload = {
                 "input": {
@@ -383,9 +365,6 @@ class GLPIService:
         [GLPI API] Update a computer's data in GLPI.
         PUT /apirest.php/Computer/{id}
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_update_asset(computer_id, data)
         try:
             input_data: dict[str, Any] = {"id": computer_id}
             if "status" in data:
@@ -434,9 +413,6 @@ class GLPIService:
         [GLPI API] Get all physical locations (classrooms, labs).
         GET /apirest.php/Location
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_data import MockData
-            return MockData.glpi.locations()
         try:
             data = await self._api_request(
                 "GET", "/Location", params={"range": "0-999", "expand_dropdowns": 1}
@@ -464,9 +440,6 @@ class GLPIService:
         [GLPI API] Get computers in a specific physical location.
         GET /apirest.php/Computer filtered by locations_id
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_get_assets(location_id=location_id)
         try:
             params: dict[str, Any] = {
                 "searchText[locations_id]": str(location_id),
@@ -497,9 +470,6 @@ class GLPIService:
         GET /apirest.php/Ticket
         Filters for categories: red | hardware | so | seguridad
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_get_tickets(status=status, limit=limit, offset=offset)
         try:
             params: dict[str, Any] = {
                 "range": f"{offset}-{offset + limit - 1}",
@@ -524,12 +494,6 @@ class GLPIService:
         [GLPI API] Get full details of a ticket.
         GET /apirest.php/Ticket/{id}
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            ticket = MockService.glpi_get_ticket(ticket_id)
-            if ticket is None:
-                raise ValueError(f"Ticket #{ticket_id} not found in mock data")
-            return ticket
         try:
             data = await self._api_request(
                 "GET",
@@ -548,9 +512,6 @@ class GLPIService:
         [GLPI API] Create a new ticket.
         POST /apirest.php/Ticket
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_create_ticket(data)
         try:
             payload = {
                 "input": {
@@ -581,9 +542,6 @@ class GLPIService:
         GLPI ticket statuses: 1=Nuevo, 2=En proceso (asignado), 3=En proceso (planificado),
         4=Pendiente, 5=Resuelto, 6=Cerrado
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_update_ticket_status(ticket_id, status)
         try:
             await self._api_request(
                 "PUT",
@@ -603,9 +561,6 @@ class GLPIService:
         [GLPI API] Get users from GLPI.
         GET /apirest.php/User
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_get_users(search=search, limit=limit)
         try:
             params: dict[str, Any] = {
                 "range": f"0-{limit - 1}",
@@ -628,11 +583,6 @@ class GLPIService:
         [GLPI API] Get computers assigned to a specific user.
         GET /apirest.php/Computer with users filter
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            assets = MockService.glpi_get_assets()
-            return [a for a in assets if a.get("assigned_user_id") == user_id
-                    or a.get("assigned_user") == (MockService.glpi_get_user(user_id) or {}).get("name", "__none__")]
         try:
             params: dict[str, Any] = {
                 "searchText[users_id_tech]": str(user_id),
@@ -653,9 +603,6 @@ class GLPIService:
         [GLPI API] Delete a computer from GLPI inventory.
         DELETE /apirest.php/Computer/{id}
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_delete_asset(computer_id)
         try:
             await self._api_request("DELETE", f"/Computer/{computer_id}")
             logger.info("glpi_computer_deleted", id=computer_id)
@@ -669,12 +616,6 @@ class GLPIService:
         [GLPI API] Get a single user by ID.
         GET /apirest.php/User/{id}
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            user = MockService.glpi_get_user(user_id)
-            if user is None:
-                raise ValueError(f"User #{user_id} not found")
-            return user
         try:
             data = await self._api_request("GET", f"/User/{user_id}", params={"expand_dropdowns": 1})
             return self._normalize_user(data)
@@ -687,9 +628,6 @@ class GLPIService:
         [GLPI API] Create a new user in GLPI.
         POST /apirest.php/User
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_create_user(data)
         try:
             payload = {
                 "input": {
@@ -714,9 +652,6 @@ class GLPIService:
         [GLPI API] Update a user in GLPI.
         PUT /apirest.php/User/{id}
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_update_user(user_id, data)
         try:
             input_data: dict[str, Any] = {"id": user_id}
             for field in ("realname", "firstname", "email", "phone", "comment"):
@@ -734,9 +669,6 @@ class GLPIService:
         [GLPI API] Delete a user from GLPI.
         DELETE /apirest.php/User/{id}
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_delete_user(user_id)
         try:
             await self._api_request("DELETE", f"/User/{user_id}")
             logger.info("glpi_user_deleted", id=user_id)
@@ -750,9 +682,6 @@ class GLPIService:
         [GLPI API] Assign or unassign an asset to a user.
         PUT /apirest.php/Computer/{id} with users_id_tech
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_assign_asset(asset_id, user_id)
         try:
             input_data: dict[str, Any] = {
                 "id": asset_id,
@@ -909,9 +838,6 @@ class GLPIService:
         [GLPI API] Mark asset as "Bajo Investigación" and create incident ticket.
         Updates computer state + creates automatic ticket.
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_quarantine_asset(computer_id, reason)
         try:
             # 1. Update state to "bajo_investigacion" (state_id=5 in default GLPI)
             await self.update_computer(computer_id, {"status": "bajo_investigacion"})
@@ -944,9 +870,6 @@ class GLPIService:
         """
         [GLPI API] Restore asset status and close quarantine ticket.
         """
-        if self._settings.should_mock_glpi:
-            from services.mock_service import MockService
-            return MockService.glpi_unquarantine_asset(computer_id)
         try:
             # Restore to "activo"
             await self.update_computer(computer_id, {"status": "activo"})

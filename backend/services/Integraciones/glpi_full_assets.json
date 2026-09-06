@@ -35099,11 +35099,6 @@
                         },
                         "IPAddress": [
                             {
-                                "id": "4",
-                                "name": "fe80::a00:27ff:fe3e:5f74",
-                                "IPNetwork": []
-                            },
-                            {
                                 "id": "3",
                                 "name": "192.168.0.190",
                                 "IPNetwork": [
@@ -35118,6 +35113,11 @@
                                         "comment": null
                                     }
                                 ]
+                            },
+                            {
+                                "id": "4",
+                                "name": "fe80::a00:27ff:fe3e:5f74",
+                                "IPNetwork": []
                             }
                         ]
                     },
@@ -35166,13 +35166,13 @@
                         },
                         "IPAddress": [
                             {
-                                "id": "2",
-                                "name": "::1",
+                                "id": "1",
+                                "name": "127.0.0.1",
                                 "IPNetwork": []
                             },
                             {
-                                "id": "1",
-                                "name": "127.0.0.1",
+                                "id": "2",
+                                "name": "::1",
                                 "IPNetwork": []
                             }
                         ]

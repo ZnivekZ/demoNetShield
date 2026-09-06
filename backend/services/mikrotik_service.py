@@ -4,7 +4,11 @@ MikroTik Service - Singleton connection manager for RouterOS API.
 Design decisions:
 - Singleton pattern: one connection shared across all requests to avoid
   overwhelming the CHR with connections (RouterOS has limited session count)
-- Automatic reconnection with exponential backoff via tenacity
+- TCP pre-check before creating the pool: an unreachable host fails in ~1s
+  without touching routeros-api (whose sync handshake would hang a worker
+  thread and degrade the whole event loop via GIL contention)
+- Circuit breaker (2 failures / 10s cooldown) short-circuits calls while the
+  host is down, so REST/WS callers fail fast instead of attempting reconnect
 - Thread-safe via asyncio.Lock for connection management
 - All API calls wrapped in try/except with structured logging
 - Traffic calculation uses delta between consecutive reads
@@ -21,18 +25,9 @@ from typing import Any
 
 import routeros_api
 import structlog
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-)
 
 from config import get_settings
-from services.resilience import (
-    safe_call,
-    make_resilience,
-)
+from services.resilience import make_resilience
 
 logger = structlog.get_logger(__name__)
 
@@ -76,8 +71,8 @@ class MikroTikService:
         # calls when the host is unreachable.
         self._breaker, self._executor = make_resilience(
             name="mikrotik",
-            failure_threshold=3,
-            cooldown_seconds=30.0,
+            failure_threshold=2,
+            cooldown_seconds=10.0,
             # max_workers=1: a hung connect() / sync I/O cannot starve a
             # subsequent request. The previous default of 2 let two
             # hung requests pile up, both contending for the GIL and
@@ -136,36 +131,41 @@ class MikroTikService:
                 # the lifespan startup and make the backend unavailable
                 # just because MikroTik is down.
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((ConnectionError, OSError)),
-    )
     def _create_connection(self) -> routeros_api.RouterOsApiPool:
         """
-        Create RouterOS API connection pool with retry logic.
+        Create RouterOS API connection pool.
 
-        Sets a short default socket timeout BEFORE instantiating the pool
-        so the underlying socket.connect()/handshake is capped at 2s. Without
-        this the underlying TCP socket has no timeout and the thread that
-        runs this function can hold the GIL for tens of seconds while the
-        OS waits for the unreachable host — which in turn starves every
-        other coroutine in the event loop and cascades into Wazuh Indexer
-        timeouts on unrelated requests.
+        TCP pre-check first: if the host is unreachable we fail in ~1s WITHOUT
+        touching routeros_api (whose sync handshake would hang a worker thread
+        and degrade the whole event loop via GIL contention). Only when the
+        port is reachable do we instantiate the pool.
         """
         import socket as _socket
-        original_timeout = _socket.getdefaulttimeout()
-        _socket.setdefaulttimeout(2.0)
+
+        # ── Pre-check TCP: host vivo? ────────────────────────────
+        # Si la IP no responde (caída / subred inalcanzable), fallamos acá en
+        # ~1s sin crear el pool. Esto evita que routeros_api cuelgue un thread
+        # del executor durante timeouts largos y congele el event loop global
+        # (síntoma: GLPI/Wazuh/Indexer tardan ~30s con MikroTik caído).
+        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        sock.settimeout(1.0)
         try:
-            return routeros_api.RouterOsApiPool(
-                host=self._settings.mikrotik_host,
-                port=self._settings.mikrotik_port,
-                username=self._settings.mikrotik_user,
-                password=self._settings.mikrotik_password,
-                plaintext_login=True,  # Required for CHR lab setup
-            )
+            sock.connect((self._settings.mikrotik_host, self._settings.mikrotik_port))
+        except OSError as e:
+            raise ConnectionError(
+                f"mikrotik tcp pre-check failed: {self._settings.mikrotik_host}:"
+                f"{self._settings.mikrotik_port} — {e}"
+            ) from e
         finally:
-            _socket.setdefaulttimeout(original_timeout)
+            sock.close()
+
+        return routeros_api.RouterOsApiPool(
+            host=self._settings.mikrotik_host,
+            port=self._settings.mikrotik_port,
+            username=self._settings.mikrotik_user,
+            password=self._settings.mikrotik_password,
+            plaintext_login=True,  # Required for CHR lab setup
+        )
 
     async def _ensure_connected(self) -> None:
         """Reconnect if connection was lost."""

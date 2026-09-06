@@ -299,10 +299,13 @@ class WazuhService:
         limit: int = 50,
         level_min: int | None = None,
         offset: int = 0,
+        agent_id: str | None = None,
+        time_from: str | None = None,
     ) -> list[dict]:
         """
         Get recent alerts from Wazuh.
-        Queries the /alerts endpoint with optional severity filtering.
+        Queries the Indexer (wazuh-alerts-4.x-*) with optional filters:
+        level_min, agent_id, time_from (ISO or 'now-7d' style).
         """
         # Prefer the Wazuh Indexer (OpenSearch :9200) — Server API has no /alerts
         from services.wazuh_indexer import get_indexer_client
@@ -310,7 +313,8 @@ class WazuhService:
         if indexer.is_configured():
             try:
                 raw_alerts = await indexer.get_alerts(
-                    limit=limit, level_min=level_min
+                    limit=limit, level_min=level_min,
+                    agent_id=agent_id, time_from=time_from,
                 )
                 # Indexer returns nested format (agent.name, rule.level).
                 # Flatten to match the rest of the dashboard's flat schema

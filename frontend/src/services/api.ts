@@ -310,52 +310,9 @@ export const wazuhApiExtended = {
       if (filters.search) params.search = filters.search;
 
       return await api
-        .get<APIResponse<WazuhAlertsPagination>>('/wazuh/alerts', { params })
+        .get<APIResponse<WazuhAlertsPagination>>('/wazuh/alerts/paginated', { params })
         .then(r => r.data);
-    } catch (e: unknown) {
-      const status = (e as { response?: { status?: number } })?.response?.status;
-      // If the backend doesn't support paginated params yet, fall back to the basic endpoint
-      // and shape the response manually.
-      if (status && status >= 400 && status < 500) {
-        try {
-          const basic = await wazuhApi.getAlerts(
-            filters.page_size ?? 25,
-            filters.level_min,
-            ((filters.page ?? 1) - 1) * (filters.page_size ?? 25),
-          );
-          if (basic.success && basic.data) {
-            const all = basic.data;
-            const page = filters.page ?? 1;
-            const size = filters.page_size ?? 25;
-            const filtered = all.filter(a => {
-              if (filters.agent_id && a.agent_id !== filters.agent_id) return false;
-              if (filters.rule_id && a.rule_id !== filters.rule_id) return false;
-              if (filters.search) {
-                const q = filters.search.toLowerCase();
-                if (!a.rule_description.toLowerCase().includes(q) && !a.agent_name.toLowerCase().includes(q)) return false;
-              }
-              return true;
-            });
-            return {
-              success: true,
-              data: {
-                items: filtered.slice((page - 1) * size, page * size),
-                pagination: {
-                  page,
-                  page_size: size,
-                  total: filtered.length,
-                  total_pages: Math.max(1, Math.ceil(filtered.length / size)),
-                  has_next: page * size < filtered.length,
-                  has_prev: page > 1,
-                },
-              },
-              error: null,
-            };
-          }
-        } catch {
-          // ignore — fallthrough
-        }
-      }
+    } catch {
       return notAvailableResponse<WazuhAlertsPagination>('getAlertsPaginated');
     }
   },

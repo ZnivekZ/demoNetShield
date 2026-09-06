@@ -40,22 +40,80 @@ async def get_agents(
         return APIResponse.fail(f"Failed to fetch agents: {str(e)}")
 
 
+@router.get("/alerts/paginated")
+async def get_alerts_paginated(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    level_min: int | None = Query(None, ge=1, le=15),
+    agent_id: str | None = Query(None),
+    rule_id: str | None = Query(None),
+    search: str | None = Query(None),
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """
+    Get recent alerts with filters, paginated.
+    Mirrors the frontend WazuhAlertsPagination shape:
+    {items: [...], pagination: {page, page_size, total, total_pages, has_next, has_prev}}.
+    Filters: level_min, agent_id, rule_id, search (description/agent/rule), from_date/to_date.
+    """
+    try:
+        # Fetch a bounded recent window (up to 500 from the Indexer, last 7d by
+        # default) then filter + paginate client-side. The Indexer query already
+        # narrows by level_min / agent_id / time window.
+        time_from = from_date or ("now-7d" if not to_date else None)
+        data = await service.get_alerts(
+            limit=500, level_min=level_min, agent_id=agent_id, time_from=time_from
+        )
+        # Client-side filters the Indexer query can't express
+        if rule_id:
+            data = [a for a in data if a.get("rule_id") == rule_id]
+        if search:
+            q = search.lower()
+            data = [
+                a for a in data
+                if q in (a.get("rule_description") or "").lower()
+                or q in (a.get("agent_name") or "").lower()
+                or q in (a.get("rule_id") or "").lower()
+            ]
+        if to_date:
+            data = [a for a in data if (a.get("timestamp") or "") <= to_date]
+        total = len(data)
+        start = (page - 1) * page_size
+        page_items = data[start:start + page_size]
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        return APIResponse.ok({
+            "items": page_items,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
+            },
+        })
+    except Exception as e:
+        logger.error("api_get_alerts_paginated_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch alerts: {str(e)}")
+
+
 @router.get("/alerts")
 async def get_alerts(
     limit: int = Query(50, ge=1, le=500),
     level_min: int | None = Query(None, ge=1, le=15),
     offset: int = Query(0, ge=0),
+    agent_id: str | None = Query(None),
     service: WazuhService = Depends(get_service),
 ) -> APIResponse:
     """
-    Get recent alerts with optional severity filtering.
-    - limit: max number of alerts (1-500)
-    - level_min: minimum rule level (1-15, higher = more critical)
-    - offset: pagination offset
+    Get recent alerts with optional severity filtering (plain array — used by
+    dashboard widgets and WebSockets). For paginated views use /alerts/paginated.
     """
     try:
         data = await service.get_alerts(
-            limit=limit, level_min=level_min, offset=offset
+            limit=limit, level_min=level_min, offset=offset, agent_id=agent_id
         )
         return APIResponse.ok(data)
     except Exception as e:

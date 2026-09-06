@@ -527,9 +527,17 @@ class WazuhIndexerClient:
 
     @staticmethod
     def _normalize_vuln(raw: dict[str, Any]) -> dict[str, Any]:
+        """Normalize a wazuh-states-vulnerabilities doc to the dashboard shape.
+
+        Shape consumed by the frontend (WazuhVulnerability): cve_id, title,
+        description, severity, cvss_score, package_name, package_version,
+        package_arch, agent_id, agent_name, agent_ip, detected_at, references.
+        """
         v = raw.get("vulnerability", {}) or {}
         a = raw.get("agent", {}) or {}
         package = raw.get("package", {}) or {}
+        host = raw.get("host", {}) or {}
+
         # Score can be a number (CVSS v2) or a dict (CVSS v3 with subscores)
         raw_score = v.get("score", 0) or 0
         if isinstance(raw_score, dict):
@@ -541,17 +549,26 @@ class WazuhIndexerClient:
             )
         else:
             score_val = float(raw_score)
+
+        # Normalize severity to lowercase for the UI's color mapping
+        severity = str(v.get("severity", "low") or "low").lower()
+
         return {
-            "cve": v.get("id", ""),
-            "title": v.get("description", "")[:200],
-            "severity": v.get("severity", "low"),
-            "score": score_val,
-            "published": v.get("published_at", ""),
-            "package": package.get("name", ""),
+            "cve_id": v.get("id", ""),
+            "title": (v.get("description") or "")[:200],
+            "description": v.get("description", ""),
+            "severity": severity,
+            "cvss_score": score_val,
+            "published_at": v.get("published_at", ""),
+            "package_name": package.get("name", ""),
             "package_version": package.get("version", ""),
+            "package_arch": package.get("architecture", ""),
             "agent_id": a.get("id", ""),
             "agent_name": a.get("name", ""),
+            "agent_ip": a.get("ip", ""),
+            "detected_at": v.get("detected_at", ""),
             "reference": (v.get("reference", "") or "")[:300],
+            "references": [v.get("reference", "")] if v.get("reference") else [],
         }
 
 

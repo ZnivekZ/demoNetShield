@@ -757,39 +757,25 @@ class WazuhService:
         offset: int = 0,
     ) -> list[dict]:
         """
-        [Wazuh API] Get vulnerabilities detected on agents.
-        Wazuh endpoint: GET /vulnerability/{agent_id} or GET /vulnerabilities
-        Returns normalized vulnerability items with severity scoring.
+        [Wazuh Indexer] Get vulnerability findings.
+
+        The /vulnerabilities endpoint is transparently redirected to the Wazuh
+        Indexer (wazuh-states-vulnerabilities-*), whose documents are already
+        normalized to the dashboard shape by WazuhIndexerClient._normalize_vuln
+        (cve_id, cvss_score, package_name, detected_at, references, ...).
+        Return them as-is — do NOT re-map to the old Server-API field names.
         """
         try:
-            params: dict[str, Any] = {"limit": limit, "offset": offset}
-            if agent_id:
-                endpoint = f"/vulnerability/{agent_id}"
-            else:
-                endpoint = "/vulnerabilities"
-            data = await self._api_request("GET", endpoint, params=params)
+            data = await self._api_request("GET", "/vulnerabilities", params={"limit": limit, "offset": offset})
+            # Passthrough returns {data: {affected_items: [...]}} with the
+            # normalized Indexer items already in dashboard shape.
             affected = data.get("data", {}).get("affected_items", [])
-            out: list[dict] = []
-            for item in affected:
-                severity = (item.get("severity") or "").lower()
-                score = float(item.get("cvss2_score") or item.get("cvss3_score") or 0)
-                out.append({
-                    "id": item.get("id", ""),
-                    "agent_id": item.get("agent_id", ""),
-                    "agent_name": item.get("agent_name", ""),
-                    "cve": item.get("cve", ""),
-                    "title": item.get("title", ""),
-                    "severity": severity,
-                    "score": score,
-                    "reference": item.get("reference", ""),
-                    "published": item.get("published", ""),
-                    "updated": item.get("updated", ""),
-                    "version": item.get("version", ""),
-                    "type": item.get("type", ""),
-                })
-            return out
+            if agent_id:
+                affected = [v for v in affected if v.get("agent_id") == agent_id]
+            return affected
         except Exception as e:
             logger.warning("wazuh_get_vulnerabilities_failed", error=str(e))
+            return []
 
     async def get_agent_detail(self, agent_id: str) -> dict:
         """

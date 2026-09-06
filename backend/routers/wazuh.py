@@ -274,15 +274,48 @@ async def get_stats_summary(
 
 @router.get("/vulnerabilities")
 async def get_vulnerabilities(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    severity: str | None = Query(None),
+    search: str | None = Query(None),
     agent_id: str | None = Query(None),
-    limit: int = Query(50, ge=1, le=500),
-    offset: int = Query(0, ge=0),
     service: WazuhService = Depends(get_service),
 ) -> APIResponse:
-    """[Wazuh API] List vulnerabilities detected on agents, optionally filtered by agent."""
+    """
+    [Wazuh Indexer] List vulnerabilities detected on agents, paginated.
+    Mirrors the frontend WazuhVulnerabilitiesPagination shape:
+    {items: [...], pagination: {page, page_size, total, total_pages, has_next, has_prev}}.
+    """
     try:
-        data = await service.get_vulnerabilities(agent_id=agent_id, limit=limit, offset=offset)
-        return APIResponse.ok(data)
+        items = await service.get_vulnerabilities(agent_id=agent_id, limit=500)
+        # Client-side filter + paginate (bounded dataset; switch to server-side
+        # query when the index grows past ~thousands of CVEs)
+        if severity:
+            items = [v for v in items if v.get("severity") == severity.lower()]
+        if search:
+            q = search.lower()
+            items = [
+                v for v in items
+                if q in (v.get("cve_id") or "").lower()
+                or q in (v.get("package_name") or "").lower()
+                or q in (v.get("agent_name") or "").lower()
+                or q in (v.get("title") or "").lower()
+            ]
+        total = len(items)
+        start = (page - 1) * page_size
+        page_items = items[start:start + page_size]
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        return APIResponse.ok({
+            "items": page_items,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
+            },
+        })
     except Exception as e:
         logger.error("api_wazuh_vulnerabilities_failed", error=str(e))
         return APIResponse.fail(f"Failed to fetch vulnerabilities: {str(e)}")

@@ -514,7 +514,7 @@ export const wazuhApiExtended = {
       if (filters.search) params.search = filters.search;
 
       return await api
-        .get<APIResponse<WazuhVulnerabilitiesPagination>>('/wazuh/vulnerability', { params })
+        .get<APIResponse<WazuhVulnerabilitiesPagination>>('/wazuh/vulnerabilities', { params })
         .then(r => r.data);
     } catch {
       return notAvailableResponse<WazuhVulnerabilitiesPagination>('getVulnerabilities');

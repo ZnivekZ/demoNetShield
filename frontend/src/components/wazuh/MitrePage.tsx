@@ -48,7 +48,7 @@ export function WazuhMitrePage() {
   const [selectedTechId, setSelectedTechId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'count' | 'name' | 'recent'>('count');
 
-  const isBackendUnavailable = !matrix?.success && (matrix?.error === 'no_disponible' || !!error);
+  const isBackendUnavailable = !matrix && (!!error || !isLoading);
 
   // Group techniques by id for cross-tactic lookup
   const techIndex = useMemo(() => {
@@ -59,7 +59,7 @@ export function WazuhMitrePage() {
 
   // Build matrix: rows = technique ids, columns = tactic ids
   const matrixData = useMemo(() => {
-    if (!matrix?.success || !matrix.data) {
+    if (!matrix || !matrix.tactics) {
       return null;
     }
 
@@ -67,7 +67,7 @@ export function WazuhMitrePage() {
     const tacticByTech = new Map<string, Set<string>>(); // tech -> set of tactic ids
     const techMap = new Map<string, MitreTechnique & { total: number }>();
 
-    for (const tactic of matrix.data.tactics) {
+    for (const tactic of matrix.tactics) {
       for (const tech of tactic.techniques) {
         if (!tacticByTech.has(tech.technique_id)) {
           tacticByTech.set(tech.technique_id, new Set());
@@ -372,7 +372,3 @@ export function WazuhMitrePage() {
     </div>
   );
 }
-
-// ── Helper for type-only reference (kept for future tactic detail) ──
-type _Unused = MitreTactic;
-void (null as unknown as _Unused);

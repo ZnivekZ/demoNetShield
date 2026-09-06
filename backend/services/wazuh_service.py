@@ -265,6 +265,26 @@ class WazuhService:
 
     # ── Public API Methods ────────────────────────────────────────
 
+    @staticmethod
+    def _normalize_agent(agent: dict) -> dict:
+        """Map a Wazuh Server API agent item to the dashboard's flat shape."""
+        os_data = agent.get("os", {})
+        if not isinstance(os_data, dict):
+            os_data = {}
+        return {
+            "id": agent.get("id", ""),
+            "name": agent.get("name", ""),
+            "ip": agent.get("ip", ""),
+            "status": agent.get("status", ""),
+            "os_name": os_data.get("name", ""),
+            "os_version": os_data.get("version", ""),
+            "manager": agent.get("manager", ""),
+            "node_name": agent.get("node_name", ""),
+            "group": agent.get("group", []),
+            "last_keep_alive": agent.get("lastKeepAlive", ""),
+            "date_add": agent.get("dateAdd", ""),
+        }
+
     async def get_agents(self) -> list[dict]:
         """
         Get all Wazuh agents with their status.
@@ -273,21 +293,7 @@ class WazuhService:
         try:
             data = await self._api_request("GET", "/agents", params={"limit": 500})
             agents = data.get("data", {}).get("affected_items", [])
-            result = []
-            for agent in agents:
-                result.append({
-                    "id": agent.get("id", ""),
-                    "name": agent.get("name", ""),
-                    "ip": agent.get("ip", ""),
-                    "status": agent.get("status", ""),
-                    "os_name": agent.get("os", {}).get("name", ""),
-                    "os_version": agent.get("os", {}).get("version", ""),
-                    "manager": agent.get("manager", ""),
-                    "node_name": agent.get("node_name", ""),
-                    "group": agent.get("group", []),
-                    "last_keep_alive": agent.get("lastKeepAlive", ""),
-                    "date_add": agent.get("dateAdd", ""),
-                })
+            result = [self._normalize_agent(a) for a in agents]
             logger.debug("wazuh_agents_fetched", count=len(result))
             return result
         except Exception as e:
@@ -647,46 +653,41 @@ class WazuhService:
 
     async def get_mitre_summary(self) -> list[dict]:
         """
-        [Wazuh API] Get detected MITRE ATT&CK techniques grouped by frequency.
-        Falls back to rule_groups when MITRE data is not available.
+        [Wazuh Indexer] Get detected MITRE ATT&CK techniques with their tactic.
+
+        Aggregates the last 7d of alerts by rule.mitre.id (technique) with
+        tactic/technique names. Returns: [{tactic, technique_id,
+        technique_name, count}] — the shape consumed by get_mitre_matrix and
+        the dashboard's MITRE views.
         """
         try:
-            params: dict[str, Any] = {
-                "limit": 500,
-                "offset": 0,
-                "sort": "-timestamp",
-            }
-            data = await self._api_request("GET", "/alerts", params=params)
+            from services.wazuh_indexer import get_indexer_client
+            indexer = get_indexer_client()
+            if indexer.is_configured():
+                rows = await indexer.get_mitre_summary()
+                if rows:
+                    return rows
+            # Fallback: Server API /alerts → group by MITRE fields when present
+            data = await self._api_request("GET", "/alerts", params={"limit": 500})
             alerts = data.get("data", {}).get("affected_items", [])
             normalized = self._normalize_alerts(alerts)
 
             from collections import defaultdict
 
             techniques: defaultdict[str, dict] = defaultdict(
-                lambda: {"technique_id": "", "technique_name": "", "count": 0, "last_seen": ""}
+                lambda: {"technique_id": "", "technique_name": "", "tactic": "", "count": 0}
             )
 
             for alert in normalized:
                 mitre_id = alert.get("mitre_id", "")
                 mitre_name = alert.get("mitre_technique", "")
-
-                # Fallback: use rule_groups if no MITRE data
-                if not mitre_id and not mitre_name:
-                    groups = alert.get("rule_groups", [])
-                    if groups:
-                        mitre_name = groups[0]
-                        mitre_id = f"group:{groups[0]}"
-                    else:
-                        continue
-
-                key = mitre_id or mitre_name
+                if not mitre_id:
+                    continue
+                key = mitre_id
                 entry = techniques[key]
                 entry["technique_id"] = mitre_id
                 entry["technique_name"] = mitre_name
                 entry["count"] += 1
-                ts = alert.get("timestamp", "")
-                if ts and (not entry["last_seen"] or ts > entry["last_seen"]):
-                    entry["last_seen"] = ts
 
             result = list(techniques.values())
             result.sort(key=lambda x: x["count"], reverse=True)
@@ -784,30 +785,20 @@ class WazuhService:
     async def get_agent_detail(self, agent_id: str) -> dict:
         """
         [Wazuh API] Get detail of a single agent.
-        Wazuh endpoints: GET /agents/{agent_id} and GET /agents/{agent_id}/group/is_sync.
+        The Server API has no GET /agents/{id} in this version — query the
+        list endpoint with q=id={agent_id} and normalize with _normalize_agent.
         """
         try:
-            data = await self._api_request("GET", f"/agents/{agent_id}")
+            data = await self._api_request(
+                "GET", "/agents", params={"q": f"id={agent_id}", "limit": 5}
+            )
             items = data.get("data", {}).get("affected_items", [])
             if items:
-                agent = items[0]
-                return {
-                    "id": agent.get("id", agent_id),
-                    "name": agent.get("name", ""),
-                    "ip": agent.get("ip", ""),
-                    "status": agent.get("status", ""),
-                    "os_name": agent.get("os", {}).get("name", "") if isinstance(agent.get("os"), dict) else str(agent.get("os", "")),
-                    "os_version": agent.get("version", "") or (agent.get("os", {}).get("version", "") if isinstance(agent.get("os"), dict) else ""),
-                    "manager": agent.get("manager", ""),
-                    "node_name": agent.get("node_name", ""),
-                    "last_keep_alive": agent.get("last_keep_alive", ""),
-                    "registration_ip": agent.get("registration_ip", ""),
-                    "group": agent.get("group", []),
-                    "date_add": agent.get("dateAdd", ""),
-                }
+                return self._normalize_agent(items[0])
             return {"id": agent_id, "error": "not_found"}
         except Exception as e:
             logger.warning("wazuh_get_agent_detail_failed", agent_id=agent_id, error=str(e))
+            return {"id": agent_id, "error": "not_found"}
 
     async def get_agent_alerts(
         self, agent_id: str, limit: int = 25, level_min: int = 0
@@ -827,6 +818,7 @@ class WazuhService:
         """
         [Wazuh API] Get recent file integrity monitoring (syscheck) events for an agent.
         Endpoint: GET /syscheck/{agent_id}
+        Server API items carry: file, sha256, size, date, changes, type, arch.
         """
         try:
             data = await self._api_request(
@@ -835,10 +827,13 @@ class WazuhService:
             items = data.get("data", {}).get("affected_items", [])
             out: list[dict] = []
             for it in items:
+                changes = it.get("changes") or 1
                 out.append({
                     "file": it.get("file", ""),
-                    "event": it.get("event", ""),
-                    "timestamp": it.get("timestamp", ""),
+                    # UI expects event/timestamp; the API calls the field "date"
+                    # and has no event string — derive one from type+changes.
+                    "event": f"{it.get('type', 'file')} ({changes} change{'s' if changes != 1 else ''})",
+                    "timestamp": it.get("date", it.get("timestamp", "")),
                     "sha256": it.get("sha256", ""),
                     "size": it.get("size", 0),
                     "agent_id": agent_id,
@@ -846,6 +841,7 @@ class WazuhService:
             return out
         except Exception as e:
             logger.warning("wazuh_get_agent_syscheck_failed", agent_id=agent_id, error=str(e))
+            return []
 
     async def get_agent_syscollector(self, agent_id: str) -> dict:
         """
@@ -899,26 +895,62 @@ class WazuhService:
 
     async def get_mitre_matrix(self) -> dict:
         """
-        [Wazuh API] Get MITRE ATT&CK matrix counts (tactics → techniques → count).
-        Uses the existing mitre summary and groups techniques under their tactic.
+        [Wazuh Indexer] Get MITRE ATT&CK matrix (tactics → techniques → count).
+
+        Groups get_mitre_summary rows (each with a tactic NAME, technique_id,
+        technique_name, count) under tactics, matching the dashboard shape:
+        {tactics: [{tactic_id, tactic_name, techniques: [{technique_id,
+        technique_name, count, last_seen}], total_count}]}.
         """
         try:
             summary = await self.get_mitre_summary()
-            # Group by tactic (TA00XX codes)
-            tactics: dict[str, dict[str, Any]] = {}
+            # Group by tactic name (the summary carries the tactic as a name,
+            # e.g. "Privilege Escalation" — map to a stable id + name pair).
+            from collections import OrderedDict
+
+            tactics: "OrderedDict[str, dict]" = OrderedDict()
             for row in summary:
-                tech = row.get("technique", "")
-                tactic_id = row.get("tactic", "")
-                count = row.get("count", 0)
-                if not tactic_id:
-                    continue
-                if tactic_id not in tactics:
-                    tactics[tactic_id] = {"id": tactic_id, "name": tactic_id, "techniques": [], "total": 0}
-                tactics[tactic_id]["techniques"].append({"id": tech, "name": tech, "count": count})
-                tactics[tactic_id]["total"] += count
+                tactic_name = row.get("tactic", "") or "Uncategorized"
+                tid = self._tactic_id_for_name(tactic_name)
+                if tid not in tactics:
+                    tactics[tid] = {
+                        "tactic_id": tid,
+                        "tactic_name": tactic_name,
+                        "techniques": [],
+                        "total_count": 0,
+                    }
+                tactics[tid]["techniques"].append({
+                    "technique_id": row.get("technique_id", ""),
+                    "technique_name": row.get("technique_name", "") or row.get("technique_id", ""),
+                    "count": row.get("count", 0),
+                    "last_seen": row.get("last_seen", ""),
+                })
+                tactics[tid]["total_count"] += row.get("count", 0)
             return {"tactics": list(tactics.values())}
         except Exception as e:
             logger.warning("wazuh_get_mitre_matrix_failed", error=str(e))
+            return {"tactics": []}
+
+    @staticmethod
+    def _tactic_id_for_name(name: str) -> str:
+        """Map a MITRE tactic name to its TA-code when known, else a slug."""
+        mapping = {
+            "Reconnaissance": "TA0043",
+            "Resource Development": "TA0042",
+            "Initial Access": "TA0001",
+            "Execution": "TA0002",
+            "Persistence": "TA0003",
+            "Privilege Escalation": "TA0004",
+            "Defense Evasion": "TA0005",
+            "Credential Access": "TA0006",
+            "Discovery": "TA0007",
+            "Lateral Movement": "TA0008",
+            "Collection": "TA0009",
+            "Command and Control": "TA0011",
+            "Exfiltration": "TA0010",
+            "Impact": "TA0040",
+        }
+        return mapping.get(name, f"TA-{name[:16].upper()}")
 
     async def get_stats_summary(self) -> dict:
         """

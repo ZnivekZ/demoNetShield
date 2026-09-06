@@ -110,6 +110,8 @@ import type {
     WazuhAgentsFilters,
     WazuhAgentsPagination,
     WazuhAgentDetail,
+    WazuhSyscheckEvent,
+    WazuhSyscollectorInfo,
     WazuhVulnerabilitiesFilters,
     WazuhVulnerabilitiesPagination,
     WazuhMitreMatrix,
@@ -405,61 +407,56 @@ export const wazuhApiExtended = {
       }
     },
 
-  // ── Agent detail (includes syscheck + syscollector if backend exposes them) ──
+  // ── Agent detail (flat agent fields — same shape as the agents list) ──
   getAgentDetail: async (agentId: string): Promise<APIResponse<WazuhAgentDetail>> => {
     try {
-      const [agentRes, alertsRes] = await Promise.all([
-        api.get<APIResponse<WazuhAgentDetail['agent']>>(`/wazuh/agents/${encodeURIComponent(agentId)}`),
-        wazuhApi.getAlertsByAgent(agentId, 20, 0),
-      ]);
-
-      if (agentRes.data.success && agentRes.data.data) {
-        return {
-          success: true,
-          data: {
-            agent: agentRes.data.data,
-            recent_alerts: alertsRes.success && alertsRes.data ? alertsRes.data : [],
-          },
-          error: null,
-        };
-      }
-      // If endpoint exists but returned success=false, treat as not_available
-      if (agentRes.status === 404 || (agentRes.data && agentRes.data.success === false)) {
-        return notAvailableResponse<WazuhAgentDetail>('getAgentDetail');
+      const agentRes = await api.get<APIResponse<WazuhAgentDetail>>(`/wazuh/agents/${encodeURIComponent(agentId)}`);
+      const d = agentRes.data;
+      if (d && d.success && d.data) {
+        return d;
       }
       return notAvailableResponse<WazuhAgentDetail>('getAgentDetail');
     } catch {
-      // Endpoint /wazuh/agents/{id} doesn't exist on backend — fall back gracefully
+      // Endpoint unavailable → fall back to the agents list (same flat shape)
       try {
         const agentsRes = await wazuhApi.getAgents();
         if (agentsRes.success && agentsRes.data) {
           const agent = agentsRes.data.find(a => a.id === agentId);
           if (agent) {
-            const alertsRes = await wazuhApi.getAlertsByAgent(agentId, 20, 0);
-            return {
-              success: true,
-              data: {
-                agent,
-                recent_alerts: alertsRes.success && alertsRes.data ? alertsRes.data : [],
-              },
-              error: null,
-            };
+            return { success: true, data: agent as WazuhAgentDetail, error: null };
           }
         }
       } catch {
-        // ignore
+        // ignore — fallthrough
       }
       return notAvailableResponse<WazuhAgentDetail>('getAgentDetail');
     }
   },
 
-  getAgentSyscheck: async (_agentId: string): Promise<APIResponse<WazuhAgentDetail['syscheck']>> => {
-    // Backend endpoint not implemented yet — return graceful not-available
-    return notAvailableResponse<WazuhAgentDetail['syscheck']>('getAgentSyscheck');
+  getAgentSyscheck: async (agentId: string): Promise<APIResponse<WazuhSyscheckEvent[]>> => {
+    try {
+      const res = await api.get<APIResponse<WazuhSyscheckEvent[]>>(`/wazuh/agents/${encodeURIComponent(agentId)}/syscheck`);
+      const d = res.data;
+      if (d && d.success && Array.isArray(d.data)) {
+        return d;
+      }
+      return notAvailableResponse<WazuhSyscheckEvent[]>('getAgentSyscheck');
+    } catch {
+      return notAvailableResponse<WazuhSyscheckEvent[]>('getAgentSyscheck');
+    }
   },
 
-  getAgentSyscollector: async (_agentId: string): Promise<APIResponse<WazuhAgentDetail['syscollector']>> => {
-    return notAvailableResponse<WazuhAgentDetail['syscollector']>('getAgentSyscollector');
+  getAgentSyscollector: async (agentId: string): Promise<APIResponse<WazuhSyscollectorInfo>> => {
+    try {
+      const res = await api.get<APIResponse<WazuhSyscollectorInfo>>(`/wazuh/agents/${encodeURIComponent(agentId)}/syscollector`);
+      const d = res.data;
+      if (d && d.success && d.data) {
+        return d;
+      }
+      return notAvailableResponse<WazuhSyscollectorInfo>('getAgentSyscollector');
+    } catch {
+      return notAvailableResponse<WazuhSyscollectorInfo>('getAgentSyscollector');
+    }
   },
 
   // ── Vulnerabilities ──────────────────────────────────────────────

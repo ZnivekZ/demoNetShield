@@ -326,8 +326,12 @@ class WazuhIndexerClient:
 
     async def get_mitre_summary(self) -> list[dict[str, Any]]:
         """
-        Aggregate alerts by MITRE tactic.id to populate the MITRE dashboard.
-        Returns: [{"tactic_id": "TA0001", "technique_count": 3, "alert_count": 12}, ...]
+        Aggregate alerts by MITRE tactic/technique to populate the MITRE matrix.
+
+        The actual alert mapping is rule.mitre.tactic / rule.mitre.technique /
+        rule.mitre.id as arrays of keyword STRINGS (tactic names, technique
+        names, technique ids like T1548.003). Returns rows shaped for the
+        dashboard: [{tactic, technique_id, technique_name, count}].
         """
         if not self.is_configured():
             return []
@@ -339,17 +343,20 @@ class WazuhIndexerClient:
                 "bool": {
                     "must": [
                         {"range": {"@timestamp": {"gte": "now-7d"}}},
-                        {"exists": {"field": "rule.mitre.id"}},
+                        {"exists": {"field": "rule.mitre.technique"}},
                     ]
                 }
             },
             "aggs": {
-                "by_tactic": {
-                    "terms": {"field": "rule.mitre.tactic.id", "size": 20},
+                "by_technique": {
+                    "terms": {"field": "rule.mitre.id", "size": 200},
                     "aggs": {
-                        "technique_count": {
-                            "cardinality": {"field": "rule.mitre.id"}
-                        }
+                        "technique_name": {
+                            "terms": {"field": "rule.mitre.technique", "size": 1}
+                        },
+                        "tactic": {
+                            "terms": {"field": "rule.mitre.tactic", "size": 5}
+                        },
                     },
                 }
             },
@@ -366,15 +373,24 @@ class WazuhIndexerClient:
             )
             resp.raise_for_status()
             data = resp.json()
-            buckets = data.get("aggregations", {}).get("by_tactic", {}).get("buckets", [])
-            return [
-                {
-                    "tactic_id": b.get("key", ""),
-                    "technique_count": b.get("technique_count", {}).get("value", 0),
-                    "alert_count": b.get("doc_count", 0),
-                }
-                for b in buckets
-            ]
+            buckets = (
+                data.get("aggregations", {}).get("by_technique", {}).get("buckets", [])
+            )
+            out: list[dict[str, Any]] = []
+            for b in buckets:
+                t_name = (
+                    b.get("technique_name", {}).get("buckets", [{}])[0].get("key", "")
+                )
+                tactic_buckets = b.get("tactic", {}).get("buckets", [])
+                tactic = tactic_buckets[0].get("key", "") if tactic_buckets else ""
+                out.append({
+                    "tactic": tactic,
+                    "technique_id": b.get("key", ""),
+                    "technique_name": t_name or b.get("key", ""),
+                    "count": b.get("doc_count", 0),
+                })
+            out.sort(key=lambda x: x["count"], reverse=True)
+            return out
         except Exception as e:
             logger.warning("wazuh_indexer_mitre_failed", error=str(e))
             return []

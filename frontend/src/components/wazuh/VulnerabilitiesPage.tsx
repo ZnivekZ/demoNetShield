@@ -3,22 +3,18 @@
  *
  * Route: /wazuh/vulnerabilities
  *
- * Backend endpoint /wazuh/vulnerability is NOT yet wired on the server.
- * The page detects this gracefully and shows a "Pendiente de integración
- * backend" message instead of crashing.
- *
  * Layout:
  *   ┌─ Header + severity tabs ──────────────────────────────────────────────┐
  *   ├─ Summary (counts by severity) ────────────────────────────────────────┤
  *   ├─ Filter bar: severity + search ───────────────────────────────────────┤
- *   ├─ Vulnerability cards/table (CVE, package, agent, CVSS) ───────────────┤
+ *   ├─ Vulnerability cards (CVE, CVSS circle, package, agent, ref) ─────────┤
  *   └─ Pagination ──────────────────────────────────────────────────────────┘
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   Bug, Search, Filter, X, ChevronLeft, ChevronRight,
-  ShieldAlert, Package, ExternalLink, ChevronRight as ChevronRightIcon,
+  ShieldAlert, Package, ExternalLink,
 } from 'lucide-react';
 import { useWazuhVulnerabilities } from '../../hooks/useWazuh';
 import { formatDateTime } from '../utils/time';
@@ -62,7 +58,9 @@ export function WazuhVulnerabilitiesPage() {
   };
 
   const { data, isLoading, isFetching } = useWazuhVulnerabilities(filters);
-  const isBackendUnavailable = !data?.success && data?.error === 'no_disponible';
+  // El hook hace select: r => r.data → data ya es el payload paginado.
+  // null = el backend devolvió no_disponible (notAvailableResponse).
+  const isBackendUnavailable = data === null;
 
   const items = data?.items ?? [];
   const pagination = data?.pagination;
@@ -130,17 +128,8 @@ export function WazuhVulnerabilitiesPage() {
                 Pendiente de integración backend
               </h3>
               <p className="text-xs text-surface-400 mt-1 leading-relaxed">
-                El endpoint <code className="text-amber-300">/wazuh/vulnerability</code> aún no está
-                expuesto por el backend. Esta página se renderizará automáticamente cuando el
-                módulo Vulnerability Detector de Wazuh esté configurado y la respuesta del servidor
-                incluya la lista paginada de CVEs.
-              </p>
-              <p className="text-xs text-surface-500 mt-2">
-                Mientras tanto, puedes revisar alertas con nivel ≥ 8 en la pestaña{' '}
-                <Link to="/wazuh/alerts?level_min=8" className="text-cyan-400 hover:text-cyan-300 underline">
-                  Alertas
-                </Link>{' '}
-                para detectar intentos de explotación.
+                El backend no pudo devolver vulnerabilidades en este momento. Verificá que el
+                módulo Vulnerability Detector de Wazuh esté activo y que el Indexer sea accesible.
               </p>
             </div>
           </div>
@@ -292,84 +281,130 @@ export function WazuhVulnerabilitiesPage() {
 
 // ── Vulnerability row ──────────────────────────────────────────────
 
+const SEV_CIRCLE: Record<string, string> = {
+  critical: 'border-red-500/60 text-red-300 bg-red-500/10',
+  high: 'border-orange-500/60 text-orange-300 bg-orange-500/10',
+  medium: 'border-amber-500/60 text-amber-300 bg-amber-500/10',
+  low: 'border-blue-500/60 text-blue-300 bg-blue-500/10',
+};
+
 function VulnRow({ vuln }: { vuln: WazuhVulnerability }) {
+  const [expanded, setExpanded] = useState(false);
+  const desc = vuln.description || vuln.title || '';
+  const descLong = desc.length > 260;
+  const shownDesc = expanded || !descLong ? desc : `${desc.slice(0, 260).trimEnd()}…`;
+
   return (
-    <div className={`glass-card p-4 hover:border-amber-500/30 transition-colors group wazuh-vuln-row wazuh-vuln-${vuln.severity}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
+    <div className={`glass-card p-5 hover:border-amber-500/30 transition-colors wazuh-vuln-row wazuh-vuln-${vuln.severity}`}>
+      <div className="flex items-start justify-between gap-5">
+        {/* ── Identidad: badge + CVE + paquete ── */}
+        <div className="min-w-0 flex-1 space-y-2.5">
+          <div className="flex items-center gap-2.5 flex-wrap">
             <span className={`wazuh-sev-badge wazuh-sev-${vuln.severity}`}>
               {vuln.severity}
             </span>
-            <h4 className="text-sm font-semibold text-surface-100">{vuln.title}</h4>
-            <span className="text-xs text-surface-500 font-mono">{vuln.cve_id}</span>
+            <span className="text-xs font-mono font-semibold text-amber-300/90 tracking-tight">
+              {vuln.cve_id}
+            </span>
+            {vuln.package_name && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-surface-300 bg-surface-800/60 border border-surface-700/50 px-2 py-0.5 rounded-full">
+                <Package className="w-3 h-3 text-surface-400" />
+                {vuln.package_name}
+                {vuln.package_version && (
+                  <span className="text-surface-500">@{vuln.package_version}</span>
+                )}
+              </span>
+            )}
           </div>
 
-          {vuln.description && (
-            <p className="text-xs text-surface-400 leading-relaxed line-clamp-2 mb-2">
-              {vuln.description}
-            </p>
-          )}
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
-            <FieldMini2 label="CVSS" value={vuln.cvss_score.toFixed(1)} mono />
-            <FieldMini2
-              label="Paquete"
-              value={
-                <span className="inline-flex items-center gap-1">
-                  <Package className="w-3 h-3" />
-                  {vuln.package_name} <span className="text-surface-500">@{vuln.package_version}</span>
-                </span>
-              }
-            />
-            <FieldMini2
-              label="Agente"
-              value={
-                <Link
-                  to={`/wazuh/agents/${encodeURIComponent(vuln.agent_id)}`}
-                  className="text-cyan-400 hover:text-cyan-300 truncate"
+          {/* ── Descripción con clamp + expandir ── */}
+          {desc && (
+            <div>
+              <p className="text-sm text-surface-300 leading-relaxed">
+                {shownDesc}
+                {descLong && !expanded && (
+                  <button
+                    onClick={() => setExpanded(true)}
+                    className="ml-1.5 text-amber-400/90 hover:text-amber-300 text-xs align-baseline"
+                  >
+                    ver más
+                  </button>
+                )}
+              </p>
+              {expanded && (
+                <button
+                  onClick={() => setExpanded(false)}
+                  className="mt-1 text-xs text-surface-500 hover:text-surface-300"
                 >
-                  {vuln.agent_name || vuln.agent_id}
-                </Link>
-              }
-            />
-            <FieldMini2
-              label="Detectado"
-              value={vuln.detected_at ? formatDateTime(vuln.detected_at) : '—'}
-            />
-          </div>
+                  ver menos
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="flex flex-col items-end gap-2 shrink-0">
-          {vuln.references && vuln.references.length > 0 && (
-            <a
-              href={vuln.references[0]}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-              title={vuln.references[0]}
-            >
-              <ExternalLink className="w-3 h-3" />
-              Ref
-            </a>
-          )}
-          <Link
-            to={`/wazuh/agents/${encodeURIComponent(vuln.agent_id)}`}
-            className="text-xs text-surface-400 hover:text-cyan-400 flex items-center gap-1"
-          >
-            Ver agente <ChevronRightIcon className="w-3 h-3" />
-          </Link>
+        {/* ── Score CVSS ── */}
+        <div className="flex flex-col items-center gap-1 shrink-0 pt-0.5">
+          <div className={`w-14 h-14 rounded-full border-2 flex items-center justify-center ${SEV_CIRCLE[vuln.severity] || SEV_CIRCLE.low}`}>
+            <span className="text-base font-bold leading-none">
+              {vuln.cvss_score ? vuln.cvss_score.toFixed(1) : '—'}
+            </span>
+          </div>
+          <span className="text-[9px] uppercase tracking-widest text-surface-500">CVSS</span>
         </div>
+      </div>
+
+      {/* ── Metadata ── */}
+      <div className="mt-4 pt-3 border-t border-surface-800/50 grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3 text-xs">
+        <Meta
+          label="Agente"
+          value={
+            <Link
+              to={`/wazuh/agents/${encodeURIComponent(vuln.agent_id)}`}
+              className="text-cyan-400 hover:text-cyan-300 truncate inline-block max-w-full align-bottom"
+            >
+              {vuln.agent_name || vuln.agent_id}
+            </Link>
+          }
+        />
+        <Meta
+          label="Detectado"
+          value={vuln.detected_at ? formatDateTime(vuln.detected_at) : '—'}
+        />
+        <Meta
+          label="Referencia"
+          value={
+            vuln.references && vuln.references.length > 0 ? (
+              <a
+                href={vuln.references[0]}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-cyan-400 hover:text-cyan-300 inline-flex items-center gap-1"
+                title={vuln.references[0]}
+              >
+                Ver advisory <ExternalLink className="w-3 h-3" />
+              </a>
+            ) : (
+              '—'
+            )
+          }
+        />
+        <Meta
+          label="Arquitectura"
+          value={vuln.package_arch || '—'}
+        />
       </div>
     </div>
   );
 }
 
-function FieldMini2({ label, value }: { label: string; value: React.ReactNode }) {
+function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div>
-      <span className="text-surface-500">{label}: </span>
-      <span className="text-surface-200">{value}</span>
+    <div className="min-w-0">
+      <span className="block text-[10px] uppercase tracking-wider text-surface-500 mb-0.5">
+        {label}
+      </span>
+      <span className="text-surface-200 leading-snug">{value}</span>
     </div>
   );
 }

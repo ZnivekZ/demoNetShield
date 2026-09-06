@@ -391,35 +391,37 @@ export interface WazuhAgentsFilters {
   search?: string;
 }
 
-export interface WazuhAgentDetail {
-  agent: WazuhAgent;
-  recent_alerts: WazuhAlert[];
-  recent_alerts_total?: number;
-  syscheck?: {
-    total_events: number;
-    last_scan: string | null;
-    files_modified: number;
-    recent_events: WazuhSyscheckEvent[];
-  };
-  syscollector?: {
-    hardware: Record<string, string | number>;
-    os: Record<string, string | number>;
-    packages_total: number;
-    processes_total: number;
-    ports_total: number;
-  };
+export interface WazuhAgentDetail extends WazuhAgent {
+  registration_ip?: string;
   not_available?: boolean;
 }
 
+/** Syscheck row as returned by the backend syscheck normalizer. */
 export interface WazuhSyscheckEvent {
   timestamp: string;
-  agent_id: string;
   file: string;
-  event_type: 'added' | 'modified' | 'deleted';
-  diff: string | null;
-  permissions: string;
-  size_after: number;
-  sha256_after: string;
+  event: string;
+  sha256: string;
+  size: number;
+  agent_id?: string;
+}
+
+/** Syscollector inventory (hardware / OS / packages) as the UI renders it. */
+export interface WazuhSyscollectorInfo {
+  hardware?: {
+    cpu_name?: string;
+    cpu_cores?: number;
+    cpu_mhz?: number;
+    ram_total_mb?: number;
+    ram_free_mb?: number;
+  };
+  os?: {
+    sysname?: string;
+    version?: string;
+    architecture?: string;
+  };
+  packages_count?: number;
+  packages?: Array<{ name: string; version: string; vendor: string }>;
 }
 
 export interface WazuhVulnerability {

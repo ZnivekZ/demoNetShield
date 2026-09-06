@@ -12,10 +12,11 @@
  * URL query string sync: ?page=&level_min=&agent_id=&rule_id=&search=
  */
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   ShieldAlert, Filter, X, ChevronLeft, ChevronRight,
-  Search, Activity, Hash, Server,
+  Search, Activity, Hash, Server, ScrollText,
 } from 'lucide-react';
 import { useWazuhAlerts } from '../../hooks/useWazuh';
 import { formatDateTime, severityClass } from '../utils/time';
@@ -249,6 +250,8 @@ export function WazuhAlertsPage() {
 // ── Alert row ──────────────────────────────────────────────────────
 
 function AlertRow({ alert }: { alert: WazuhAlert }) {
+  const [showLog, setShowLog] = useState(false);
+
   return (
     <tr className="border-b border-surface-800/30 hover:bg-surface-800/15 transition-colors group">
       <td className="px-3 py-2.5 text-xs text-surface-400 font-mono whitespace-nowrap">
@@ -288,12 +291,73 @@ function AlertRow({ alert }: { alert: WazuhAlert }) {
         {alert.dst_ip || '—'}
       </td>
       <td className="px-3 py-2.5 text-xs text-surface-500 font-mono">{alert.rule_id}</td>
-      <td className="px-3 py-2.5 text-xs text-surface-500 max-w-[180px]">
-        <p className="font-mono text-[10px] truncate" title={alert.full_log}>
-          {alert.full_log || '—'}
-        </p>
+      <td className="px-3 py-2.5 text-xs max-w-[180px]">
+        <div className="flex items-center gap-1">
+          <p className="font-mono text-[10px] text-surface-500 truncate flex-1">
+            {alert.full_log || '—'}
+          </p>
+          {alert.full_log && (
+            <button
+              onClick={() => setShowLog(true)}
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-surface-500 hover:text-cyan-400 shrink-0 p-0.5 rounded hover:bg-surface-800/60"
+              title="Leer log completo"
+              aria-label="Leer log completo"
+            >
+              <ScrollText className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </td>
+
+      {showLog && alert.full_log && (
+        createPortal(
+          <LogModal log={alert.full_log} onClose={() => setShowLog(false)} />,
+          document.body,
+        )
+      )}
     </tr>
+  );
+}
+
+// ── Log modal ─────────────────────────────────────────────────────
+
+function LogModal({ log, onClose }: { log: string; onClose: () => void }) {
+  // Cerrar con Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="glass-card w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-surface-800/60 shrink-0">
+          <span className="text-xs font-semibold uppercase tracking-wider text-surface-400 flex items-center gap-2">
+            <ScrollText className="w-3.5 h-3.5 text-cyan-400" />
+            Log completo de la alerta
+          </span>
+          <button
+            onClick={onClose}
+            className="text-surface-500 hover:text-surface-200 p-1 rounded hover:bg-surface-800/60"
+            aria-label="Cerrar"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <pre className="p-5 overflow-auto text-xs font-mono text-surface-300 leading-relaxed whitespace-pre-wrap break-words">
+          {log}
+        </pre>
+      </div>
+    </div>
   );
 }
 

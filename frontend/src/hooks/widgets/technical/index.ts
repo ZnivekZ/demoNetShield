@@ -6,7 +6,6 @@ import { useQuery } from '@tanstack/react-query';
 import {
   widgetsApi,
   mikrotikApi,
-  crowdsecApi,
   actionsApi,
   glpiApi,
   dhcpApi,
@@ -82,21 +81,6 @@ export function useLiveLogs(limit = 100) {
     },
     staleTime: 5_000,
     refetchInterval: 10_000,
-  });
-}
-
-/* ── CrowdSec Raw ──────────────────────────────────────────────── */
-
-export function useCrowdSecRaw(limit = 25) {
-  return useQuery({
-    queryKey: ['widget', 'crowdsec-raw', limit],
-    queryFn: async () => {
-      const res = await crowdsecApi.getDecisions();
-      if (!res.success) throw new Error(res.error ?? 'Error');
-      return (res.data ?? []).slice(0, limit);
-    },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
   });
 }
 

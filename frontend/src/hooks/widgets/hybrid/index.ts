@@ -7,8 +7,6 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   widgetsApi,
   geoipApi,
-  networkApi,
-  crowdsecApi,
   wazuhApi,
   mikrotikApi,
   telegramApi,
@@ -20,35 +18,6 @@ import {
 } from '../../../services/api';
 
 /* ── IP Profiler ───────────────────────────────────────────────── */
-
-export function useIpProfiler(ip: string | null) {
-  return useQuery({
-    queryKey: ['widget', 'ip-profiler', ip],
-    enabled: !!ip && ip.length > 6,
-    queryFn: async () => {
-      if (!ip) return null;
-      const [networkRes, geoRes, csRes] = await Promise.allSettled([
-        networkApi.search(ip),
-        geoipApi.lookup(ip),
-        crowdsecApi.getIpContext(ip),
-      ]);
-      return {
-        ip,
-        network: networkRes.status === 'fulfilled' && networkRes.value.success
-          ? networkRes.value.data : null,
-        geo: geoRes.status === 'fulfilled' && geoRes.value.success
-          ? geoRes.value.data : null,
-        crowdsec: csRes.status === 'fulfilled' && csRes.value.success
-          ? csRes.value.data : null,
-        partial:
-          networkRes.status === 'rejected' ||
-          geoRes.status === 'rejected' ||
-          csRes.status === 'rejected',
-      };
-    },
-    staleTime: 60_000,
-  });
-}
 
 /* ── Confirmed Threats ─────────────────────────────────────────── */
 
@@ -99,10 +68,9 @@ export function useDefenseLayers() {
   return useQuery({
     queryKey: ['widget', 'defense-layers'],
     queryFn: async () => {
-      const [wazuhRes, mikrotikRes, csRes] = await Promise.allSettled([
+      const [wazuhRes, mikrotikRes] = await Promise.allSettled([
         wazuhApi.getHealth(),
         mikrotikApi.getHealth(),
-        crowdsecApi.getMetrics(),
       ]);
       return {
         wazuh: {
@@ -113,13 +81,7 @@ export function useDefenseLayers() {
           ok: mikrotikRes.status === 'fulfilled' && mikrotikRes.value.success,
           label: 'MikroTik Firewall',
         },
-        crowdsec: {
-          ok: csRes.status === 'fulfilled' && csRes.value.success,
-          label: 'CrowdSec IPS',
-          decisions: (csRes.status === 'fulfilled' && csRes.value.success)
-            ? csRes.value.data?.active_decisions : undefined,
-        },
-        partial: [wazuhRes, mikrotikRes, csRes].some(r => r.status === 'rejected'),
+        partial: [wazuhRes, mikrotikRes].some(r => r.status === 'rejected'),
       };
     },
     staleTime: 30_000,
@@ -145,20 +107,6 @@ export function useApplyGeoblockSuggestion() {
   return useMutation({
     mutationFn: ({ id, duration }: { id: string; duration: string }) =>
       geoipApi.applySuggestion(id, duration),
-  });
-}
-
-/* ── World Threat Map ──────────────────────────────────────────── */
-
-export function useWorldThreatMap() {
-  return useQuery({
-    queryKey: ['widget', 'world-threat-map'],
-    queryFn: async () => {
-      const res = await widgetsApi.getWorldThreatMap();
-      if (!res.success) throw new Error(res.error ?? 'Error');
-      return res.data!;
-    },
-    staleTime: 5 * 60_000,
   });
 }
 

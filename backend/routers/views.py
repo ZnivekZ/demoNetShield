@@ -119,29 +119,6 @@ _WIDGETS_STANDARD = [
         "preview_color": "#3b82f6",
         "config_schema": {},
     },
-    # ── CrowdSec ──────────────────────────────────────────────────
-    {
-        "type": "crowdsec_decisions",
-        "title": "Decisiones CrowdSec",
-        "description": "Decisiones de bloqueo activas de CrowdSec",
-        "icon": "ShieldCheck",
-        "source": "crowdsec",
-        "default_size": "medium",
-        "available_sizes": ["small", "medium", "large"],
-        "preview_color": "#10b981",
-        "config_schema": {"limit": {"type": "number", "default": 10, "label": "Cantidad"}},
-    },
-    {
-        "type": "crowdsec_metrics",
-        "title": "Métricas CrowdSec",
-        "description": "Alertas activas, bans, escenarios disparados",
-        "icon": "TrendingUp",
-        "source": "crowdsec",
-        "default_size": "small",
-        "available_sizes": ["small", "medium"],
-        "preview_color": "#10b981",
-        "config_schema": {},
-    },
     # ── Suricata ──────────────────────────────────────────────────
     {
         "type": "suricata_alerts",
@@ -303,9 +280,9 @@ _WIDGETS_VISUAL = [
     {
         "type": "visual_blocks_timeline",
         "title": "Timeline de Bloqueos",
-        "description": "AreaChart de bloqueos CrowdSec + MikroTik en las últimas 24h",
+        "description": "AreaChart de bloqueos MikroTik en las últimas 24h",
         "icon": "AreaChart",
-        "source": "crowdsec",
+        "source": "mikrotik",
         "category": "visual",
         "default_size": "medium",
         "available_sizes": ["medium", "large"],
@@ -427,18 +404,6 @@ _WIDGETS_TECHNICAL = [
         },
     },
     {
-        "type": "technical_crowdsec_raw",
-        "title": "CrowdSec Raw",
-        "description": "Tabla técnica de decisiones CrowdSec con opción de desbloqueo por fila",
-        "icon": "Database",
-        "source": "crowdsec",
-        "category": "technical",
-        "default_size": "medium",
-        "available_sizes": ["medium", "large"],
-        "preview_color": "#10b981",
-        "config_schema": {"limit": {"type": "number", "default": 25, "label": "Cantidad"}},
-    },
-    {
         "type": "technical_correlation_timeline",
         "title": "Timeline de Correlación",
         "description": "3 series alineadas en tiempo: Wazuh + Suricata + CrowdSec",
@@ -550,18 +515,6 @@ _WIDGETS_TECHNICAL = [
 
 _WIDGETS_HYBRID = [
     {
-        "type": "hybrid_ip_profiler",
-        "title": "Perfilador de IP",
-        "description": "Ingresá una IP y ve todo en una vista: ARP, alertas, bloqueos, geo",
-        "icon": "Crosshair",
-        "source": "mixed",
-        "category": "hybrid",
-        "default_size": "large",
-        "available_sizes": ["medium", "large", "full"],
-        "preview_color": "#a855f7",
-        "config_schema": {"default_ip": {"type": "string", "default": "", "label": "IP inicial (opcional)"}},
-    },
-    {
         "type": "hybrid_confirmed_threats",
         "title": "Amenazas Confirmadas",
         "description": "IPs en Suricata + CrowdSec + Wazuh simultáneamente — confirmación multi-fuente",
@@ -632,18 +585,6 @@ _WIDGETS_HYBRID = [
         "available_sizes": ["medium", "large", "full"],
         "preview_color": "#ec4899",
         "config_schema": {"limit": {"type": "number", "default": 10, "label": "Resultados"}},
-    },
-    {
-        "type": "hybrid_world_threat_map",
-        "title": "Mapa Mundial de Amenazas",
-        "description": "Mapa SVG interactivo con heatmap de amenazas por país (GeoIP + Multi-fuente)",
-        "icon": "Globe2",
-        "source": "mixed",
-        "category": "hybrid",
-        "default_size": "full",
-        "available_sizes": ["large", "full"],
-        "preview_color": "#a855f7",
-        "config_schema": {},
     },
     {
         "type": "hybrid_view_report_generator",

@@ -30,7 +30,6 @@ from config import get_settings
 from database import close_db, init_db
 from routers import cli, mikrotik, network, phishing, reports, security, vlans, wazuh
 from routers import glpi as glpi_router
-from routers import crowdsec as crowdsec_router
 from routers import geoip as geoip_router
 from routers import views as views_router
 from routers import widgets as widgets_router
@@ -39,7 +38,6 @@ from routers import auth as auth_router
 from services.mikrotik_service import get_mikrotik_service
 from services.wazuh_service import get_wazuh_service
 from services.glpi_service import get_glpi_service
-from services.crowdsec_service import get_crowdsec_service
 from services.geoip_service import GeoIPService
 from services.telegram_service import get_telegram_service
 from services.telegram_scheduler import get_telegram_scheduler
@@ -202,11 +200,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     try:
-        cs_service = get_crowdsec_service()
-        await cs_service.close()
-    except Exception:
-        pass
-    try:
         glpi_collector = get_glpi_collector()
     except Exception:
         pass
@@ -318,7 +311,6 @@ app.include_router(phishing.router)
 app.include_router(security.router)
 app.include_router(cli.router)
 app.include_router(glpi_router.router)
-app.include_router(crowdsec_router.router)
 app.include_router(geoip_router.router)
 app.include_router(views_router.router)
 app.include_router(widgets_router.router)
@@ -861,73 +853,6 @@ async def websocket_security_alerts(websocket: WebSocket):
     except Exception as e:
         logger.error("websocket_security_alerts_error", error=str(e))
         security_alert_manager.disconnect(websocket)
-
-# ── WebSocket: CrowdSec Decisions ─────────────────────────────
-
-crowdsec_decision_manager = ConnectionManager()
-
-
-@app.websocket("/ws/crowdsec/decisions")
-async def websocket_crowdsec_decisions(websocket: WebSocket):
-    """
-    WebSocket endpoint for real-time CrowdSec decision stream.
-    - Real mode: polls GET /v1/decisions/stream every 10s.
-    Frontend NotificationPanel subscribes to receive real-time block events.
-    """
-    await crowdsec_decision_manager.connect(websocket)
-    cs_service = get_crowdsec_service()
-    tick = 0
-
-    try:
-        while True:
-            try:
-                # Skip CrowdSec call entirely if the breaker is open.
-                # Prevents the WS loop from issuing a useless network request
-                # every 10s when CrowdSec is unreachable.
-                if cs_service._breaker.is_open():
-                    if tick % 30 == 0:  # emit a warning only occasionally
-                        logger.warning(
-                            "ws_crowdsec_circuit_open_skip",
-                            seconds_until_retry=round(
-                                cs_service._breaker.seconds_until_retry, 1
-                            ),
-                        )
-                    stream = None
-                else:
-                    # Bound the CrowdSec stream call to 6s so an unresponsive
-                    # server can't block the WS polling loop for 30s+.
-                    try:
-                        stream = await asyncio.wait_for(
-                            cs_service.get_decisions_stream(startup=(tick == 0)),
-                            timeout=6.0,
-                        )
-                    except asyncio.TimeoutError:
-                        logger.warning("ws_crowdsec_poll_timeout")
-                        stream = None
-                if stream:
-                    new_decisions = stream.get("new", [])
-                    if new_decisions:
-                        await websocket.send_json({
-                            "type": "crowdsec_decision",
-                            "data": {"decisions": new_decisions, "count": len(new_decisions)},
-                        })
-            except Exception as e:
-                try:
-                    if websocket.client_state.value == 1:  # CONNECTED
-                        await websocket.send_json({
-                            "type": "error",
-                            "data": {"message": f"CrowdSec WS error: {str(e)}"},
-                        })
-                except Exception:
-                    break  # WebSocket already closed, exit the loop
-            tick += 1
-            await asyncio.sleep(10)  # Poll every 10s
-    except WebSocketDisconnect:
-        crowdsec_decision_manager.disconnect(websocket)
-    except Exception as e:
-        logger.error("websocket_crowdsec_decisions_error", error=str(e))
-        crowdsec_decision_manager.disconnect(websocket)
-
 
 # ── WebSocket: Suricata Alerts ──────────────────────────────
 

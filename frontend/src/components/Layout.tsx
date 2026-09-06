@@ -34,9 +34,6 @@ import {
   ChevronLeft,
   Activity,
   Package,
-  ShieldCheck,
-  Globe,
-  Settings2,
   LayoutDashboard,
   Server,
   LogOut,
@@ -49,7 +46,6 @@ import { GlobalSearch } from './common/GlobalSearch';
 import { NotificationPanel } from './security/NotificationPanel';
 import { ConfirmModal } from './common/ConfirmModal';
 import { useBlockIP } from '../hooks/useSecurityActions';
-import { IpContextPanel } from './crowdsec/IpContextPanel';
 import { SettingsDrawer } from './common/SettingsDrawer';
 import { useAuthContext } from './auth/AuthContext';
 
@@ -76,14 +72,6 @@ const navGroups = [
       { to: '/phishing', icon: Fish, label: 'Phishing', end: false },
       { to: '/system', icon: Monitor, label: 'Sistema', end: false },
       { to: '/reports', icon: FileText, label: 'Reportes', end: false },
-    ],
-  },
-  {
-    label: 'CrowdSec',
-    items: [
-      { to: '/crowdsec', icon: ShieldCheck, label: 'Centro de Mando', end: true },
-      { to: '/crowdsec/intelligence', icon: Globe, label: 'Inteligencia', end: false },
-      { to: '/crowdsec/config', icon: Settings2, label: 'Configuración', end: false },
     ],
   },
   {
@@ -119,8 +107,6 @@ export default function Layout() {
   // Global block IP flow (triggered by GlobalSearch or NotificationPanel)
   const [blockIPTarget, setBlockIPTarget] = useState<string | null>(null);
   const blockIPMutation = useBlockIP();
-  // Global IP context panel (CrowdSec unified view)
-  const [ipContextTarget, setIpContextTarget] = useState<string | null>(null);
 
 
   const handleBlockIPConfirm = async () => {
@@ -259,7 +245,6 @@ export default function Layout() {
           <div style={{ flex: 1 }}>
             <GlobalSearch
               onBlockIP={ip => setBlockIPTarget(ip)}
-              onShowIpContext={ip => setIpContextTarget(ip)}
             />
           </div>
 
@@ -267,7 +252,6 @@ export default function Layout() {
           <div className="flex items-center gap-3 text-xs text-surface-400">
             <NotificationPanel
               onBlockIP={ip => setBlockIPTarget(ip)}
-              onShowIpContext={ip => setIpContextTarget(ip)}
             />
             {/* Settings gear button */}
             <button
@@ -301,12 +285,6 @@ export default function Layout() {
         />
       )}
 
-      {/* Global IP Context Panel (CrowdSec unified view) */}
-      <IpContextPanel
-        ip={ipContextTarget}
-        onClose={() => setIpContextTarget(null)}
-        onFullBlock={ip => { setIpContextTarget(null); setBlockIPTarget(ip); }}
-      />
 
       {/* Settings Drawer — Centro de Control */}
       <SettingsDrawer

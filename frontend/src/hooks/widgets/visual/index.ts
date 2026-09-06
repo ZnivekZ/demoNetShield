@@ -7,7 +7,6 @@ import { useQuery } from '@tanstack/react-query';
 import {
   widgetsApi,
   wazuhApi,
-  crowdsecApi,
   mikrotikApi,
   phishingApi,
   dhcpApi,
@@ -49,15 +48,6 @@ export function useEventCounter(source: string = 'wazuh') {
   return useQuery({
     queryKey: ['widget', 'event-counter', source],
     queryFn: async () => {
-      if (source === 'crowdsec') {
-        const res = await crowdsecApi.getMetrics();
-        if (!res.success) throw new Error(res.error ?? 'Error');
-        return {
-          count: (res.data as { alerts_24h?: number })?.alerts_24h ?? 0,
-          source,
-          label: 'Alertas CrowdSec 24h',
-        };
-      }
       // Default: wazuh
       const res = await wazuhApi.getAlertsTimeline();
       if (!res.success) throw new Error(res.error ?? 'Error');
@@ -115,20 +105,13 @@ export function useBlocksTimeline() {
   return useQuery({
     queryKey: ['widget', 'blocks-timeline'],
     queryFn: async () => {
-      const [csRes, mtRes] = await Promise.allSettled([
-        crowdsecApi.getDecisions(),
-        mikrotikApi.getAddressList('Blacklist_Automatica'),
-      ]);
-      const csData = csRes.status === 'fulfilled' && csRes.value.success
-        ? (csRes.value.data ?? []) : [];
-      const mtData = mtRes.status === 'fulfilled' && mtRes.value.success
-        ? (mtRes.value.data ?? []) : [];
+      const mtRes = await mikrotikApi.getAddressList('Blacklist_Automatica').catch(() => null);
+      const mtData = mtRes && mtRes.success ? (mtRes.data ?? []) : [];
 
       return {
-        crowdsec: csData,
         mikrotik: mtData,
-        total_blocks: csData.length + mtData.length,
-        partial: csRes.status === 'rejected' || mtRes.status === 'rejected',
+        total_blocks: mtData.length,
+        partial: !mtRes || !mtRes.success,
       };
     },
     staleTime: 60_000,

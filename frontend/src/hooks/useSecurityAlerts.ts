@@ -1,13 +1,7 @@
 /**
  * useSecurityAlerts — WebSocket hub for real-time security notifications.
  *
- * Listens to TWO WebSocket endpoints:
- *   /ws/security/alerts   — Wazuh + MikroTik alerts (existing)
- *   /ws/crowdsec/decisions — CrowdSec new decisions (new)
- *
- * Both streams are merged into a single rolling notifications queue.
- * CrowdSec events are normalized into SecurityNotification with
- * type='crowdsec_decision' and actions=['block_ip','view_ip_context'].
+ * Listens to /ws/security/alerts — Wazuh + MikroTik alerts.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SecurityNotification } from '../types';
@@ -56,7 +50,6 @@ function useReconnectingWS(
 export function useSecurityAlerts() {
   const [notifications, setNotifications] = useState<SecurityNotification[]>([]);
   const [isConnected,   setIsConnected]   = useState(false);
-  const [csConnected,   setCsConnected]   = useState(false);
 
   const push = useCallback((notif: SecurityNotification) => {
     setNotifications(prev => [notif, ...prev].slice(0, MAX_QUEUE));
@@ -79,68 +72,14 @@ export function useSecurityAlerts() {
     } catch { /* malformed — ignore */ }
   }, [push]);
 
-  // ── /ws/crowdsec/decisions handler ───────────────────────────
-  const handleCrowdSecMsg = useCallback((raw: string) => {
-    try {
-      const envelope = JSON.parse(raw) as {
-        type: string;
-        data: {
-          ip?: string;
-          scenario?: string;
-          type?: string;    // ban | captcha
-          duration?: string;
-          community_score?: number;
-          is_known_attacker?: boolean;
-          country?: string;
-          decisions?: { ip: string; scenario: string; type: string }[];
-          count?: number;
-        };
-      };
-
-      if (envelope.type !== 'crowdsec_decision') return;
-
-      const d = envelope.data;
-
-      // Batch decision events (stream returns {decisions: [...], count: N})
-      const items = d.decisions ?? (d.ip ? [d] : []);
-
-      items.slice(0, 3).forEach((item) => {
-        const ip       = item.ip ?? '?';
-        const scenario = (item.scenario ?? '').split('/')[1] ?? item.scenario ?? '?';
-        const decType  = item.type ?? 'ban';
-        const score    = (d as {community_score?: number}).community_score;
-        const known    = (d as {is_known_attacker?: boolean}).is_known_attacker;
-        const country  = (d as {country?: string}).country ?? '';
-
-        const level: SecurityNotification['level'] =
-          known ? 'critical' : (score != null && score >= 71 ? 'high' : 'medium');
-
-        push({
-          type:    'crowdsec_decision',
-          level,
-          title:   `CrowdSec: ${decType.toUpperCase()} aplicado`,
-          detail:  `${ip}${country ? ` (${country})` : ''} — ${scenario}`,
-          actions: ['block_ip', 'view_ip_context'],
-          data:    { src_ip: ip, scenario: item.scenario ?? '', decision_type: decType, community_score: score ?? 0 },
-          id:      makeId('crowdsec_decision'),
-          receivedAt: new Date().toISOString(),
-        });
-      });
-    } catch { /* malformed — ignore */ }
-  }, [push]);
-
-  // ── Wire up both WebSockets ───────────────────────────────────
-  const sec = useReconnectingWS('/ws/security/alerts',   handleSecurityMsg, setIsConnected);
-  const cs  = useReconnectingWS('/ws/crowdsec/decisions', handleCrowdSecMsg, setCsConnected);
+  // ── Wire up WebSocket ─────────────────────────────────────────
+  const sec = useReconnectingWS('/ws/security/alerts', handleSecurityMsg, setIsConnected);
 
   useEffect(() => {
     sec.connect();
-    cs.connect();
     return () => {
       clearTimeout(sec.timerRef.current);
-      clearTimeout(cs.timerRef.current);
       sec.wsRef.current?.close();
-      cs.wsRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -153,16 +92,13 @@ export function useSecurityAlerts() {
 
   const unreadCount   = notifications.length;
   const criticalCount = notifications.filter(n => n.level === 'critical').length;
-  const crowdsecCount = notifications.filter(n => n.type === 'crowdsec_decision').length;
 
   return {
     notifications,
     isConnected,
-    csConnected,
     dismiss,
     clearAll,
     unreadCount,
     criticalCount,
-    crowdsecCount,
   };
 }

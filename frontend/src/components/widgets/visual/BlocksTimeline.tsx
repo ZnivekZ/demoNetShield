@@ -3,7 +3,7 @@ import { useBlocksTimeline } from '../../../hooks/widgets/visual';
 import { WidgetSkeleton, WidgetErrorState, WidgetHeader } from '../common';
 
 /**
- * AreaChart de bloqueos CrowdSec + MikroTik en las últimas 24h.
+ * AreaChart de bloqueos MikroTik en las últimas 24h.
  * Los datos son los decisiones/rules agrupadas por hora simulada.
  */
 export function BlocksTimeline({ config: _config }: { config?: Record<string, unknown> }) {
@@ -18,7 +18,6 @@ export function BlocksTimeline({ config: _config }: { config?: Record<string, un
     const h = new Date(now - (11 - i) * 2 * 60 * 60 * 1000);
     return {
       label: h.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
-      crowdsec: Math.round((data.crowdsec.length / 12) * (0.7 + Math.random() * 0.6)),
       mikrotik: Math.round((data.mikrotik.length / 12) * (0.7 + Math.random() * 0.6)),
     };
   });
@@ -40,10 +39,6 @@ export function BlocksTimeline({ config: _config }: { config?: Record<string, un
       <ResponsiveContainer width="100%" height={110}>
         <AreaChart data={series} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
           <defs>
-            <linearGradient id="grad-cs" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-              <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-            </linearGradient>
             <linearGradient id="grad-mt" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
               <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
@@ -58,7 +53,6 @@ export function BlocksTimeline({ config: _config }: { config?: Record<string, un
               fontSize: '12px',
             }}
           />
-          <Area type="monotone" dataKey="crowdsec" stroke="#10b981" fill="url(#grad-cs)" name="CrowdSec" />
           <Area type="monotone" dataKey="mikrotik" stroke="#3b82f6" fill="url(#grad-mt)" name="MikroTik" />
         </AreaChart>
       </ResponsiveContainer>

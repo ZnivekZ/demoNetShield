@@ -129,6 +129,28 @@ class CrowdSecService:
             self._client = None
             logger.info("crowdsec_client_closed")
 
+    def get_settings(self):
+        """Expose the resolved settings (url, api key presence) for status UI."""
+        return self._settings
+
+    async def check_connection(self) -> bool:
+        """
+        Lightweight live probe against the LAPI.
+        Returns True when the client is connected and a /v1/decisions probe
+        succeeds; False otherwise (never raises).
+        """
+        if not self._client:
+            return False
+        try:
+            resp = await asyncio.wait_for(
+                self._client.get("/v1/decisions"),
+                timeout=3.0,
+            )
+            return resp.status_code < 400
+        except Exception as e:
+            logger.warning("crowdsec_status_probe_failed", error=repr(e))
+            return False
+
     # ── Internal request helper ───────────────────────────────────────────
 
     @retry(

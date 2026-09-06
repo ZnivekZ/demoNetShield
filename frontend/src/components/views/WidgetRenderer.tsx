@@ -27,7 +27,6 @@ import {
 import {
   wazuhApi,
   mikrotikApi,
-  crowdsecApi,
   glpiApi,
   phishingApi,
   geoipApi,
@@ -50,18 +49,15 @@ const PacketInspector = lazy(() => import('../widgets/technical/PacketInspector'
 const FlowTableWidget = lazy(() => import('../widgets/technical/FlowTableWidget').then(m => ({ default: m.FlowTableWidget })));
 const FirewallTree = lazy(() => import('../widgets/technical/FirewallTree').then(m => ({ default: m.FirewallTree })));
 const LiveLogs = lazy(() => import('../widgets/technical/LiveLogs').then(m => ({ default: m.LiveLogs })));
-const CrowdSecRaw = lazy(() => import('../widgets/technical/CrowdSecRaw').then(m => ({ default: m.CrowdSecRaw })));
 const CorrelationTimeline = lazy(() => import('../widgets/technical/CorrelationTimeline').then(m => ({ default: m.CorrelationTimeline })));
 const CriticalAssets = lazy(() => import('../widgets/technical/CriticalAssets').then(m => ({ default: m.CriticalAssets })));
 
 // ── Lazy imports de widgets nuevos (hybrid) ────────────────────────────
-const IpProfiler = lazy(() => import('../widgets/hybrid/IpProfiler').then(m => ({ default: m.IpProfiler })));
 const ConfirmedThreats = lazy(() => import('../widgets/hybrid/ConfirmedThreats').then(m => ({ default: m.ConfirmedThreats })));
 const CountryRadar = lazy(() => import('../widgets/hybrid/CountryRadar').then(m => ({ default: m.CountryRadar })));
 const IncidentLifecycle = lazy(() => import('../widgets/hybrid/IncidentLifecycle').then(m => ({ default: m.IncidentLifecycle })));
 const DefenseLayers = lazy(() => import('../widgets/hybrid/DefenseLayers').then(m => ({ default: m.DefenseLayers })));
 const GeoblockPredictor = lazy(() => import('../widgets/hybrid/GeoblockPredictor').then(m => ({ default: m.GeoblockPredictor })));
-const WorldThreatMap = lazy(() => import('../widgets/hybrid/WorldThreatMap').then(m => ({ default: m.WorldThreatMap })));
 const ViewReportGenerator = lazy(() => import('../widgets/hybrid/ViewReportGenerator').then(m => ({ default: m.ViewReportGenerator })));
 const TelegramActivity = lazy(() => import('../widgets/hybrid/TelegramActivity').then(m => ({ default: m.TelegramActivity })));
 const MitreMatrix = lazy(() => import('../widgets/hybrid/MitreMatrix').then(m => ({ default: m.MitreMatrix })));
@@ -104,8 +100,6 @@ const WIDGET_ICONS: Record<string, typeof Shield> = {
   firewall_rules: Shield,
   blocked_ips: Shield,
   mikrotik_health: Server,
-  crowdsec_decisions: Globe,
-  crowdsec_metrics: Activity,
   suricata_alerts: Bug,
   suricata_flows: Activity,
   glpi_assets: Monitor,
@@ -167,24 +161,6 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
             ],
           };
         }
-        case 'crowdsec_decisions': {
-          const r = await crowdsecApi.getDecisions();
-          const decs = (r.data ?? []).slice(0, limit);
-          return { kind: 'table' as const, data: decs, columns: ['value', 'scenario', 'type', 'duration'] };
-        }
-        case 'crowdsec_metrics': {
-          const r = await crowdsecApi.getMetrics();
-          const d = r.data;
-          return {
-            kind: 'stats' as const,
-            stats: [
-              { label: 'Decisiones', value: d?.active_decisions ?? 0, color: 'var(--color-danger)' },
-              { label: 'Alertas 24h', value: d?.alerts_24h ?? 0, color: 'var(--color-warning)' },
-              { label: 'Escenarios', value: d?.scenarios_active ?? 0, color: 'var(--accent-primary)' },
-              { label: 'Bouncers', value: d?.bouncers_connected ?? 0, color: 'var(--color-success)' },
-            ],
-          };
-        }
 
         case 'glpi_assets': {
           const r = await glpiApi.getAssets({ limit });
@@ -234,7 +210,6 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
         case 'technical_flow_table':
         case 'technical_firewall_tree':
         case 'technical_live_logs':
-        case 'technical_crowdsec_raw':
         case 'technical_correlation_timeline':
         case 'technical_critical_assets':
         case 'technical_dns_monitor':
@@ -246,14 +221,12 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
         case 'technical_route_table':
         case 'visual_queue_bars':
         // ── Widgets Híbridos ───────────────────────────────────────────
-        case 'hybrid_ip_profiler':
         case 'hybrid_confirmed_threats':
         case 'hybrid_country_radar':
         case 'hybrid_incident_lifecycle':
         case 'hybrid_defense_layers':
         case 'hybrid_geoblock_predictor':
         case 'hybrid_suricata_glpi':
-        case 'hybrid_world_threat_map':
         case 'hybrid_view_report_generator':
         case 'hybrid_telegram_activity':
         case 'hybrid_mitre_matrix':
@@ -377,7 +350,6 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
       technical_flow_table: <FlowTableWidget config={cfg as { limit?: number }} />,
       technical_firewall_tree: <FirewallTree config={cfg} />,
       technical_live_logs: <LiveLogs config={cfg as { limit?: number; filter?: string }} />,
-      technical_crowdsec_raw: <CrowdSecRaw config={cfg as { limit?: number }} />,
       technical_correlation_timeline: <CorrelationTimeline config={cfg as { minutes?: number }} />,
       technical_critical_assets: <CriticalAssets config={cfg as { limit?: number }} />,
       technical_dns_monitor: <DnsMonitor config={cfg as { limit?: number }} />,
@@ -388,13 +360,11 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
       technical_nat_table: <NatTable />,
       technical_route_table: <RouteTable />,
       visual_queue_bars: <QueueBars />,
-      hybrid_ip_profiler: <IpProfiler config={cfg as { default_ip?: string }} />,
       hybrid_confirmed_threats: <ConfirmedThreats config={cfg} />,
       hybrid_country_radar: <CountryRadar config={cfg as { limit?: number }} />,
       hybrid_incident_lifecycle: <IncidentLifecycle config={cfg as { ip?: string }} />,
       hybrid_defense_layers: <DefenseLayers config={cfg} />,
       hybrid_geoblock_predictor: <GeoblockPredictor config={cfg} />,
-      hybrid_world_threat_map: <WorldThreatMap config={cfg} />,
       hybrid_view_report_generator: <ViewReportGenerator config={cfg as { audience?: string; output?: string }} />,
       hybrid_telegram_activity: <TelegramActivity config={cfg as { limit?: number }} />,
       hybrid_mitre_matrix: <MitreMatrix config={cfg} />,

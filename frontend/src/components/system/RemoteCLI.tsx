@@ -1,13 +1,12 @@
 /**
- * RemoteCLI — Read-only remote CLI for MikroTik, Wazuh, and CrowdSec.
+ * RemoteCLI — Read-only remote CLI for MikroTik and Wazuh.
  * MikroTik: sends path to whitelisted read-only commands.
  * Wazuh:    restart or status on selected agent.
- * CrowdSec: decisions, bouncers, scenarios queries.
- */
+  */
 import { useState } from 'react';
 import { Terminal, RefreshCw, ChevronRight, AlertTriangle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { cliApi, wazuhApi, crowdsecApi } from '../../services/api';
+import { cliApi, wazuhApi } from '../../services/api';
 import type { CLIResponse } from '../../types';
 
 const MIKROTIK_SUGGESTIONS = [
@@ -16,7 +15,7 @@ const MIKROTIK_SUGGESTIONS = [
   '/ip/dns/static', '/log', '/queue/simple',
 ];
 
-type CliTab = 'mikrotik' | 'wazuh' | 'crowdsec';
+type CliTab = 'mikrotik' | 'wazuh';
 
 export function RemoteCLI() {
   const [cliTab, setCliTab] = useState<CliTab>('mikrotik');
@@ -34,12 +33,6 @@ export function RemoteCLI() {
   const [wazuhLoading, setWazuhLoading] = useState(false);
   const [wazuhError, setWazuhError] = useState<string | null>(null);
 
-  // CrowdSec CLI state
-  const [csResult, setCsResult] = useState<unknown>(null);
-  const [csLoading, setCsLoading] = useState(false);
-  const [csError, setCsError] = useState<string | null>(null);
-  const [csLastAction, setCsLastAction] = useState('');
-  const [csIpFilter, setCsIpFilter] = useState('');
 
   const { data: agentsData } = useQuery({
     queryKey: ['wazuh', 'agents'],
@@ -74,31 +67,8 @@ export function RemoteCLI() {
     }
   };
 
-  const executeCrowdSec = async (action: 'decisions' | 'bouncers' | 'scenarios' | 'metrics') => {
-    setCsLoading(true); setCsError(null); setCsResult(null);
-    const labels: Record<string, string> = {
-      decisions: 'Decisiones activas', bouncers: 'Bouncers', scenarios: 'Escenarios', metrics: 'Métricas',
-    };
-    setCsLastAction(labels[action]);
-    try {
-      let resp;
-      switch (action) {
-        case 'decisions': resp = await crowdsecApi.getDecisions(csIpFilter ? { ip: csIpFilter } : undefined); break;
-        case 'bouncers': resp = await crowdsecApi.getBouncers(); break;
-        case 'scenarios': resp = await crowdsecApi.getScenarios(); break;
-        case 'metrics': resp = await crowdsecApi.getMetrics(); break;
-      }
-      if (resp.success) setCsResult(resp.data);
-      else setCsError(resp.error ?? 'Error');
-    } catch (e) {
-      setCsError(e instanceof Error ? e.message : 'Error de conexión');
-    } finally {
-      setCsLoading(false);
-    }
-  };
-
   const tabLabels: Record<CliTab, string> = {
-    mikrotik: 'MikroTik', wazuh: 'Wazuh Agent', crowdsec: 'CrowdSec',
+    mikrotik: 'MikroTik', wazuh: 'Wazuh Agent',
   };
 
   return (
@@ -231,58 +201,6 @@ export function RemoteCLI() {
         </div>
       )}
 
-      {/* ── CrowdSec Tab ── */}
-      {cliTab === 'crowdsec' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-500)', padding: '0.5rem 0.75rem', background: 'rgba(99,102,241,0.08)', borderRadius: 8, borderLeft: '3px solid var(--color-brand-600)' }}>
-            Consultas de solo lectura a la API local de CrowdSec (LAPI).
-          </p>
-
-          {/* IP filter for decisions */}
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <input
-              className="input"
-              style={{ flex: '1 1 200px', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}
-              value={csIpFilter}
-              onChange={e => setCsIpFilter(e.target.value)}
-              placeholder="IP para filtrar decisiones (opcional)"
-            />
-          </div>
-
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {[
-              { key: 'decisions', label: 'Decisiones' },
-              { key: 'bouncers', label: 'Bouncers' },
-              { key: 'scenarios', label: 'Escenarios' },
-              { key: 'metrics', label: 'Métricas' },
-            ].map(a => (
-              <button
-                key={a.key}
-                className="btn btn-primary"
-                style={{ fontSize: '0.78rem' }}
-                onClick={() => executeCrowdSec(a.key as 'decisions' | 'bouncers' | 'scenarios' | 'metrics')}
-                disabled={csLoading}
-              >
-                {csLoading && csLastAction === a.label ? <span className="loading-spinner" /> : null}
-                {a.label}
-              </button>
-            ))}
-          </div>
-
-          <CLIError error={csError} />
-          {csResult != null && (
-            <div className="cli-output">
-              <div className="cli-output__header">
-                <span>CrowdSec — {csLastAction}</span>
-                <span>{Array.isArray(csResult) ? `${csResult.length} entradas` : ''}</span>
-              </div>
-              <pre className="cli-output__content">
-                {JSON.stringify(csResult, null, 2)}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -1,31 +1,26 @@
 /**
  * SystemHealth — System monitoring page (route: /system).
  * Shows health cards for ALL integrations:
- *   Row 1 (4-col): MikroTik, Wazuh, CrowdSec, GLPI
+ *   Row 1: MikroTik, Wazuh, GLPI
  *   Full-width:    Interface traffic chart, GeoIP DB status
- * Tab: CLI Remota (MikroTik, Wazuh, CrowdSec)
+ * Tab: CLI Remota (MikroTik, Wazuh)
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Cpu, HardDrive, Clock, Thermometer, Activity, Shield, Terminal,
-  Crosshair, Package, Server, RefreshCw,
+  Package, RefreshCw,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useMikrotikHealth, useInterfaceTraffic, useInterfaces } from '../../hooks/useMikrotikHealth';
 import { useWazuhHealth, useAgentsSummary } from '../../hooks/useWazuhSummary';
-import { useCrowdSecMetrics, useCrowdSecBouncers } from '../../hooks/useCrowdSecMetrics';
 import { useGlpiAssetStats } from '../../hooks/useGlpiAssets';
 import { glpiApi } from '../../services/api';
 import { getApiErrorMessage, requireApiSuccess } from '../../services/apiResponse';
 import { RemoteCLI } from './RemoteCLI';
 import { GeoIPStatus } from './GeoIPStatus';
 
-type ScenarioSummary = {
-  name?: unknown;
-  count?: unknown;
-  alerts_count?: unknown;
-};
+
 
 export function SystemHealth() {
   const { data: mtHealth, isLoading: mtLoading, isFetching: mtFetching, isError: mtError, error: mtErrorObj, refetch: refetchMt } = useMikrotikHealth();
@@ -34,9 +29,6 @@ export function SystemHealth() {
   const { data: wazuhHealth, isLoading: wazuhLoading, isFetching: wazuhFetching, isError: wazuhError, error: wazuhErrorObj, refetch: refetchWazuh } = useWazuhHealth();
   const { data: agentsSummary } = useAgentsSummary();
 
-  // CrowdSec
-  const { data: csMetrics, isLoading: csLoading, isFetching: csFetching, isError: csError, error: csErrorObj, refetch: refetchCs } = useCrowdSecMetrics();
-  const { data: csBouncers = [] } = useCrowdSecBouncers();
 
   // GLPI
   const { data: glpiStatus, isLoading: glpiLoading, isFetching: glpiFetching, isError: glpiError, error: glpiErrorObj, refetch: refetchGlpi } = useQuery({
@@ -50,16 +42,6 @@ export function SystemHealth() {
 
   const safeInterfaces = Array.isArray(interfaces) ? interfaces : [];
   const wazuhServices = Array.isArray(wazuhHealth?.services) ? wazuhHealth.services : [];
-  const crowdsecBouncers = Array.isArray(csBouncers) ? csBouncers : [];
-  const topScenario = csMetrics?.top_scenario as ScenarioSummary | undefined;
-  const topScenarioName = typeof topScenario?.name === 'string' ? topScenario.name : '';
-  const topScenarioCount =
-    typeof topScenario?.count === 'number'
-      ? topScenario.count
-      : typeof topScenario?.alerts_count === 'number'
-        ? topScenario.alerts_count
-        : null;
-  const topScenarioLabel = topScenarioName.split('/').pop()?.slice(0, 20) ?? '';
   const trafficChartData = (Array.isArray(traffic) ? traffic : []).slice(0, 10).map(t => ({
     name: t.interface.slice(0, 8),
     rx: Math.round((t.rx_bytes_per_sec ?? 0) / 1024),
@@ -88,17 +70,6 @@ export function SystemHealth() {
       detail: wazuhHealth?.version ?? 'SIEM',
       errorMessage: wazuhError ? getApiErrorMessage(wazuhErrorObj, 'No se pudo conectar con Wazuh') : null,
       onRetry: refetchWazuh,
-    },
-    {
-      name: 'CrowdSec',
-      icon: <Crosshair size={15} />,
-      isLoading: csLoading,
-      isFetching: csFetching,
-      isError: csError,
-      isOnline: !!csMetrics,
-      detail: csMetrics ? `${csMetrics.active_decisions} decisiones activas` : 'LAPI',
-      errorMessage: csError ? getApiErrorMessage(csErrorObj, 'No se pudo conectar con CrowdSec') : null,
-      onRetry: refetchCs,
     },
     {
       name: 'GLPI',
@@ -158,8 +129,8 @@ export function SystemHealth() {
               ))}
             </div>
           </div>
-          {/* ── Row 1: MikroTik, Wazuh, CrowdSec (3 cols) ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem' }}>
+          {/* ── Row 1: MikroTik, Wazuh (2 cols) ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.25rem' }}>
             {/* MikroTik Health */}
             <div className="glass-card" style={{ padding: '1.5rem' }}>
               <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-surface-200)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -269,64 +240,6 @@ export function SystemHealth() {
               )}
             </div>
 
-            {/* CrowdSec Health */}
-            <div className="glass-card" style={{ padding: '1.5rem' }}>
-              <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-surface-200)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Crosshair size={15} style={{ color: 'var(--color-brand-400)' }} />
-                CrowdSec
-                {csMetrics && <span className="badge badge-info">LAPI</span>}
-              </h3>
-
-              {csMetrics ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {/* Key Metrics */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                    {[
-                      { label: 'Decisiones', value: csMetrics.active_decisions, color: 'var(--color-danger)' },
-                      { label: 'Alertas 24h', value: csMetrics.alerts_24h, color: 'var(--color-warning)' },
-                      { label: 'Escenarios', value: csMetrics.scenarios_active, color: 'var(--color-brand-400)' },
-                    ].map(s => (
-                      <div key={s.label} style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(15,23,42,0.4)', borderRadius: 8 }}>
-                        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: s.color }}>{s.value}</div>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--color-surface-500)' }}>{s.label}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Top Scenario */}
-                  {topScenarioLabel && (
-                    <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(15,23,42,0.3)', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.72rem', color: 'var(--color-surface-400)' }}>Top escenario</span>
-                      <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--color-surface-200)' }}>
-                        {topScenarioLabel}
-                        {topScenarioCount !== null && (
-                          <span style={{ color: 'var(--color-warning)', marginLeft: '0.5rem' }}>({topScenarioCount})</span>
-                        )}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Bouncers */}
-                  <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-500)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Bouncers</p>
-                  {crowdsecBouncers.length > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                      {crowdsecBouncers.map(b => (
-                        <div key={b.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0.5rem', background: 'rgba(15,23,42,0.3)', borderRadius: 6 }}>
-                          <span style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)' }}>{b.name}</span>
-                          <span style={{ fontSize: '0.7rem', color: b.status === 'connected' ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                            ● {b.status}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p style={{ fontSize: '0.75rem', color: 'var(--color-surface-500)' }}>Sin bouncers</p>
-                  )}
-                </div>
-              ) : (
-                <div className="empty-state">Sin datos de CrowdSec</div>
-              )}
-            </div>
           </div>
 
           {/* ── Row 2: GLPI Inventory (full width) ── */}

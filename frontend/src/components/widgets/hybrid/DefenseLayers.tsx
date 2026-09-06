@@ -3,7 +3,6 @@ import { WidgetSkeleton, WidgetErrorState, WidgetHeader } from '../common';
 
 const LAYERS = [
   { key: 'wazuh', label: 'Wazuh SIEM', r: 70, color: '#f59e0b' },
-  { key: 'crowdsec', label: 'CrowdSec IPS', r: 52, color: '#10b981' },
   { key: 'mikrotik', label: 'MikroTik FW', r: 35, color: '#3b82f6' },
 ];
 

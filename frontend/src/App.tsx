@@ -36,10 +36,6 @@ import { ConfigView } from './components/security/ConfigView';
 import { PhishingPanel } from './components/phishing/PhishingPanel';
 import { SystemHealth } from './components/system/SystemHealth';
 import { InventoryPage } from './components/inventory/InventoryPage';
-// CrowdSec
-import { CrowdSecCommandCenter } from './components/crowdsec/CommandCenter';
-import { CrowdSecIntelligence } from './components/crowdsec/IntelligenceView';
-import { CrowdSecConfig } from './components/crowdsec/ConfigView';
 // Custom Views
 import ViewsListPage from './components/views/ViewsListPage';
 import ViewBuilderPage from './components/views/ViewBuilderPage';
@@ -103,11 +99,6 @@ export default function App() {
 
               {/* Inventory — GLPI */}
               <Route path="/inventory" element={<InventoryPage />} />
-
-              {/* CrowdSec */}
-              <Route path="/crowdsec" element={<CrowdSecCommandCenter />} />
-              <Route path="/crowdsec/intelligence" element={<CrowdSecIntelligence />} />
-              <Route path="/crowdsec/config" element={<CrowdSecConfig />} />
 
               {/* Legacy redirect — VLANs page merged into /network */}
               <Route path="/vlans" element={<Navigate to="/network" replace />} />

@@ -220,6 +220,26 @@ async def get_alert_detail(
 # INFRASTRUCTURE
 # ══════════════════════════════════════════════════════════════════════════════
 
+@router.get("/status")
+async def get_status(crowdsec: CrowdSecService = Depends(get_cs)) -> APIResponse:
+    """
+    [CrowdSec LAPI] Live connection status.
+    Probes the LAPI with a lightweight /v1/decisions call and reports the
+    configured URL + whether the API key is set. Returns success=false when
+    the LAPI is unreachable (breaker open / client not connected).
+    """
+    try:
+        settings = crowdsec.get_settings()
+        ok = await crowdsec.check_connection()
+        return APIResponse.ok({
+            "connected": ok,
+            "url": settings.crowdsec_url,
+            "api_key_set": bool(settings.crowdsec_api_key),
+        })
+    except Exception as e:
+        return APIResponse.fail(f"Error checking CrowdSec status: {e}")
+
+
 @router.get("/bouncers")
 async def get_bouncers(crowdsec: CrowdSecService = Depends(get_cs)) -> APIResponse:
     """[CrowdSec LAPI] GET /v1/bouncers — registered bouncer agents."""

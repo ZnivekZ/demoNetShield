@@ -1,0 +1,76 @@
+# =============================================================================
+# Dockerfile.backend — NetShield Dashboard Backend
+# Python 3.12-slim + WeasyPrint (Cairo/Pango) + FastAPI/Uvicorn
+# =============================================================================
+
+# ── Stage 1: Builder ──────────────────────────────────────────────────────────
+# Instala dependencias Python en un prefijo aislado para no contaminar el stage final
+FROM python:3.12-slim-bookworm AS builder
+
+# Dependencias del sistema necesarias para compilar WeasyPrint y sus extensiones C
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        pkg-config \
+        # WeasyPrint requiere Cairo, Pango y GDK-Pixbuf para renderizar PDF
+        libpango1.0-dev \
+        libcairo2-dev \
+        libgdk-pixbuf2.0-dev \
+        libffi-dev \
+        libglib2.0-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copiar solo requirements para aprovechar cache de capas Docker
+COPY backend/requirements.txt .
+
+# Instalar todo en /install (se copiará al stage final)
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
+# Imagen final liviana: solo librerías de runtime, sin headers de compilación
+FROM python:3.12-slim-bookworm
+
+LABEL maintainer="NetShield Dashboard" \
+      version="2.9" \
+      description="NetShield Dashboard Backend — FastAPI + Uvicorn"
+
+# Librerías de runtime para WeasyPrint (sin -dev, mucho más pequeñas)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 \
+        libpangocairo-1.0-0 \
+        libcairo2 \
+        libgdk-pixbuf-2.0-0 \
+        libffi8 \
+        libglib2.0-0 \
+        # curl para el healthcheck (alternativa liviana a wget)
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiar paquetes Python instalados desde el stage builder
+COPY --from=builder /install /usr/local
+
+# Directorio de trabajo = equivalente a ejecutar desde backend/
+# Las rutas relativas del proyecto apuntan correctamente desde aquí:
+#   ./netshield.db       → /app/netshield.db
+#   ./data/geoip/        → /app/data/geoip/
+#   ../templates/        → /app/templates/  (ajustado si es necesario)
+WORKDIR /app
+
+# Copiar el código fuente del backend
+COPY backend/ .
+
+# Crear directorios necesarios que no están en el repo
+# (geoip/ está vacío y gitignoreado; la DB se persiste via volumen)
+RUN mkdir -p /app/data/geoip
+
+EXPOSE 8000
+
+# Healthcheck usando el endpoint /health del propio backend
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -fs http://localhost:8000/health || exit 1
+
+# Ejecutar con python main.py (que internamente llama a uvicorn)
+# En producción se deshabilita el reload automáticamente (APP_ENV != development)
+CMD ["python", "main.py"]

@@ -1,0 +1,62 @@
+# ── Git ───────────────────────────────────────────────────────────
+.git
+.gitignore
+
+# ── Python virtual environments ───────────────────────────────────
+.venv
+backend/.venv
+backend/venv
+venv
+
+# ── Python cache ──────────────────────────────────────────────────
+**/__pycache__
+**/*.py[cod]
+**/*.pyo
+**/*.pyd
+**/.pytest_cache
+
+# ── Node / Frontend ───────────────────────────────────────────────
+frontend/node_modules
+frontend/dist
+frontend/.eslintcache
+frontend/vite_log.txt
+
+# ── Logs ──────────────────────────────────────────────────────────
+**/*.log
+backend/uvicorn_log.txt
+
+# ── Bases de datos locales (se usan volúmenes en Docker) ──────────
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+
+# ── GeoIP databases (se descargan en runtime o son mockadas) ──────
+backend/data/geoip/*.mmdb
+
+# ── Variables de entorno con credenciales ─────────────────────────
+# NOTA: backend/.env se pasa via env_file en docker-compose.yml
+# No debe entrar en la imagen
+backend/.env
+
+# ── Documentación y archivos de desarrollo ────────────────────────
+docs/
+postman/
+context/
+documentosFunciones/
+*.md
+PENDIENTES.md
+
+# ── IDE y OS ──────────────────────────────────────────────────────
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.bak
+*.tmp
+
+# ── Gemini / AI tooling ───────────────────────────────────────────
+.gemini/
+
+# ── Tests y scripts de diagnóstico ───────────────────────────────
+backend/diagnose_indexer.py
+backend/testmicrotik.py

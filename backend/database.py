@@ -84,9 +84,22 @@ async def get_db() -> AsyncSession:
 
 # ── Init ──────────────────────────────────────────────────────────
 async def init_db() -> None:
-    """Create all tables. Called on application startup."""
+    """Create all tables and run lightweight schema migrations. Called on application startup."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        def _migrate(sync_conn):
+            from sqlalchemy import inspect, text
+            inspector = inspect(sync_conn)
+            if "action_logs" in inspector.get_table_names():
+                columns = [c["name"] for c in inspector.get_columns("action_logs")]
+                if "severity" not in columns:
+                    sync_conn.execute(
+                        text("ALTER TABLE action_logs ADD COLUMN severity VARCHAR(12) NOT NULL DEFAULT 'info'")
+                    )
+
+        await conn.run_sync(_migrate)
+
 
 
 async def close_db() -> None:

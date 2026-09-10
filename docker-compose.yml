@@ -1,0 +1,173 @@
+# =============================================================================
+# docker-compose.yml — NetShield Dashboard
+# Orquestación: backend (FastAPI) + frontend (Nginx)
+#
+# PRODUCCIÓN:
+#   docker compose up --build -d
+#
+# DESARROLLO (hot-reload, mounts en código fuente):
+#   docker compose --profile dev up
+#
+# REQUISITO PREVIO:
+#   cp backend/.env.example backend/.env
+#   # Editar backend/.env — mínimo: JWT_SECRET_KEY y MOCK_ALL=true
+# =============================================================================
+
+services:
+
+  # ── Backend — FastAPI + Uvicorn ─────────────────────────────────────────────
+  backend:
+    profiles : ["prod"]
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: netshield-backend
+    image: netshield-backend:latest
+
+    # Variables de entorno: el .env del backend se usa directamente
+    env_file:
+      - ./backend/.env
+
+    # Overrides de producción (sobreescriben lo que venga del .env)
+    environment:
+      - APP_ENV=production
+      # En Docker, el frontend accede via Nginx (puerto 80), no 5173
+      - CORS_ORIGINS=["http://localhost","http://localhost:80"]
+      # Le indicamos a SQLite la ruta del archivo dentro de la carpeta persistente:
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/db/netshield.db
+
+    volumes:
+      # Persistencia de la base de datos SQLite entre reinicios/actualizaciones
+      - netshield-db:/app/data/db
+      # Persistencia de las bases GeoIP (descargadas manualmente o con download_geoip.py)
+      - netshield-geoip:/app/data/geoip
+
+    # Puerto 8000 expuesto para debug directo (se puede comentar en producción)
+    ports:
+      - "8000:8000"
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+
+    # Logging controlado para no llenar el disco en Proxmox
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+  # ── Frontend — Nginx (static SPA + reverse proxy) ──────────────────────────
+  frontend:
+    profiles : ["prod"]
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: netshield-frontend
+    image: netshield-frontend:latest
+
+    ports:
+      - "80:80"
+
+    # Esperar a que el backend esté healthy antes de arrancar Nginx
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+
+  # ── Backend DEV — Hot-reload con código fuente montado ─────────────────────
+  # Usar con: docker compose --profile dev up backend-dev
+  backend-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: netshield-backend-dev
+    image: netshield-backend:latest
+
+    env_file:
+      - ./backend/.env
+
+    environment:
+      - APP_ENV=development
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000","http://localhost:80"]
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/db/netshield.db
+
+    volumes:
+      # Mount del código fuente para hot-reload de Uvicorn
+      - ./backend:/app
+      # La DB persiste igual que en producción
+      - netshield-db:/app/data/db
+      # GeoIP compartido con producción
+      - netshield-geoip:/app/data/geoip
+
+    ports:
+      - "8000:8000"
+
+    # En dev el CMD de la imagen ejecuta: python main.py con reload=True (APP_ENV=development)
+    restart: "no"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+  # ── Frontend DEV — Vite dev server con HMR ─────────────────────────────────
+  # Usar con: docker compose --profile dev up frontend-dev
+  frontend-dev:
+    profiles: ["dev"]
+    image: node:22-alpine
+    container_name: netshield-frontend-dev
+    working_dir: /app
+
+    volumes:
+      # Mount completo del frontend para HMR
+      - ./frontend:/app
+      # node_modules en volumen anónimo para evitar conflictos host/container
+      - /app/node_modules
+
+    ports:
+      - "5173:5173"
+
+    environment:
+      # Necesario para que el Vite dev server sea accesible desde fuera del contenedor
+      - HOST=0.0.0.0
+      - BACKEND_URL=http://backend-dev:8000
+      - BACKEND_WS_URL=ws://backend-dev:8000
+
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+
+    depends_on:
+      - backend-dev
+
+    restart: "no"
+
+
+# ── Volúmenes persistentes ──────────────────────────────────────────────────
+volumes:
+  # Base de datos SQLite — persiste entre docker compose down / up
+  netshield-db:
+    driver: local
+
+  # GeoIP MaxMind databases — descargar con:
+  #   docker compose exec backend python scripts/download_geoip.py
+  # O copiar manualmente al volumen.
+  # Si están vacías, el backend usa MOCK_GEOIP=true automáticamente.
+  netshield-geoip:
+    driver: local

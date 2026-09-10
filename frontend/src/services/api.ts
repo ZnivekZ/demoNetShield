@@ -99,24 +99,24 @@ import type {
   TelegramSendResult,
   AuditHistoryResponse,
   // Report types (new)
-    SavedReport,
-    SavedReportPagination,
-    ReportSchedule,
-    ReportTemplate,
-    AIModel,
-    // Wazuh extended (pagination, vulnerabilities, mitre, agent detail)
-    WazuhAlertsFilters,
-    WazuhAlertsPagination,
-    WazuhAgentsFilters,
-    WazuhAgentsPagination,
-    WazuhAgentDetail,
-    WazuhSyscheckEvent,
-    WazuhSyscollectorInfo,
-    WazuhVulnerabilitiesFilters,
-    WazuhVulnerabilitiesPagination,
-    WazuhMitreMatrix,
-    WazuhStatsSummary,
-  } from '../types';
+  SavedReport,
+  SavedReportPagination,
+  ReportSchedule,
+  ReportTemplate,
+  AIModel,
+  // Wazuh extended (pagination, vulnerabilities, mitre, agent detail)
+  WazuhAlertsFilters,
+  WazuhAlertsPagination,
+  WazuhAgentsFilters,
+  WazuhAgentsPagination,
+  WazuhAgentDetail,
+  WazuhSyscheckEvent,
+  WazuhSyscollectorInfo,
+  WazuhVulnerabilitiesFilters,
+  WazuhVulnerabilitiesPagination,
+  WazuhMitreMatrix,
+  WazuhStatsSummary,
+} from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -278,26 +278,26 @@ export const wazuhApi = {
     api.get<APIResponse<WazuhHealthResponse>>('/wazuh/health').then(r => r.data),
 
   sendActiveResponse: (agentId: string, command: string, args: string[] = []) =>
-      api.post<APIResponse>('/wazuh/active-response', {
-        agent_id: agentId,
-        command,
-        args,
-      }).then(r => r.data),
-  };
+    api.post<APIResponse>('/wazuh/active-response', {
+      agent_id: agentId,
+      command,
+      args,
+    }).then(r => r.data),
+};
 
-  /**
-   * wazuhApiExtended — Extended Wazuh API client.
-   *
-   * Some of these endpoints do NOT exist in the backend yet (e.g. /agents/{id},
-   * /vulnerability, /mitre/matrix). When that's the case, each method catches
-   * the network/server error and returns a not_available response so the UI
-   * can render a graceful "Pendiente de integración backend" message instead
-   * of crashing.
-   *
-   * Always prefer the existing wazuhApi for endpoints that are already wired
-   * (health, alerts, alerts/critical, alerts/timeline, alerts/last-critical,
-   * agents, agents/top, agents/summary, mitre/summary, active-response).
-   */
+/**
+ * wazuhApiExtended — Extended Wazuh API client.
+ *
+ * Some of these endpoints do NOT exist in the backend yet (e.g. /agents/{id},
+ * /vulnerability, /mitre/matrix). When that's the case, each method catches
+ * the network/server error and returns a not_available response so the UI
+ * can render a graceful "Pendiente de integración backend" message instead
+ * of crashing.
+ *
+ * Always prefer the existing wazuhApi for endpoints that are already wired
+ * (health, alerts, alerts/critical, alerts/timeline, alerts/last-critical,
+ * agents, agents/top, agents/summary, mitre/summary, active-response).
+ */
 export const wazuhApiExtended = {
   // ── Alerts with pagination + filters ─────────────────────────────
   getAlertsPaginated: async (filters: WazuhAlertsFilters): Promise<APIResponse<WazuhAlertsPagination>> => {
@@ -321,21 +321,58 @@ export const wazuhApiExtended = {
 
   // ── Agents list with pagination + filters ────────────────────────
   getAgentsPaginated: async (filters: WazuhAgentsFilters): Promise<APIResponse<WazuhAgentsPagination>> => {
-      try {
-        const params: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.page_size ?? 50 };
-        if (filters.status) params.status = filters.status;
-        if (filters.search) params.search = filters.search;
+    try {
+      const params: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.page_size ?? 50 };
+      if (filters.status) params.status = filters.status;
+      if (filters.search) params.search = filters.search;
 
-        const resp = await api
-          .get<APIResponse<WazuhAgentsPagination | WazuhAgent[]>>('/wazuh/agents', { params });
+      const resp = await api
+        .get<APIResponse<WazuhAgentsPagination | WazuhAgent[]>>('/wazuh/agents', { params });
 
-        // Normalize: backend may return either WazuhAgentsPagination OR a flat WazuhAgent[]
-        // (depending on whether the backend honors pagination params).
-        const payload = resp.data;
-        if (payload?.success && payload.data) {
-          if (Array.isArray(payload.data)) {
-            // Flat list — paginate client-side and apply filters
-            const all = payload.data;
+      // Normalize: backend may return either WazuhAgentsPagination OR a flat WazuhAgent[]
+      // (depending on whether the backend honors pagination params).
+      const payload = resp.data;
+      if (payload?.success && payload.data) {
+        if (Array.isArray(payload.data)) {
+          // Flat list — paginate client-side and apply filters
+          const all = payload.data;
+          const filtered = all.filter(a => {
+            if (filters.status && a.status !== filters.status) return false;
+            if (filters.search) {
+              const q = filters.search.toLowerCase();
+              if (!a.name.toLowerCase().includes(q) && !a.ip.toLowerCase().includes(q) && !a.id.toLowerCase().includes(q)) return false;
+            }
+            return true;
+          });
+          const page = filters.page ?? 1;
+          const size = filters.page_size ?? 50;
+          return {
+            success: true,
+            data: {
+              items: filtered.slice((page - 1) * size, page * size),
+              pagination: {
+                page,
+                page_size: size,
+                total: filtered.length,
+                total_pages: Math.max(1, Math.ceil(filtered.length / size)),
+                has_next: page * size < filtered.length,
+                has_prev: page > 1,
+              },
+            },
+            error: null,
+          };
+        }
+        // Already in paginated form
+        return payload as APIResponse<WazuhAgentsPagination>;
+      }
+      return payload as APIResponse<WazuhAgentsPagination>;
+    } catch (e: unknown) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status && status >= 400 && status < 500) {
+        try {
+          const basic = await wazuhApi.getAgents();
+          if (basic.success && basic.data) {
+            const all = basic.data;
             const filtered = all.filter(a => {
               if (filters.status && a.status !== filters.status) return false;
               if (filters.search) {
@@ -362,50 +399,13 @@ export const wazuhApiExtended = {
               error: null,
             };
           }
-          // Already in paginated form
-          return payload as APIResponse<WazuhAgentsPagination>;
+        } catch {
+          // ignore
         }
-        return payload as APIResponse<WazuhAgentsPagination>;
-      } catch (e: unknown) {
-        const status = (e as { response?: { status?: number } })?.response?.status;
-        if (status && status >= 400 && status < 500) {
-          try {
-            const basic = await wazuhApi.getAgents();
-            if (basic.success && basic.data) {
-              const all = basic.data;
-              const filtered = all.filter(a => {
-                if (filters.status && a.status !== filters.status) return false;
-                if (filters.search) {
-                  const q = filters.search.toLowerCase();
-                  if (!a.name.toLowerCase().includes(q) && !a.ip.toLowerCase().includes(q) && !a.id.toLowerCase().includes(q)) return false;
-                }
-                return true;
-              });
-              const page = filters.page ?? 1;
-              const size = filters.page_size ?? 50;
-              return {
-                success: true,
-                data: {
-                  items: filtered.slice((page - 1) * size, page * size),
-                  pagination: {
-                    page,
-                    page_size: size,
-                    total: filtered.length,
-                    total_pages: Math.max(1, Math.ceil(filtered.length / size)),
-                    has_next: page * size < filtered.length,
-                    has_prev: page > 1,
-                  },
-                },
-                error: null,
-              };
-            }
-          } catch {
-            // ignore
-          }
-        }
-        return notAvailableResponse<WazuhAgentsPagination>('getAgentsPaginated');
       }
-    },
+      return notAvailableResponse<WazuhAgentsPagination>('getAgentsPaginated');
+    }
+  },
 
   // ── Agent detail (flat agent fields — same shape as the agents list) ──
   getAgentDetail: async (agentId: string): Promise<APIResponse<WazuhAgentDetail>> => {
@@ -914,6 +914,13 @@ export const glpiApi = {
   // ── Locations ────────────────────────────────────────────
   getLocations: () =>
     api.get<APIResponse<{ locations: GlpiLocation[] }>>('/glpi/locations').then(r => r.data),
+};
+
+/* ── CrowdSec (TEMPORAL: Stub para no romper imports pendientes) ───────── */
+export const crowdsecApi = {
+  getDecisions: () => Promise.resolve({ data: [] }),
+  getAlerts: (_params?: any) => Promise.resolve({ data: { alerts: [], total: 0 } }),
+  getMetrics: () => Promise.resolve({ data: {} }),
 };
 
 

@@ -18,7 +18,11 @@ import json
 from typing import Any
 
 import structlog
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None  # type: ignore
+
 
 from config import get_settings
 from services.mikrotik_service import get_mikrotik_service
@@ -491,8 +495,10 @@ class AIService:
         self._settings = get_settings()
         self._client: OpenAI | None = None
 
-    def _get_client(self) -> OpenAI:
+    def _get_client(self) -> Any:
         """Lazy-init the OpenAI client pointed at OpenRouter."""
+        if OpenAI is None:
+            raise ImportError("El paquete 'openai' no está instalado en el entorno.")
         if self._client is None:
             if not self._settings.openrouter_api_key:
                 raise ValueError(

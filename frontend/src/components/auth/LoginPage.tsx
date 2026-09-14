@@ -82,6 +82,13 @@ export default function LoginPage() {
       >
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
+          {/* Logo Facultad de Ingeniería UNMdP */}
+          <img
+            src="/logo-fi-unmdp.png"
+            alt="Facultad de Ingeniería - Universidad Nacional de Mar del Plata"
+            className="mb-5"
+            style={{ width: '130px', height: 'auto', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.4))' }}
+          />
           <div
             className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 shadow-lg"
             style={{

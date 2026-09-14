@@ -249,6 +249,7 @@ app.add_middleware(
 _PUBLIC_PATHS: frozenset[str] = frozenset({
     "/api/auth/login",
     "/api/auth/logout",
+    "/api/health",
     "/health",
     "/",
     "/docs",
@@ -328,6 +329,7 @@ async def root():
     return RedirectResponse(url="/docs")
 
 @app.get("/api/health")
+@app.get("/health")
 async def health_check():
     """Health check endpoint for monitoring."""
     return {

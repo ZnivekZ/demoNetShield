@@ -98,8 +98,8 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "2db7b36c3bc296ace08b5612e06633ad2ffe7c72089e8aa2c500674636aa1834"        # OBLIGATORIO — falla al arrancar si vacío
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60    # 1 hora de expiración
-    default_admin_user: str = "admin"
-    default_admin_password: str = "admin"
+    default_admin_user: str = "root"
+    default_admin_password: str = "proyectofi"
 
     # ── Audit / Action Log ─────────────────────────────────────
     # Nivel mínimo de severidad para registrar acciones.

@@ -63,9 +63,9 @@ COPY backend/ .
 
 # Crear directorios necesarios que no están en el repo
 # (geoip/ está vacío y gitignoreado; la DB se persiste via volumen)
-RUN mkdir -p /app/data/geoip
+RUN mkdir -p /app/data/geoip /app/data/db 
 
-EXPOSE 8000
+EXPOSE 8000 
 
 # Healthcheck usando el endpoint /health del propio backend
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \

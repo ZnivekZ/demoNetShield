@@ -1,0 +1,40 @@
+name: Deploy netShield2
+
+# Se ejecuta cuando haces push a la rama main
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to Proxmox (LXC)
+    runs-on: self-hosted
+
+    steps:
+      # 1. Descargar el código del repo en el runner
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Crear el archivo .env desde el GitHub Secret
+      - name: Create .env file
+        run: |
+          mkdir -p ./backend
+          echo "${{ secrets.ENV_FILE_CONTENT }}" > ./backend/.env
+
+      # 3. Detener contenedores anteriores
+      - name: Stop existing containers
+        run: |
+          docker compose --profile prod down --remove-orphans || true
+
+      # 4. Construir y levantar los nuevos contenedores
+      - name: Build and start containers
+        run: |
+          docker compose --profile prod up --build -d
+
+      # 5. Verificar que los contenedores están corriendo
+      - name: Verify deployment
+        run: |
+          sleep 10
+          docker compose --profile prod ps
+          echo "✅ Deploy completado exitosamente!"

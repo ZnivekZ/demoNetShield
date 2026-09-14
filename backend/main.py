@@ -127,9 +127,12 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("database_initialized")
 
-    # Create default admin user if no users exist
+    # Migrate legacy 'admin' user to credentials defined in .env (if needed)
     from services.auth_service import get_auth_service
     auth_service = get_auth_service()
+    await auth_service.migrate_default_admin()
+
+    # Create default admin user if no users exist
     await auth_service.ensure_default_admin()
 
     # MikroTik is connected on-demand (lazy): the first endpoint that

@@ -191,10 +191,62 @@ class AuthService:
             logger.info("auth_user_deleted", user_id=user_id, username=user.username)
             return True
 
+    async def migrate_default_admin(self) -> None:
+        """
+        Migrate a legacy 'admin' user to the credentials defined in settings.
+        This runs BEFORE ensure_default_admin() so that existing deployments
+        with the old hardcoded 'admin/admin' user are automatically updated
+        to the credentials configured in .env (DEFAULT_ADMIN_USER / DEFAULT_ADMIN_PASSWORD).
+
+        Logic:
+        - If the target username already exists → nothing to do.
+        - If a legacy user named 'admin' exists AND target username != 'admin' → rename + rehash.
+        - Otherwise → no-op.
+        """
+        target_user = settings.default_admin_user
+        target_pass = settings.default_admin_password
+
+        # Nothing to migrate if target is still 'admin'
+        if target_user == "admin":
+            return
+
+        # Check if target user already exists (migration already done)
+        existing_target = await self.get_user_by_username(target_user)
+        if existing_target:
+            logger.info(
+                "auth_migration_skipped",
+                reason="target_user_already_exists",
+                username=target_user,
+            )
+            return
+
+        # Look for the legacy 'admin' user
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(User).where(User.username == "admin")
+            )
+            legacy = result.scalar_one_or_none()
+
+            if legacy is None:
+                logger.info("auth_migration_skipped", reason="no_legacy_admin_found")
+                return
+
+            # Rename and rehash
+            legacy.username = target_user
+            legacy.hashed_password = hash_password(target_pass)
+            legacy.full_name = "Administrador NetShield"
+            await session.commit()
+            logger.info(
+                "auth_default_admin_migrated",
+                old_username="admin",
+                new_username=target_user,
+                msg="Usuario migrado automáticamente desde credenciales legacy",
+            )
+
     async def ensure_default_admin(self) -> None:
         """
         Create the default admin user if no users exist in the database.
-        Called during application startup after init_db().
+        Called during application startup after init_db() and migrate_default_admin().
         """
         async with async_session_factory() as session:
             result = await session.execute(select(User))

@@ -491,7 +491,7 @@ Versión del proyecto: 2.9
 ### Cambios Auth (2026-06-17)
 - **Backend:** `models/user.py` (tabla `users`), `schemas/auth.py`, `services/auth_service.py` (JWT + bcrypt), `routers/auth.py` (`/api/auth/*`).
 - **Backend:** `JWTAuthMiddleware` global en `main.py` — valida JWT en **todos** los endpoints excepto rutas públicas.
-- **Backend:** `ensure_default_admin()` en lifespan — crea usuario `admin/admin` si la tabla está vacía.
+- **Backend:** `ensure_default_admin()` en lifespan — crea usuario `root/proyectofi` si la tabla está vacía.
 - **Backend:** `JWT_SECRET_KEY` obligatorio en `.env` con validación al arrancar (`model_validator`).
 - **Frontend:** `authApi` namespace en `api.ts` + interceptores JWT (request inyecta token, response maneja 401).
 - **Frontend:** `useAuth.ts`, `useUsers.ts`, `AuthContext.tsx`, `ProtectedRoute.tsx`, `LoginPage.tsx`.

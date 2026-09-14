@@ -129,7 +129,7 @@ export default function LoginPage() {
               autoComplete="username"
               autoFocus
               className="input"
-              placeholder="admin"
+              placeholder=""
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               disabled={isLoading}

@@ -95,11 +95,11 @@ class Settings(BaseSettings):
     telegram_admin_chat_ids: str = ""  # IDs separados por coma (autorizados para consultas)
 
     # ── Auth / JWT ─────────────────────────────────────────────
-    jwt_secret_key: str = "2db7b36c3bc296ace08b5612e06633ad2ffe7c72089e8aa2c500674636aa1834"        # OBLIGATORIO — falla al arrancar si vacío
+    jwt_secret_key: str = ""        # OBLIGATORIO — falla al arrancar si vacío
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60    # 1 hora de expiración
-    default_admin_user: str = "root"
-    default_admin_password: str = "proyectofi"
+    jwt_expire_minutes: int = 60 
+    default_admin_user: str = ""
+    default_admin_password: str = ""
 
     # ── Audit / Action Log ─────────────────────────────────────
     # Nivel mínimo de severidad para registrar acciones.

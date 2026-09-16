@@ -515,6 +515,23 @@ class AIService:
             )
         return self._client
 
+    @staticmethod
+    def _get_service_name(tool_name: str) -> str:
+        """Map tool name to the external service it depends on."""
+        if tool_name.startswith("get_mikrotik_") or tool_name in ("get_firewall_rules", "get_arp_table"):
+            return "MikroTik"
+        elif tool_name.startswith("get_wazuh_"):
+            return "Wazuh"
+        elif tool_name.startswith("get_crowdsec_"):
+            return "CrowdSec"
+        elif tool_name.startswith("get_suricata_"):
+            return "Suricata"
+        elif tool_name.startswith("get_glpi_"):
+            return "GLPI"
+        elif tool_name == "get_system_health":
+            return "System"
+        return "Unknown"
+
     async def _execute_tool(self, tool_name: str, tool_input: dict) -> Any:
         """
         Execute a function call requested by the AI model.
@@ -522,6 +539,27 @@ class AIService:
         """
         logger.info("ai_tool_called", tool=tool_name)
 
+        try:
+            return await self._dispatch_tool(tool_name, tool_input)
+        except Exception as e:
+            service_name = self._get_service_name(tool_name)
+            logger.warning(
+                "ai_tool_execution_failed",
+                tool=tool_name,
+                service=service_name,
+                error=str(e),
+            )
+            return {
+                "status": "unavailable",
+                "service": service_name,
+                "error": f"Servicio temporalmente no disponible: {str(e)}",
+            }
+
+    async def _dispatch_tool(self, tool_name: str, tool_input: dict) -> Any:
+        """
+        Internal dispatcher for tool calls. Separated from _execute_tool so that
+        the outer method can wrap all calls in a single fault-tolerance try/except.
+        """
         mt = get_mikrotik_service
         wazuh = get_wazuh_service
 
@@ -547,12 +585,8 @@ class AIService:
         elif tool_name == "get_mikrotik_health":
             return await mt().get_system_health()
         elif tool_name == "get_mikrotik_nat":
-            # NAT rules share the same base API call format
-            try:
-                raw = await mt()._api_call("/ip/firewall/nat", "print")
-                return raw
-            except Exception as e:
-                return {"error": str(e)}
+            # NAT rules — errors handled by the outer try/except in _execute_tool
+            return await mt()._api_call("/ip/firewall/nat", "print")
 
         # ── Wazuh ───────────────────────────────────────────────
         elif tool_name == "get_wazuh_alerts":
@@ -635,6 +669,7 @@ class AIService:
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}
+
 
     async def generate_report(
         self,

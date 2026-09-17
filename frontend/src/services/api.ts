@@ -649,7 +649,7 @@ export const reportsApi = {
     date_range?: { from_date: string; to_date: string };
     comparison_range?: { from_date: string; to_date: string };
   }) =>
-    api.post<APIResponse<ReportDraft>>('/reports/generate', params).then(r => r.data),
+    api.post<APIResponse<ReportDraft>>('/reports/generate', params, { timeout: 300000 }).then(r => r.data),
 
   exportPdf: (htmlContent: string, title: string, metadata: Record<string, string> = {}) =>
     api.post('/reports/export-pdf', {

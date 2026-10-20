@@ -6,6 +6,7 @@ FastAPI application with:
 - All routers registered (mikrotik, wazuh, network, reports)
 - WebSocket endpoint for real-time traffic data
 - Database initialization on startup
+..
 - Structured logging with structlog
 - Graceful shutdown of service connections
 -*-

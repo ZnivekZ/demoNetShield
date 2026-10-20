@@ -8,6 +8,7 @@ FastAPI application with:
 - Database initialization on startup
 - Structured logging with structlog
 - Graceful shutdown of service connections
+-*-
 """
 
 from __future__ import annotations

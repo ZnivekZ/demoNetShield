@@ -52,8 +52,7 @@ import type {
   GlpiAssetCreate,
   GlpiAssetUpdate,
   GlpiAssetStats,
-  GlpiAssetHealth,
-  GlpiHealthSummary,
+  GlpiHealthReport,
   GlpiNetworkContext,
   GlpiLocation,
   GlpiTicket,
@@ -794,8 +793,10 @@ export const glpiApi = {
       { params }
     ).then(r => r.data),
 
-  getAsset: (id: number) =>
-    api.get<APIResponse<GlpiAsset>>(`/glpi/assets/${id}`).then(r => r.data),
+  getAsset: (id: number, itemtype?: string) =>
+    api.get<APIResponse<GlpiAsset>>(
+      `/glpi/assets/${id}${itemtype ? `?itemtype=${encodeURIComponent(itemtype)}` : ''}`
+    ).then(r => r.data),
 
   searchAssets: (q: string) =>
     api.get<APIResponse<{ results: GlpiAsset[]; query: string }>>(
@@ -807,9 +808,7 @@ export const glpiApi = {
     api.get<APIResponse<GlpiAssetStats>>('/glpi/assets/stats').then(r => r.data),
 
   getAssetHealth: () =>
-    api.get<APIResponse<{ assets: GlpiAssetHealth[]; summary: GlpiHealthSummary }>>(
-      '/glpi/assets/health'
-    ).then(r => r.data),
+    api.get<APIResponse<GlpiHealthReport>>('/glpi/assets/health').then(r => r.data),
 
   getAssetsByLocation: (locationId: number) =>
     api.get<APIResponse<{ assets: GlpiAsset[]; location_id: number }>>(
@@ -819,20 +818,30 @@ export const glpiApi = {
   getAssetNetworkContext: (id: number) =>
     api.get<APIResponse<GlpiNetworkContext>>(`/glpi/assets/${id}/network-context`).then(r => r.data),
 
-  getAssetFullDetail: (id: number) =>
-    api.get<APIResponse<GlpiAssetFullDetail>>(`/glpi/assets/${id}/full-detail`).then(r => r.data),
+  getAssetFullDetail: (id: number, itemtype?: string) =>
+    api.get<APIResponse<GlpiAssetFullDetail>>(
+      itemtype
+        ? `/glpi/assets/${encodeURIComponent(itemtype)}/${id}/full-detail`
+        : `/glpi/assets/${id}/full-detail`
+    ).then(r => r.data),
 
   createAsset: (data: GlpiAssetCreate) =>
     api.post<APIResponse>('/glpi/assets', data).then(r => r.data),
 
-  updateAsset: (id: number, data: GlpiAssetUpdate) =>
-    api.put<APIResponse>(`/glpi/assets/${id}`, data).then(r => r.data),
+  updateAsset: (id: number, data: GlpiAssetUpdate, itemtype?: string) =>
+    api.put<APIResponse>(
+      `/glpi/assets/${id}${itemtype ? `?itemtype=${encodeURIComponent(itemtype)}` : ''}`, data
+    ).then(r => r.data),
 
-  deleteAsset: (id: number) =>
-    api.delete<APIResponse>(`/glpi/assets/${id}`).then(r => r.data),
+  deleteAsset: (id: number, itemtype?: string) =>
+    api.delete<APIResponse>(
+      `/glpi/assets/${id}${itemtype ? `?itemtype=${encodeURIComponent(itemtype)}` : ''}`
+    ).then(r => r.data),
 
-  assignAsset: (assetId: number, data: GlpiAssignmentRequest) =>
-    api.put<APIResponse>(`/glpi/assets/${assetId}/assign`, data).then(r => r.data),
+  assignAsset: (assetId: number, data: GlpiAssignmentRequest, itemtype?: string) =>
+    api.put<APIResponse>(
+      `/glpi/assets/${assetId}/assign${itemtype ? `?itemtype=${encodeURIComponent(itemtype)}` : ''}`, data
+    ).then(r => r.data),
 
   quarantineAsset: (id: number, data: GlpiQuarantineRequest) =>
     api.post<APIResponse>(`/glpi/assets/${id}/quarantine`, data).then(r => r.data),

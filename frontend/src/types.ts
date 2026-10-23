@@ -765,6 +765,8 @@ export type GlpiWazuhAgent = 'active' | 'disconnected' | 'not_installed';
 export interface GlpiAsset {
   id: number;
   name: string;
+  /** GLPI itemtype: Computer | Printer | Peripheral | Phone | NetworkEquipment | Monitor */
+  type?: string;
   serial: string;
   ip: string;
   mac: string;
@@ -816,13 +818,13 @@ export interface GlpiAssetStats {
 export interface GlpiAssetHealth {
   asset_id: number;
   name: string;
-  ip: string;
+  type: string;
   location: string;
+  assigned_user: string;
   glpi_status: GlpiAssetStatus;
-  wazuh_agent: GlpiWazuhAgent;
-  network_visible: boolean;
   health: GlpiHealth;
   health_reason: string;
+  last_update: string;
 }
 
 export interface GlpiHealthSummary {
@@ -830,6 +832,15 @@ export interface GlpiHealthSummary {
   warning: number;
   critical: number;
   total: number;
+  active?: number;
+  inactive?: number;
+}
+
+export interface GlpiHealthReport {
+  assets: GlpiAssetHealth[];
+  summary: GlpiHealthSummary;
+  by_type?: Record<string, number>;
+  by_status?: Record<string, number>;
 }
 
 export interface GlpiNetworkContext {

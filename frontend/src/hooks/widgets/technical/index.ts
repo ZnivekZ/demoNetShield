@@ -106,8 +106,9 @@ export function useCriticalAssets(limit = 10) {
     queryKey: ['widget', 'critical-assets', limit],
     queryFn: async () => {
       const assetsRes = await glpiApi.getAssetHealth().catch(() => null);
-      const assets = assetsRes?.success
-        ? (assetsRes.data?.assets ?? []) : [];
+      const all = assetsRes?.success ? (assetsRes.data?.assets ?? []) : [];
+      // GLPI-only: "critical" means the asset is not active (retired/quarantine).
+      const assets = all.filter((a: { health?: string }) => a.health === 'critical');
       const partial = assetsRes === null;
       return { assets: assets.slice(0, limit), partial };
     },

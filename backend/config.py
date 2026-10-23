@@ -67,10 +67,20 @@ class Settings(BaseSettings):
     auto_block_enabled: bool = False  # Toggle automatic IP blocking
 
     # ── GLPI Asset Management ─────────────────────────────────────────────
-    glpi_url: str = "http://glpi.facultad.local"
+    # High-Level REST API (OAuth2, "password" grant).
+    #   Token:     POST {glpi_api_url}/token
+    #   Resources: {glpi_api_url}/{glpi_api_version}/Assets/Computer, ...
+    glpi_url: str = "http://localhost"              # host (display / legacy)
+    glpi_api_url: str = "http://localhost/api.php"  # API root (token + versions)
+    glpi_api_version: str = "v3.0"
+    glpi_client_id: str = ""
+    glpi_client_secret: str = ""
+    glpi_username: str = "glpi"
+    glpi_password: str = "glpi"
+    glpi_verify_ssl: bool = False
+    # Legacy low-level API (apirest.php) — deprecated, disabled on this instance
     glpi_app_token: str = ""
     glpi_user_token: str = ""
-    glpi_verify_ssl: bool = False
 
     # ── CrowdSec IPS ──────────────────────────────────────────────────────
     # Local API (LAPI) del agente CrowdSec. Puerto 8080 por defecto.
@@ -155,9 +165,29 @@ class Settings(BaseSettings):
         return f"https://{self.wazuh_host}:{self.wazuh_port}"
 
     @property
+    def glpi_token_url(self) -> str:
+        """OAuth2 token endpoint (High-Level API)."""
+        return f"{self.glpi_api_url.rstrip('/')}/token"
+
+    @property
+    def glpi_api_base(self) -> str:
+        """Versioned High-Level API base, e.g. http://host/api.php/v3.0."""
+        return f"{self.glpi_api_url.rstrip('/')}/{self.glpi_api_version}"
+
+    @property
+    def glpi_configured(self) -> bool:
+        """True when OAuth2 credentials are present."""
+        return bool(
+            self.glpi_client_id
+            and self.glpi_client_secret
+            and self.glpi_username
+            and self.glpi_password
+        )
+
+    @property
     def glpi_base_url(self) -> str:
-        """Base URL for GLPI REST API."""
-        return f"{self.glpi_url}/apirest.php"
+        """Deprecated: legacy low-level API (apirest.php). Unused after the v3 migration."""
+        return f"{self.glpi_url.rstrip('/')}/apirest.php"
 
     @property
     def telegram_admin_ids_list(self) -> list[str]:

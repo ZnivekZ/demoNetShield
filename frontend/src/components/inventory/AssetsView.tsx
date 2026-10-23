@@ -240,7 +240,7 @@ export function AssetsView() {
                                     className="btn"
                                     style={{ padding: '0.2rem 0.4rem', fontSize: '0.65rem', background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
                                     onClick={() => {
-                                      deleteAsset.mutate(asset.id, {
+                                      deleteAsset.mutate({ id: asset.id, itemtype: asset.type }, {
                                         onSuccess: () => {
                                           setDeletingId(null);
                                           if (selectedAsset?.id === asset.id) setSelectedAsset(null);

@@ -351,6 +351,39 @@ export interface WazuhHealthResponse {
   cluster_enabled: boolean;
 }
 
+/** Recursos reales del nodo del Indexer de Wazuh. */
+export interface WazuhNodeResources {
+  node_name?: string;
+  /** CPU del proceso del Indexer (JVM). */
+  cpu_percent?: number | null;
+  /** CPU del host (SO del nodo). */
+  host_cpu_percent?: number | null;
+  ram_used_percent?: number | null;
+  ram_used_bytes?: number | null;
+  ram_total_bytes?: number | null;
+  heap_used_percent?: number | null;
+  uptime_ms?: number | null;
+  disk_total_bytes?: number | null;
+  disk_used_bytes?: number | null;
+  disk_free_bytes?: number | null;
+  disk_used_percent?: number | null;
+  disk_mount?: string;
+}
+
+/** Agente activo ordenado por cantidad de vulnerabilidades. */
+export interface AgentVulnRanking {
+  agent_id: string | null;
+  agent_name: string;
+  status: string | null;
+  ip: string;
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  unknown: number;
+}
+
 /* ── Wazuh Extended Types (Pagination, Vulnerabilities, MITRE, Agent Detail) ─ */
 
 export interface WazuhAlertsPagination {

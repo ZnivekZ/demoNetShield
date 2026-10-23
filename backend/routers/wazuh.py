@@ -315,6 +315,44 @@ async def get_wazuh_health(
         return APIResponse.fail(f"Failed to fetch Wazuh health: {str(e)}")
 
 
+# ── Resource metrics / agent ranking ──────────────────────────
+
+
+@router.get("/agents/by-vulnerabilities")
+async def get_agents_by_vulnerabilities(
+    limit: int = Query(default=8, ge=1, le=20),
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """[Wazuh] Active agents ordered by number of CVEs (Indexer aggregation)."""
+    try:
+        data = await asyncio.wait_for(
+            service.get_agents_by_vulnerabilities(limit), timeout=12.0
+        )
+        return APIResponse.ok(data)
+    except asyncio.TimeoutError:
+        logger.warning("api_wazuh_agents_by_vulns_timeout")
+        return APIResponse.fail("Wazuh no respondió a tiempo")
+    except Exception as e:
+        logger.error("api_wazuh_agents_by_vulns_failed", error=str(e))
+        return APIResponse.fail(f"Failed to rank agents by vulnerabilities: {str(e)}")
+
+
+@router.get("/resources")
+async def get_wazuh_resources(
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """[Wazuh Indexer] CPU, OS RAM and JVM heap of the SIEM node."""
+    try:
+        data = await asyncio.wait_for(service.get_resources(), timeout=10.0)
+        return APIResponse.ok(data)
+    except asyncio.TimeoutError:
+        logger.warning("api_wazuh_resources_timeout")
+        return APIResponse.fail("Wazuh Indexer no respondió a tiempo")
+    except Exception as e:
+        logger.error("api_wazuh_resources_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch Wazuh resources: {str(e)}")
+
+
 # ── Extended Wazuh endpoints (new Wazuh UI module) ────────────
 
 

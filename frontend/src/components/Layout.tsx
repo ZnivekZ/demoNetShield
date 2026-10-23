@@ -54,7 +54,7 @@ const navGroups = [
   {
     label: 'Seguridad',
     items: [
-      { to: '/', icon: ShieldAlert, label: 'Seguridad', end: true },
+      { to: '/security', icon: ShieldAlert, label: 'Seguridad', end: true },
       { to: '/security/config', icon: Settings, label: 'Configuración', end: false },
     ],
   },

@@ -4,6 +4,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { wazuhApi } from '../services/api';
+import type { WazuhNodeResources, AgentVulnRanking } from '../types';
 import { requireApiSuccess } from '../services/apiResponse';
 
 export function useCriticalAlerts(limit = 50) {
@@ -78,6 +79,26 @@ export function useMitreSummary() {
     queryFn: () => wazuhApi.getMitreSummary(),
     refetchInterval: 60_000,
     select: r => r.data ?? [],
+  });
+}
+
+export function useWazuhResources() {
+  return useQuery<WazuhNodeResources>({
+    queryKey: ['wazuh', 'resources'],
+    queryFn: async () =>
+      requireApiSuccess(await wazuhApi.getResources(), 'Sin recursos de Wazuh') as WazuhNodeResources,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useAgentsByVulnerabilities(limit = 6) {
+  return useQuery<AgentVulnRanking[]>({
+    queryKey: ['wazuh', 'agents', 'by-vulnerabilities', limit],
+    queryFn: async () =>
+      requireApiSuccess(
+        await wazuhApi.getAgentsByVulnerabilities(limit), 'Sin ranking de agentes',
+      ) as AgentVulnRanking[],
+    refetchInterval: 60_000,
   });
 }
 

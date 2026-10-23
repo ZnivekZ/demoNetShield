@@ -113,6 +113,8 @@ import type {
     WazuhVulnerabilitiesPagination,
     WazuhMitreMatrix,
     WazuhStatsSummary,
+  WazuhNodeResources,
+  AgentVulnRanking,
   } from '../types';
 import { groupMitreTactics, tacticForRow } from './mitre';
 
@@ -239,6 +241,16 @@ export const mikrotikApi = {
 export const wazuhApi = {
   getAgents: () =>
     api.get<APIResponse<WazuhAgent[]>>('/wazuh/agents').then(r => r.data),
+
+  /** CPU / RAM / heap del nodo del Indexer. */
+  getResources: () =>
+    api.get<APIResponse<WazuhNodeResources>>('/wazuh/resources').then(r => r.data),
+
+  /** Agentes activos ordenados por cantidad de vulnerabilidades. */
+  getAgentsByVulnerabilities: (limit = 8) =>
+    api.get<APIResponse<AgentVulnRanking[]>>('/wazuh/agents/by-vulnerabilities', {
+      params: { limit },
+    }).then(r => r.data),
 
   getAlerts: (limit = 50, levelMin?: number, offset = 0, timeFrom?: string) =>
     api.get<APIResponse<WazuhAlert[]>>('/wazuh/alerts', {

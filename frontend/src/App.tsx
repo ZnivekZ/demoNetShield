@@ -11,7 +11,9 @@
  *   /network           → NetworkPage
  *   /firewall          → FirewallPage
  *   /phishing          → PhishingPanel
+ *   /                  → redirect a /system (vista inicial)
  *   /system            → SystemHealth
+ *   /security          → QuickView (panel de seguridad)
  *   /reports           → ReportsPage
  *   /admin/users       → UsersManagementPage (acceso desde SettingsDrawer)
  *   /admin/audit       → AuditHistoryPage    (acceso desde SettingsDrawer)
@@ -84,7 +86,8 @@ export default function App() {
               }
             >
               {/* Security */}
-              <Route path="/" element={<QuickView />} />
+              <Route path="/" element={<Navigate to="/system" replace />} />
+              <Route path="/security" element={<QuickView />} />
               <Route path="/security/config" element={<ConfigView />} />
 
               {/* Infrastructure */}
@@ -122,7 +125,7 @@ export default function App() {
               <Route path="/admin/audit" element={<AuditHistoryPage />} />
 
               {/* Fallback */}
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<Navigate to="/system" replace />} />
             </Route>
           </Routes>
         </BrowserRouter>

@@ -225,6 +225,105 @@ class WazuhIndexerClient:
 
     # ── Alerts ─────────────────────────────────────────────────
 
+    async def get_node_stats(self) -> dict[str, Any]:
+        """
+        Resource usage of the Wazuh Indexer node (deployment-agnostic: reports
+        whatever the node's OS exposes, be it bare metal, VM, container or LXC).
+
+        GET /_nodes/stats/os,process,jvm,fs:
+          - os.cpu / os.mem  → host CPU and memory
+          - process.cpu      → CPU of the Indexer JVM alone
+          - jvm.mem          → heap
+          - fs.data          → disk of the data path (used = total - free)
+        """
+        if self._breaker.is_open() or not self.is_configured():
+            return {}
+        client = self._get_client()
+        try:
+            resp = await asyncio.wait_for(
+                client.get("/_nodes/stats/os,process,jvm,fs"), timeout=8.0
+            )
+            resp.raise_for_status()
+            nodes = resp.json().get("nodes", {})
+            if not nodes:
+                return {}
+            node = next(iter(nodes.values()))
+            os_mem = (node.get("os") or {}).get("mem") or {}
+            jvm = node.get("jvm") or {}
+            fs = node.get("fs") or {}
+            disk = (fs.get("data") or [None])[0] or fs.get("total") or {}
+            total = disk.get("total_in_bytes")
+            free = disk.get("free_in_bytes")
+            used = (total - free) if total is not None and free is not None else None
+            return {
+                "node_name": node.get("name", ""),
+                "cpu_percent": ((node.get("process") or {}).get("cpu") or {}).get("percent"),
+                "host_cpu_percent": ((node.get("os") or {}).get("cpu") or {}).get("percent"),
+                "ram_used_percent": os_mem.get("used_percent"),
+                "ram_used_bytes": os_mem.get("used_in_bytes"),
+                "ram_total_bytes": os_mem.get("total_in_bytes"),
+                "heap_used_percent": (jvm.get("mem") or {}).get("heap_used_percent"),
+                "uptime_ms": jvm.get("uptime_in_millis"),
+                "disk_total_bytes": total,
+                "disk_used_bytes": used,
+                "disk_free_bytes": free,
+                "disk_used_percent": round(used * 100 / total, 1) if used is not None and total else None,
+                "disk_mount": disk.get("mount") or disk.get("path") or "",
+            }
+        except Exception as e:
+            logger.warning("wazuh_indexer_node_stats_failed", error=str(e))
+            return {}
+
+    async def get_vulnerabilities_by_agent(self, limit: int = 30) -> list[dict[str, Any]]:
+        """
+        Aggregate CVE findings per agent (ordered by total, desc).
+        Returns [{agent_name, total, critical, high, medium, low, unknown}].
+        """
+        if self._breaker.is_open() or not self.is_configured():
+            return []
+        body = {
+            "size": 0,
+            "aggs": {
+                "by_agent": {
+                    "terms": {"field": "agent.name", "size": limit, "order": {"_count": "desc"}},
+                    "aggs": {
+                        "severity": {"terms": {"field": "vulnerability.severity", "size": 8}}
+                    },
+                }
+            },
+        }
+        client = self._get_client()
+        try:
+            resp = await asyncio.wait_for(
+                client.post(
+                    "/wazuh-states-vulnerabilities-*/_search",
+                    headers={"Content-Type": "application/json"},
+                    content=json.dumps(body),
+                ),
+                timeout=12.0,
+            )
+            resp.raise_for_status()
+            buckets = (
+                resp.json().get("aggregations", {}).get("by_agent", {}).get("buckets", [])
+            )
+            out = []
+            for b in buckets:
+                sev = {str(x.get("key", "")).lower(): x.get("doc_count", 0)
+                       for x in b.get("severity", {}).get("buckets", [])}
+                out.append({
+                    "agent_name": b.get("key", ""),
+                    "total": b.get("doc_count", 0),
+                    "critical": sev.get("critical", 0),
+                    "high": sev.get("high", 0),
+                    "medium": sev.get("medium", 0),
+                    "low": sev.get("low", 0),
+                    "unknown": sev.get("-", 0) + sev.get("", 0),
+                })
+            return out
+        except Exception as e:
+            logger.warning("wazuh_indexer_vulns_by_agent_failed", error=str(e))
+            return []
+
     async def get_alerts(
         self,
         limit: int = 50,

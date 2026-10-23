@@ -490,14 +490,14 @@ class WazuhService:
         self, limit: int = 50, offset: int = 0
     ) -> list[dict]:
         """
-        [Wazuh API] Get alerts with level > 10 (critical).
+        [Wazuh API] Get alerts with level >= 12 (critical).
         Includes MITRE technique data with rule_groups fallback.
         """
         try:
             params: dict[str, Any] = {
                 "offset": offset,
                 "sort": "-timestamp",
-                "q": "rule.level>10",
+                "q": "rule.level>=12",
             }
             data = await self._api_request("GET", "/alerts", params=params)
             alerts = data.get("data", {}).get("affected_items", [])
@@ -505,6 +505,7 @@ class WazuhService:
         except Exception as e:
             logger.error("wazuh_get_critical_alerts_failed", error=str(e))
             raise
+
 
     async def get_alerts_timeline(
         self, level_min: int = 5, minutes: int = 60

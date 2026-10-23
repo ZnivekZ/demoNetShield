@@ -4,13 +4,14 @@
  */
 import { useState } from 'react';
 import { ShieldAlert, Users, Activity, Wifi } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useAgentsSummary, useAlertsTimeline, useCriticalAlerts, useLastCritical, useMitreSummary, useTopAgents } from '../../hooks/useWazuhSummary';
 import { useInterfaces } from '../../hooks/useMikrotikHealth';
 import { LastIncidentCard } from './LastIncidentCard';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { useBlockIP } from '../../hooks/useSecurityActions';
 import { formatDistanceToNow, formatDateTime, severityClass } from '../utils/time';
+import { groupMitreTactics } from '../../services/mitre';
 
 const PIE_COLORS = ['#6366f1', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
 
@@ -29,7 +30,8 @@ export function QuickView() {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const downInterfaces = interfaces.filter(i => !i.running && !i.disabled).length;
-  const mitreTop = mitre.slice(0, 8);
+  // Tácticas reales (mismo cálculo que el Dashboard de Wazuh SIEM)
+  const mitreTactics = groupMitreTactics(mitre);
 
   // Timeline chart data — last 30 minutes only, keyed by HH:MM
   const timelineData = timeline.slice(-30).map(p => ({
@@ -76,8 +78,8 @@ export function QuickView() {
         />
         <StatCard
           icon={<Activity size={18} />}
-          label="Técnicas MITRE"
-          value={mitre.length}
+          label="Tácticas MITRE"
+          value={mitreTactics.length}
           sub="detectadas"
           color="var(--color-brand-400)"
           stagger="stagger-3"
@@ -130,21 +132,21 @@ export function QuickView() {
         {/* MITRE Donut */}
         <div className="glass-card" style={{ padding: '1.25rem' }}>
           <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--color-surface-200)' }}>
-            Técnicas MITRE
+            Tácticas MITRE
           </h3>
-          {mitreTop.length > 0 ? (
+          {mitreTactics.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <ResponsiveContainer width="100%" height={160}>
                 <PieChart>
                   <Pie
-                    data={mitreTop}
+                    data={mitreTactics}
                     dataKey="count"
-                    nameKey="technique_name"
+                    nameKey="tactic_name"
                     innerRadius={40}
                     outerRadius={65}
                     paddingAngle={2}
                   >
-                    {mitreTop.map((_, i) => (
+                    {mitreTactics.map((_, i) => (
                       <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                     ))}
                   </Pie>
@@ -155,11 +157,11 @@ export function QuickView() {
               </ResponsiveContainer>
               {/* Custom legend below the chart */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.75rem', justifyContent: 'center', marginTop: '0.25rem' }}>
-                {mitreTop.map((item, i) => (
-                  <div key={item.technique_id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                {mitreTactics.map((item, i) => (
+                  <div key={item.tactic_id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                     <span style={{ width: 8, height: 8, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
-                    <span style={{ fontSize: '0.62rem', color: 'var(--color-surface-400)', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.technique_name}>
-                      {item.technique_name}
+                    <span style={{ fontSize: '0.62rem', color: 'var(--color-surface-400)', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.tactic_name}>
+                      {item.tactic_name}
                     </span>
                     <span style={{ fontSize: '0.58rem', color: 'var(--color-surface-500)' }}>({item.count})</span>
                   </div>

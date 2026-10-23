@@ -306,6 +306,8 @@ export interface CriticalAlert {
   mitre_technique: string;
   mitre_id: string;
   rule_groups: string[];
+  rule_id?: string;
+  full_log?: string;
 }
 
 export interface AlertTimelinePoint {
@@ -334,6 +336,8 @@ export interface MitreSummaryItem {
   technique_name: string;
   count: number;
   last_seen: string;
+  /** Real MITRE tactic name from the Indexer aggregation (e.g. "Defense Evasion"). */
+  tactic?: string;
 }
 
 export interface WazuhHealthItem {
@@ -428,7 +432,7 @@ export interface WazuhVulnerability {
   cve_id: string;
   title: string;
   description: string;
-  severity: 'critical' | 'high' | 'medium' | 'low';
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'unknown';
   cvss_score: number;
   package_name: string;
   package_version: string;
@@ -443,6 +447,7 @@ export interface WazuhVulnerability {
 
 export interface WazuhVulnerabilitiesPagination {
   items: WazuhVulnerability[];
+  summary?: { critical: number; high: number; medium: number; low: number; unknown?: number };
   pagination: {
     page: number;
     page_size: number;

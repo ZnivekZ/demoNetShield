@@ -15,6 +15,17 @@ export function useCriticalAlerts(limit = 50) {
   });
 }
 
+/** Recent alerts at ANY level ≥ levelMin (not only critical) — used by the
+ *  dashboard "Alertas recientes" feed so it reflects real volume. */
+export function useRecentAlerts(limit = 50, levelMin = 5) {
+  return useQuery({
+    queryKey: ['wazuh', 'alerts', 'recent', limit, levelMin],
+    queryFn: () => wazuhApi.getAlerts(limit, levelMin),
+    refetchInterval: 15_000,
+    select: r => r.data ?? [],
+  });
+}
+
 export function useAlertsTimeline(levelMin = 5) {
   return useQuery({
     queryKey: ['wazuh', 'alerts', 'timeline', levelMin],
@@ -48,6 +59,16 @@ export function useAgentsSummary() {
     queryFn: () => wazuhApi.getAgentsSummary(),
     refetchInterval: 30_000,
     select: r => r.data,
+  });
+}
+
+/** Flat list of registered agents — used to build name dropdowns in filters. */
+export function useAgentsList() {
+  return useQuery({
+    queryKey: ['wazuh', 'agents', 'list'],
+    queryFn: () => wazuhApi.getAgents(),
+    refetchInterval: 60_000,
+    select: r => r.data ?? [],
   });
 }
 

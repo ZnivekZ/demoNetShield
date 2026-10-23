@@ -85,7 +85,6 @@ import type {
   TopSignature,
   CategoryDistribution,
   FlowsStats,
-  SuricataCorrelation,
   WazuhCorrelation,
   AutoResponseConfig,
   AutoResponseHistoryEntry,
@@ -103,7 +102,6 @@ import type {
     SavedReportPagination,
     ReportSchedule,
     ReportTemplate,
-    AIModel,
     // Wazuh extended (pagination, vulnerabilities, mitre, agent detail)
     WazuhAlertsFilters,
     WazuhAlertsPagination,
@@ -117,6 +115,7 @@ import type {
     WazuhMitreMatrix,
     WazuhStatsSummary,
   } from '../types';
+import { groupMitreTactics, tacticForRow } from './mitre';
 
 const api = axios.create({
   baseURL: '/api',
@@ -242,9 +241,9 @@ export const wazuhApi = {
   getAgents: () =>
     api.get<APIResponse<WazuhAgent[]>>('/wazuh/agents').then(r => r.data),
 
-  getAlerts: (limit = 50, levelMin?: number, offset = 0) =>
+  getAlerts: (limit = 50, levelMin?: number, offset = 0, timeFrom?: string) =>
     api.get<APIResponse<WazuhAlert[]>>('/wazuh/alerts', {
-      params: { limit, level_min: levelMin, offset },
+      params: { limit, level_min: levelMin, offset, time_from: timeFrom },
     }).then(r => r.data),
 
   getAlertsByAgent: (agentId: string, limit = 50, offset = 0) =>
@@ -490,7 +489,7 @@ export const wazuhApiExtended = {
           // Group techniques by inferred tactic prefix (T1xxx → Initial Access, etc.)
           const tacticMap = new Map<string, { name: string; techniques: typeof summaryRes.data }>();
           for (const tech of summaryRes.data) {
-            const tac = inferTacticFromTechnique(tech.technique_id);
+            const tac = tacticForRow(tech);
             if (!tacticMap.has(tac.id)) tacticMap.set(tac.id, { name: tac.name, techniques: [] });
             tacticMap.get(tac.id)!.techniques.push(tech);
           }
@@ -516,45 +515,40 @@ export const wazuhApiExtended = {
   // ── Stats summary (aggregated dashboard KPIs) ──────────────────
   getStatsSummary: async (): Promise<APIResponse<WazuhStatsSummary>> => {
     try {
-      // Compose from existing endpoints — no dedicated endpoint needed
-      const [criticalRes, summaryRes, topAgentsRes, mitreRes] = await Promise.all([
-        wazuhApi.getCriticalAlerts(500, 0),
+      // Compose from existing endpoints — no dedicated endpoint needed.
+      // IMPORTANT: use getAlerts (ALL levels) for the totals, NOT getCriticalAlerts
+      // (only level>=12 and capped — that reported a fixed "50").
+      const [alertsRes, summaryRes, mitreRes, vulnRes] = await Promise.all([
+        wazuhApi.getAlerts(500, undefined, 0, 'now-24h'),
         wazuhApi.getAgentsSummary(),
-        wazuhApi.getTopAgents(100),
         wazuhApi.getMitreSummary(),
+        wazuhApiExtended.getVulnerabilities({ page: 1, page_size: 1 }),
       ]);
 
-      const total24h = criticalRes.data?.length ?? 0;
-      const critical24h = (criticalRes.data ?? []).filter(a => a.rule_level >= 12).length;
-      const high24h = (criticalRes.data ?? []).filter(a => a.rule_level >= 8 && a.rule_level < 12).length;
-      const medium24h = (criticalRes.data ?? []).filter(a => a.rule_level >= 5 && a.rule_level < 8).length;
-      const low24h = (criticalRes.data ?? []).filter(a => a.rule_level < 5).length;
+      const alerts = alertsRes.data ?? [];
+      const total24h = alerts.length;
+      const critical24h = alerts.filter(a => a.rule_level >= 12).length;
+      const high24h = alerts.filter(a => a.rule_level >= 8 && a.rule_level < 12).length;
+      const medium24h = alerts.filter(a => a.rule_level >= 5 && a.rule_level < 8).length;
+      const low24h = alerts.filter(a => a.rule_level < 5).length;
 
-      const tacticsMap = new Map<string, { name: string; count: number }>();
-      for (const m of mitreRes.data ?? []) {
-        const tac = inferTacticFromTechnique(m.technique_id);
-        const cur = tacticsMap.get(tac.id);
-        if (cur) cur.count += m.count;
-        else tacticsMap.set(tac.id, { name: tac.name, count: m.count });
-      }
-      const topTactics = Array.from(tacticsMap.entries())
-        .map(([tactic_id, v]) => ({ tactic_id, tactic_name: v.name, count: v.count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
+      // Real tactics (from the Indexer's `tactic` field), no truncation.
+      const topTactics = groupMitreTactics(mitreRes.data ?? []);
 
+      const vulnPayload = vulnRes.data;
       return {
         success: true,
         data: {
           total_alerts_24h: total24h,
-          total_alerts_7d: total24h, // Backend only exposes 24h; same number is fine
+          total_alerts_7d: total24h,
           critical_alerts_24h: critical24h,
           high_alerts_24h: high24h,
           medium_alerts_24h: medium24h,
           low_alerts_24h: low24h,
           active_agents: summaryRes.data?.active ?? 0,
           total_agents: summaryRes.data?.total ?? 0,
-          vulnerabilities_total: 0, // No backend endpoint — UI shows "no disponible"
-          vulnerabilities_critical: 0,
+          vulnerabilities_total: vulnPayload?.pagination?.total ?? 0,
+          vulnerabilities_critical: vulnPayload?.summary?.critical ?? 0,
           top_mitre_tactics: topTactics,
         },
         error: null,
@@ -567,7 +561,7 @@ export const wazuhApiExtended = {
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
-function notAvailableResponse<T>(endpoint: string): APIResponse<T> {
+function notAvailableResponse<T>(_endpoint: string): APIResponse<T> {
   return {
     success: false,
     data: null,
@@ -580,26 +574,6 @@ function notAvailableResponse<T>(endpoint: string): APIResponse<T> {
  * This is a best-effort approximation based on the ATT&CK matrix
  * ordering — not exhaustive, but covers the most common prefixes.
  */
-function inferTacticFromTechnique(techniqueId: string): { id: string; name: string } {
-  const num = parseInt(techniqueId.replace(/\D/g, ''), 10);
-  if (isNaN(num)) return { id: 'TA0000', name: 'Other' };
-  if (num < 1000) return { id: 'TA0043', name: 'Reconnaissance' };
-  if (num < 2000) return { id: 'TA0042', name: 'Resource Development' };
-  if (num < 3000) return { id: 'TA0001', name: 'Initial Access' };
-  if (num < 4000) return { id: 'TA0002', name: 'Execution' };
-  if (num < 5000) return { id: 'TA0003', name: 'Persistence' };
-  if (num < 6000) return { id: 'TA0004', name: 'Privilege Escalation' };
-  if (num < 7000) return { id: 'TA0005', name: 'Defense Evasion' };
-  if (num < 8000) return { id: 'TA0006', name: 'Credential Access' };
-  if (num < 9000) return { id: 'TA0007', name: 'Discovery' };
-  if (num < 10000) return { id: 'TA0008', name: 'Lateral Movement' };
-  if (num < 11000) return { id: 'TA0009', name: 'Collection' };
-  if (num < 12000) return { id: 'TA0011', name: 'Command and Control' };
-  if (num < 13000) return { id: 'TA0010', name: 'Exfiltration' };
-  if (num < 14000) return { id: 'TA0040', name: 'Impact' };
-  return { id: 'TA0000', name: 'Other' };
-}
-
 /* ── Network ──────────────────────────────────────────────────── */
 
 export const networkApi = {

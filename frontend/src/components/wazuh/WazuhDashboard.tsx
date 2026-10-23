@@ -13,7 +13,7 @@
 import { Link } from 'react-router-dom';
 import {
   Activity, ShieldAlert, Server, Bug, Target,
-  AlertCircle, ArrowRight, ChevronRight,
+  AlertCircle, ArrowRight, ChevronRight, RefreshCw,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -22,7 +22,7 @@ import {
 import {
   useAgentsSummary,
   useAlertsTimeline,
-  useCriticalAlerts,
+  useRecentAlerts,
   useLastCritical,
   useMitreSummary,
   useTopAgents,
@@ -34,17 +34,40 @@ import { formatDateTime, severityClass } from '../utils/time';
 const PIE_COLORS = ['#6366f1', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
 export function WazuhDashboard() {
-  const { data: stats } = useWazuhStatsSummary();
-  const { data: agentsSummary } = useAgentsSummary();
-  const { data: criticalAlerts = [] } = useCriticalAlerts(50);
-  const { data: timeline = [] } = useAlertsTimeline(5);
-  const { data: mitre = [] } = useMitreSummary();
-  const { data: topAgents = [] } = useTopAgents(10);
-  const { data: lastCritical } = useLastCritical();
-  const { data: health } = useWazuhHealth();
+  const statsQ = useWazuhStatsSummary();
+  const agentsQ = useAgentsSummary();
+  const recentQ = useRecentAlerts(50, 5);
+  const timelineQ = useAlertsTimeline(5);
+  const mitreQ = useMitreSummary();
+  const topAgentsQ = useTopAgents(10);
+  const lastCriticalQ = useLastCritical();
+  const healthQ = useWazuhHealth();
 
-  const servicesDown = health?.services?.filter(s => s.status !== 'running').length ?? 0;
-  const healthClass = servicesDown > 0 ? 'wazuh-health-pill wazuh-health-degraded' : 'wazuh-health-pill wazuh-health-ok';
+  const stats = statsQ.data;
+  const agentsSummary = agentsQ.data;
+  const recentAlerts = recentQ.data ?? [];
+  const timeline = timelineQ.data ?? [];
+  const mitre = mitreQ.data ?? [];
+  const topAgents = topAgentsQ.data ?? [];
+  const lastCritical = lastCriticalQ.data;
+  const health = healthQ.data;
+
+  const isRefreshing =
+    statsQ.isFetching || recentQ.isFetching || timelineQ.isFetching ||
+    mitreQ.isFetching || topAgentsQ.isFetching || lastCriticalQ.isFetching ||
+    healthQ.isFetching || agentsQ.isFetching;
+
+  const refreshAll = () => {
+    statsQ.refetch(); agentsQ.refetch(); recentQ.refetch(); timelineQ.refetch();
+    mitreQ.refetch(); topAgentsQ.refetch(); lastCriticalQ.refetch(); healthQ.refetch();
+  };
+
+  const services = health?.services ?? [];
+  const servicesDown = services.filter(s => s.status !== 'running').length;
+  const healthStatus = !health ? 'unknown' : servicesDown > 0 ? 'degraded' : 'healthy';
+  const healthClass = servicesDown > 0
+    ? 'wazuh-health-pill wazuh-health-degraded'
+    : 'wazuh-health-pill wazuh-health-ok';
 
   // Timeline data — last 60 minutes, keyed by HH:MM
   const timelineData = timeline.slice(-60).map(p => ({
@@ -64,7 +87,7 @@ export function WazuhDashboard() {
             <h1 className="text-2xl font-bold text-surface-100">Wazuh SIEM</h1>
             <span className={healthClass} title="Estado del clúster Wazuh">
               <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-              {health?.status ?? 'unknown'}
+              {healthStatus}
             </span>
           </div>
           <p className="text-sm text-surface-400">
@@ -73,6 +96,15 @@ export function WazuhDashboard() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={refreshAll}
+            disabled={isRefreshing}
+            className="btn-secondary text-sm flex items-center gap-1.5 disabled:opacity-50"
+            title="Traer datos actualizados de Wazuh"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Actualizando…' : 'Actualizar'}
+          </button>
           <Link to="/wazuh/alerts" className="btn-secondary text-sm flex items-center gap-1.5">
             Ver todas las alertas <ArrowRight className="w-3.5 h-3.5" />
           </Link>
@@ -111,7 +143,6 @@ export function WazuhDashboard() {
           value={stats?.vulnerabilities_total ?? 0}
           color="text-amber-400"
           to="/wazuh/vulnerabilities"
-          hint={stats?.vulnerabilities_total === 0 ? 'Pendiente backend' : undefined}
         />
         <KpiMini
           icon={<Target className="w-4 h-4" />}
@@ -169,7 +200,7 @@ export function WazuhDashboard() {
         <div className="glass-card p-5">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="font-semibold text-surface-100 text-sm">Top tácticas MITRE</h3>
+              <h3 className="font-semibold text-surface-100 text-sm">Top técnicas MITRE</h3>
               <p className="text-xs text-surface-500">{topTactics.length} técnicas</p>
             </div>
             <Link to="/wazuh/mitre" className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
@@ -235,7 +266,7 @@ export function WazuhDashboard() {
               <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                 <Field label="Agente" value={lastCritical.agent_name || '—'} mono />
                 <Field label="Agent ID" value={lastCritical.agent_id} mono />
-                <Field label="Regla" value={lastCritical.rule_id} mono />
+                <Field label="Regla" value={lastCritical.rule_id || '—'} mono />
                 <Field label="Origen" value={lastCritical.src_ip || '—'} mono />
               </div>
               {lastCritical.full_log && (
@@ -266,14 +297,16 @@ export function WazuhDashboard() {
             <div className="space-y-2">
               {topAgents.slice(0, 6).map((a, i) => (
                 <Link
-                  key={`${a.id}-${i}`}
-                  to={`/wazuh/agents/${encodeURIComponent(a.id)}`}
+                  key={`${a.agent_id}-${i}`}
+                  to={`/wazuh/agents/${encodeURIComponent(a.agent_id)}`}
                   className="flex items-center gap-2 p-2 -mx-2 rounded hover:bg-surface-800/40 transition-colors"
                 >
                   <span className="text-xs text-surface-600 w-4 shrink-0">{i + 1}.</span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs text-surface-200 truncate">{a.name || a.id}</p>
-                    <p className="text-[10px] text-surface-500 font-mono truncate">{a.ip || '—'}</p>
+                    <p className="text-xs text-surface-200 truncate">{a.agent_name || a.agent_id}</p>
+                    <p className="text-[10px] text-surface-500 font-mono truncate">
+                      {a.last_alert_timestamp ? formatDateTime(a.last_alert_timestamp) : '—'}
+                    </p>
                   </div>
                   <span className="text-xs font-semibold text-cyan-400">{a.alert_count ?? 0}</span>
                 </Link>
@@ -291,7 +324,7 @@ export function WazuhDashboard() {
             Ver todas <ChevronRight className="w-3 h-3" />
           </Link>
         </div>
-        {criticalAlerts.length === 0 ? (
+        {recentAlerts.length === 0 ? (
           <div className="p-6 text-center text-surface-500 text-sm">Sin alertas</div>
         ) : (
           <div className="overflow-x-auto">
@@ -306,7 +339,7 @@ export function WazuhDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {criticalAlerts.slice(0, 10).map(a => (
+                {recentAlerts.slice(0, 10).map(a => (
                   <tr key={a.id} className="border-b border-surface-800/20 hover:bg-surface-800/20 transition-colors">
                     <td className="px-3 py-2 text-xs text-surface-400 font-mono whitespace-nowrap">
                       {formatDateTime(a.timestamp)}

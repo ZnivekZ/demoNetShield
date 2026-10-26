@@ -16,7 +16,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import {
   Server, Search, Filter, X, ChevronLeft, ChevronRight,
   Activity, Wifi, WifiOff, Clock, ChevronRight as ChevronRightIcon,
-  CheckCircle2,
+  CheckCircle2, RefreshCw,
 } from 'lucide-react';
 import { useWazuhAgents } from '../../hooks/useWazuh';
 import { useAgentsSummary } from '../../hooks/useWazuhSummary';
@@ -61,7 +61,7 @@ export function WazuhAgentsPage() {
     search: search || undefined,
   };
 
-  const { data, isLoading, isFetching } = useWazuhAgents(filters);
+  const { data, isLoading, isFetching, refetch } = useWazuhAgents(filters);
   const { data: summary } = useAgentsSummary();
 
   const items = data?.items ?? [];
@@ -100,15 +100,26 @@ export function WazuhAgentsPage() {
             Endpoints registrados y su estado de conexión
           </p>
         </div>
-        <button
-          className={`btn-secondary flex items-center gap-2 text-sm ${
-            hasFilters ? 'border-cyan-500/50 text-cyan-300' : ''
-          }`}
-          onClick={() => setShowFilters(!showFilters)}
-        >
-          <Filter className="w-4 h-4" />
-          Filtros {hasFilters && '(activos)'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            title="Traer datos actualizados de Wazuh"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+            {isFetching ? 'Actualizando…' : 'Actualizar'}
+          </button>
+          <button
+            className={`btn-secondary flex items-center gap-2 text-sm ${
+              hasFilters ? 'border-cyan-500/50 text-cyan-300' : ''
+            }`}
+            onClick={() => setShowFilters(!showFilters)}
+          >
+            <Filter className="w-4 h-4" />
+            Filtros {hasFilters && '(activos)'}
+          </button>
+        </div>
       </div>
 
       {/* ── Summary pills ───────────────────────────────────────────── */}

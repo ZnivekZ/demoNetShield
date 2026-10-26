@@ -676,6 +676,36 @@ html {
   color: var(--text-tertiary);
 }
 
+/* Compact form controls (filters/panels). input-sm was referenced in ~14 places
+   but never defined, so those <select>/<input> fell back to the browser default
+   (white) and their text blended in. */
+.input-sm {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-tertiary) 60%, transparent);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+.input-sm:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 15%, transparent);
+}
+.input-sm::placeholder { color: var(--text-tertiary); }
+
+/* Native <option>s are painted by the OS. Without an explicit background they
+   stay white while the inherited text colour is light → invisible until hover. */
+select option,
+select optgroup {
+  background-color: var(--color-surface-900);
+  color: var(--text-primary);
+}
+select.input,
+select.input-sm { color: var(--text-primary); }
+
 textarea.input {
   resize: vertical;
   min-height: 100px;
@@ -4102,6 +4132,7 @@ select.input {
 .wazuh-sev-high     { background: rgba(245, 158, 11, 0.15); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.3); }
 .wazuh-sev-medium   { background: rgba(99, 102, 241, 0.15); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.3); }
 .wazuh-sev-low      { background: rgba(34, 197, 94, 0.15); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.3); }
+.wazuh-sev-unknown  { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
 .wazuh-health-pill {
   display: inline-flex; align-items: center; gap: 0.4rem;
   padding: 0.25rem 0.6rem; border-radius: 999px;
@@ -4123,3 +4154,181 @@ select.input {
   font-size: 0.85rem;
 }
 .wazuh-vuln-row:hover { background: rgba(148, 163, 184, 0.04); }
+
+/* ══════════════════════════════════════════════════════════════
+   LOGIN — fondo animado full-screen + tarjeta flotante
+   ══════════════════════════════════════════════════════════════ */
+
+.login-shell {
+  /* #root es display:flex → sin esto el shell se encoge al contenido
+     y deja el resto de la pantalla vacío (bloque negro a la derecha). */
+  flex: 1 1 auto;
+  width: 100%;
+  position: relative;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: #05070d;
+  color: #e2e8f0;
+}
+
+/* ── Fondo visual (toda la pantalla) ── */
+.login-visual {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 700px at 12% 6%, rgba(79, 70, 229, 0.26), transparent 60%),
+    radial-gradient(1000px 600px at 92% 96%, rgba(6, 182, 212, 0.14), transparent 62%),
+    #05070d;
+}
+.login-visual__canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.login-visual__grid {
+  position: absolute; inset: 0; opacity: .06;
+  background-image:
+    linear-gradient(rgba(148,163,184,.55) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148,163,184,.55) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(circle at 26% 34%, #000 0%, transparent 68%);
+          mask-image: radial-gradient(circle at 26% 34%, #000 0%, transparent 68%);
+}
+.login-visual__radar {
+  position: absolute; right: -180px; bottom: -180px; width: 520px; height: 520px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(99,102,241,0) 0deg, rgba(99,102,241,.32) 45deg, rgba(99,102,241,0) 95deg);
+  filter: blur(2px); opacity: .32;
+  animation: login-spin 10s linear infinite;
+}
+.login-visual__scan {
+  position: absolute; left: 0; right: 0; top: 0; height: 34%;
+  background: linear-gradient(180deg, transparent, rgba(99,102,241,.09), transparent);
+  animation: login-scan 7.5s linear infinite;
+  pointer-events: none;
+}
+@keyframes login-spin { to { transform: rotate(360deg); } }
+@keyframes login-scan { 0% { transform: translateY(-120%); } 100% { transform: translateY(340%); } }
+
+.login-visual__content {
+  position: relative; z-index: 2; height: 100%;
+  max-width: min(620px, 48vw);
+  display: flex; flex-direction: column; justify-content: space-between; gap: 2rem;
+  padding: clamp(1.5rem, 3.6vw, 3.2rem);
+}
+
+/* marca */
+.login-brand { display: flex; align-items: center; gap: .7rem; }
+.login-brand__mark {
+  width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #4338ca);
+  box-shadow: 0 10px 30px -10px rgba(99,102,241,.7), inset 0 0 0 1px rgba(255,255,255,.08);
+}
+.login-brand__text { display: flex; flex-direction: column; line-height: 1.15; }
+.login-brand__name { font-size: .95rem; font-weight: 700; letter-spacing: .02em; color: #f8fafc; }
+.login-brand__tag {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: .62rem; letter-spacing: .18em; text-transform: uppercase; color: #64748b;
+}
+
+/* hero */
+.login-hero { max-width: 520px; }
+.login-kicker {
+  display: inline-flex; align-items: center; gap: .4rem; margin: 0 0 .9rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: .66rem; letter-spacing: .2em; text-transform: uppercase; color: #22d3ee;
+}
+.login-title {
+  margin: 0; font-size: clamp(2.8rem, 5vw, 4.4rem); line-height: .95;
+  font-weight: 800; letter-spacing: -.03em; color: #f8fafc;
+}
+.login-title span {
+  background: linear-gradient(100deg, #818cf8, #22d3ee);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.login-sub { margin: 1rem 0 0; max-width: 42ch; font-size: .96rem; line-height: 1.55; color: #94a3b8; }
+
+/* pie del panel: universidad + estado */
+.login-visual__bottom { display: flex; flex-direction: column; gap: 1.1rem; }
+.login-uni { display: flex; align-items: stretch; gap: .9rem; }
+.login-uni__line { width: 3px; border-radius: 3px; background: linear-gradient(180deg, #6366f1, #22d3ee); }
+.login-uni__name { margin: 0; font-size: .92rem; font-weight: 600; color: #e2e8f0; }
+.login-uni__caption { margin: .2rem 0 0; font-size: .74rem; letter-spacing: .04em; color: #64748b; }
+
+.login-status {
+  display: inline-flex; align-items: center; gap: .45rem; align-self: flex-start;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; color: #94a3b8;
+}
+.login-status__dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #22c55e;
+  animation: login-pulse 2.2s ease-out infinite;
+}
+@keyframes login-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(34,197,94,.55); }
+  70% { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+
+/* ── Tarjeta de acceso (flota sobre el fondo, a la derecha) ── */
+.login-pane {
+  position: relative; z-index: 3;
+  min-height: 100dvh;
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: clamp(1.25rem, 3vw, 2.5rem) clamp(1.5rem, 7vw, 8rem);
+  pointer-events: none;              /* deja pasar el mouse al canvas */
+}
+.login-pane::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, transparent 52%, rgba(5,7,13,.58) 70%, rgba(5,7,13,.93) 100%);
+}
+.login-card {
+  pointer-events: auto;
+  position: relative; z-index: 1;
+  width: 100%; max-width: 420px; padding: 2rem;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(15,23,42,.9), rgba(9,13,24,.95));
+  border: 1px solid rgba(99, 102, 241, .2);
+  box-shadow: 0 30px 80px -30px rgba(0,0,0,.9), 0 0 0 1px rgba(99,102,241,.06) inset;
+  backdrop-filter: blur(16px);
+}
+.login-card__head { display: flex; flex-direction: column; align-items: center; margin-bottom: 1.8rem; }
+.login-card__mark {
+  width: 54px; height: 54px; border-radius: 16px; display: grid; place-items: center;
+  color: #fff; margin-bottom: .9rem;
+  background: linear-gradient(135deg, #6366f1, #4338ca);
+  box-shadow: 0 12px 34px -12px rgba(99,102,241,.7);
+}
+.login-card__title { margin: 0; font-size: 1.5rem; font-weight: 700; letter-spacing: -.01em; color: #f8fafc; }
+.login-card__sub {
+  margin: .25rem 0 0; font-size: .68rem; font-weight: 600; letter-spacing: .22em;
+  text-transform: uppercase; color: #64748b;
+}
+.login-card__foot { margin: 1.6rem 0 0; text-align: center; font-size: .7rem; color: #475569; }
+
+/* brillo que recorre el botón */
+.login-card .btn-primary { position: relative; overflow: hidden; }
+.login-card .btn-primary::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-130%);
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.22), transparent);
+  transition: transform .65s ease;
+}
+.login-card .btn-primary:hover:not(:disabled)::after { transform: translateX(130%); }
+
+/* ── Responsive: se apila ── */
+@media (max-width: 1100px) {
+  .login-shell { display: flex; flex-direction: column; overflow: visible; }
+  .login-visual { position: relative; inset: auto; height: 330px; }
+  .login-visual__content { max-width: none; height: auto; padding: 1.25rem; gap: 1rem; }
+  .login-visual__bottom { gap: .7rem; }
+  .login-sub, .login-status, .login-uni__caption { display: none; }
+  .login-title { font-size: 2.2rem; }
+  .login-pane { min-height: auto; justify-content: center; padding: 1.5rem 1rem 2.5rem; }
+  .login-pane::before { display: none; }
+  .login-card { max-width: 460px; padding: 1.5rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-visual__radar,
+  .login-visual__scan,
+  .login-status__dot { animation: none; }
+  .login-card .btn-primary::after { transition: none; }
+}

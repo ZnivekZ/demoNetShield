@@ -44,6 +44,7 @@ function AssignModal({ asset, onClose }: AssignModalProps) {
     try {
       await assignAsset.mutateAsync({
         assetId: asset.id,
+        itemtype: asset.type,
         data: { user_id: selectedUserId === '' ? null : selectedUserId as number },
       });
       onClose();

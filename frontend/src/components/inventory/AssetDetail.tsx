@@ -19,9 +19,9 @@ type DetailTab = 'general' | 'hardware' | 'software' | 'audit' | 'relationships'
 
 export function AssetDetail({ asset, onClose }: Props) {
   const qc = useQueryClient();
-  const { data: detail, isLoading } = useGlpiAsset(asset.id);
+  const { data: detail, isLoading } = useGlpiAsset(asset.id, asset.type);
   const { data: netCtx } = useGlpiAssetNetworkContext(asset.id);
-  const { data: fullDetail, isLoading: fullLoading } = useGlpiAssetFullDetail(asset.id);
+  const { data: fullDetail, isLoading: fullLoading } = useGlpiAssetFullDetail(asset.id, asset.type);
   const unquarantine = useUnquarantineGlpiAsset();
   const [showUnquarantineConfirm, setShowUnquarantineConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>('general');

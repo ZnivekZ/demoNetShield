@@ -8,12 +8,12 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Cpu, HardDrive, Clock, Thermometer, Activity, Shield, Terminal,
+  Cpu, HardDrive, Database, Clock, Thermometer, Activity, Shield, Terminal,
   Package, RefreshCw,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useMikrotikHealth, useInterfaceTraffic, useInterfaces } from '../../hooks/useMikrotikHealth';
-import { useWazuhHealth, useAgentsSummary } from '../../hooks/useWazuhSummary';
+import { useWazuhHealth, useAgentsSummary, useWazuhResources, useAgentsByVulnerabilities } from '../../hooks/useWazuhSummary';
 import { useGlpiAssetStats } from '../../hooks/useGlpiAssets';
 import { glpiApi } from '../../services/api';
 import { getApiErrorMessage, requireApiSuccess } from '../../services/apiResponse';
@@ -28,6 +28,8 @@ export function SystemHealth() {
   const { data: interfaces = [] } = useInterfaces();
   const { data: wazuhHealth, isLoading: wazuhLoading, isFetching: wazuhFetching, isError: wazuhError, error: wazuhErrorObj, refetch: refetchWazuh } = useWazuhHealth();
   const { data: agentsSummary } = useAgentsSummary();
+  const { data: wazuhRes } = useWazuhResources();
+  const { data: agentRanking = [] } = useAgentsByVulnerabilities(6);
 
 
   // GLPI
@@ -41,7 +43,7 @@ export function SystemHealth() {
   const [tab, setTab] = useState<'overview' | 'cli'>('overview');
 
   const safeInterfaces = Array.isArray(interfaces) ? interfaces : [];
-  const wazuhServices = Array.isArray(wazuhHealth?.services) ? wazuhHealth.services : [];
+  const gb = (bytes?: number | null) => ((bytes ?? 0) / 1073741824).toFixed(1);
   const trafficChartData = (Array.isArray(traffic) ? traffic : []).slice(0, 10).map(t => ({
     name: t.interface.slice(0, 8),
     rx: Math.round((t.rx_bytes_per_sec ?? 0) / 1024),
@@ -218,21 +220,72 @@ export function SystemHealth() {
                     </div>
                   )}
 
-                  {/* Services */}
-                  <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-500)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Servicios</p>
-                  {wazuhServices.length > 0 ? (
+                  {/* Recursos del SIEM (host del Indexer) */}
+                  {wazuhRes && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+                      <MetricRow
+                        icon={<Cpu size={14} />}
+                        label="CPU host"
+                        value={`${wazuhRes.host_cpu_percent ?? 0}%`}
+                        bar={wazuhRes.host_cpu_percent ?? 0}
+                        barColor={(wazuhRes.host_cpu_percent ?? 0) > 80 ? 'var(--color-danger)' : 'var(--color-brand-500)'}
+                      />
+                      <MetricRow
+                        icon={<HardDrive size={14} />}
+                        label="RAM host"
+                        value={`${wazuhRes.ram_used_percent ?? 0}% · ${gb(wazuhRes.ram_used_bytes)} / ${gb(wazuhRes.ram_total_bytes)} GB`}
+                        bar={wazuhRes.ram_used_percent ?? 0}
+                        barColor={(wazuhRes.ram_used_percent ?? 0) > 85 ? 'var(--color-danger)' : 'var(--color-success)'}
+                      />
+                      <MetricRow
+                        icon={<Database size={14} />}
+                        label={`Disco host${wazuhRes.disk_mount ? ` (${wazuhRes.disk_mount.split(' ')[0]})` : ''}`}
+                        value={`${wazuhRes.disk_used_percent ?? 0}% · ${gb(wazuhRes.disk_used_bytes)} / ${gb(wazuhRes.disk_total_bytes)} GB`}
+                        bar={wazuhRes.disk_used_percent ?? 0}
+                        barColor={(wazuhRes.disk_used_percent ?? 0) > 85 ? 'var(--color-danger)' : 'var(--color-warning)'}
+                      />
+                      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                        <InfoRow icon={<Activity size={12} />} label="Nodo" value={wazuhRes.node_name ?? '—'} />
+                        <InfoRow icon={<Cpu size={12} />} label="Indexer" value={`${wazuhRes.cpu_percent ?? 0}%`} />
+                        <InfoRow icon={<HardDrive size={12} />} label="Heap" value={`${wazuhRes.heap_used_percent ?? 0}%`} />
+                        <InfoRow
+                          icon={<Clock size={12} />}
+                          label="Uptime"
+                          value={wazuhRes.uptime_ms
+                            ? `${Math.floor(wazuhRes.uptime_ms / 86400000)}d ${Math.floor((wazuhRes.uptime_ms % 86400000) / 3600000)}h`
+                            : '—'}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Agentes activos ordenados por vulnerabilidades */}
+                  <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-500)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Agentes activos · por vulnerabilidades
+                  </p>
+                  {agentRanking.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: 200, overflowY: 'auto' }}>
-                      {wazuhServices.map(s => (
-                        <div key={s.service_name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0.5rem', background: 'rgba(15,23,42,0.3)', borderRadius: 6 }}>
-                          <span style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)' }}>{s.service_name}</span>
-                          <span style={{ fontSize: '0.7rem', color: s.status === 'running' ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                            ● {s.status}
+                      {agentRanking.map(a => (
+                        <div key={a.agent_id ?? a.agent_name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0.5rem', background: 'rgba(15,23,42,0.3)', borderRadius: 6 }}>
+                          <span style={{ fontSize: '0.76rem', color: 'var(--color-surface-200)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {a.agent_name}
+                            {a.agent_id && (
+                              <span style={{ color: 'var(--color-surface-500)', marginLeft: 4 }}>({a.agent_id})</span>
+                            )}
+                          </span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
+                            {a.high > 0 && (
+                              <span className="badge badge-critical" style={{ fontSize: '0.6rem' }}>{a.high} altas</span>
+                            )}
+                            <span className={`badge ${a.total > 0 ? 'badge-warning' : 'badge-success'}`} style={{ fontSize: '0.6rem' }}>
+                              {a.total} CVE
+                            </span>
                           </span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p style={{ fontSize: '0.75rem', color: 'var(--color-surface-500)' }}>Sin datos de servicios</p>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--color-surface-500)' }}>Sin agentes activos</p>
                   )}
                 </div>
               ) : (

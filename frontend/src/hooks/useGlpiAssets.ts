@@ -22,10 +22,10 @@ export function useGlpiAssets(params?: {
   });
 }
 
-export function useGlpiAsset(id: number | null) {
+export function useGlpiAsset(id: number | null, itemtype?: string) {
   return useQuery({
-    queryKey: [...ASSETS_KEY, id],
-    queryFn: () => glpiApi.getAsset(id!),
+    queryKey: [...ASSETS_KEY, itemtype ?? 'Computer', id],
+    queryFn: () => glpiApi.getAsset(id!, itemtype),
     enabled: id !== null,
     staleTime: 30_000,
     select: (res) => res.data,
@@ -71,10 +71,10 @@ export function useGlpiAssetNetworkContext(id: number | null) {
   });
 }
 
-export function useGlpiAssetFullDetail(id: number | null) {
+export function useGlpiAssetFullDetail(id: number | null, itemtype?: string) {
   return useQuery({
-    queryKey: ['glpi', 'assets', id, 'full-detail'],
-    queryFn: () => glpiApi.getAssetFullDetail(id!),
+    queryKey: ['glpi', 'assets', itemtype ?? 'Computer', id, 'full-detail'],
+    queryFn: () => glpiApi.getAssetFullDetail(id!, itemtype),
     enabled: id !== null,
     staleTime: 60_000,
     select: (res) => res.data,
@@ -94,9 +94,12 @@ export function useCreateGlpiAsset() {
 export function useUpdateGlpiAsset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: GlpiAssetUpdate }) =>
-      glpiApi.updateAsset(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ASSETS_KEY }),
+    mutationFn: ({ id, data, itemtype }: { id: number; data: GlpiAssetUpdate; itemtype?: string }) =>
+      glpiApi.updateAsset(id, data, itemtype),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ASSETS_KEY });
+      qc.invalidateQueries({ queryKey: ['glpi', 'health'] });
+    },
   });
 }
 
@@ -145,19 +148,24 @@ export function useGlpiAssetsByLocation(locationId: number | null) {
 export function useDeleteGlpiAsset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => glpiApi.deleteAsset(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ASSETS_KEY }),
+    mutationFn: ({ id, itemtype }: { id: number; itemtype?: string }) =>
+      glpiApi.deleteAsset(id, itemtype),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ASSETS_KEY });
+      qc.invalidateQueries({ queryKey: ['glpi', 'health'] });
+    },
   });
 }
 
 export function useAssignGlpiAsset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ assetId, data }: { assetId: number; data: GlpiAssignmentRequest }) =>
-      glpiApi.assignAsset(assetId, data),
+    mutationFn: ({ assetId, data, itemtype }: { assetId: number; data: GlpiAssignmentRequest; itemtype?: string }) =>
+      glpiApi.assignAsset(assetId, data, itemtype),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ASSETS_KEY });
       qc.invalidateQueries({ queryKey: ['glpi', 'users'] });
+      qc.invalidateQueries({ queryKey: ['glpi', 'health'] });
     },
   });
 }

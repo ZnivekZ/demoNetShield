@@ -490,14 +490,14 @@ class WazuhService:
         self, limit: int = 50, offset: int = 0
     ) -> list[dict]:
         """
-        [Wazuh API] Get alerts with level > 10 (critical).
+        [Wazuh API] Get alerts with level >= 12 (critical).
         Includes MITRE technique data with rule_groups fallback.
         """
         try:
             params: dict[str, Any] = {
                 "offset": offset,
                 "sort": "-timestamp",
-                "q": "rule.level>10",
+                "q": "rule.level>=12",
             }
             data = await self._api_request("GET", "/alerts", params=params)
             alerts = data.get("data", {}).get("affected_items", [])
@@ -505,6 +505,7 @@ class WazuhService:
         except Exception as e:
             logger.error("wazuh_get_critical_alerts_failed", error=str(e))
             raise
+
 
     async def get_alerts_timeline(
         self, level_min: int = 5, minutes: int = 60
@@ -712,6 +713,64 @@ class WazuhService:
         except Exception as e:
             logger.error("wazuh_get_last_critical_failed", error=str(e))
             raise
+
+    async def get_agents_by_vulnerabilities(self, limit: int = 8) -> list[dict]:
+        """
+        Active agents ordered by number of CVEs (Indexer aggregation).
+        Falls back to the vulnerability buckets alone when the agents API fails.
+        """
+        buckets: list[dict] = []
+        try:
+            from services.wazuh_indexer import get_indexer_client
+            buckets = await get_indexer_client().get_vulnerabilities_by_agent(limit=max(30, limit * 4))
+        except Exception as e:
+            logger.warning("wazuh_vulns_by_agent_failed", error=str(e))
+
+        vulns_by_name = {(b.get("agent_name") or "").lower(): b for b in buckets}
+
+        try:
+            agents = await self.get_agents()
+        except Exception:
+            agents = []
+
+        active = [a for a in agents if (a.get("status") or "").lower() == "active"]
+        if active:
+            rows = []
+            for a in active:
+                name = a.get("name") or a.get("agent_name") or ""
+                v = vulns_by_name.get(name.lower(), {})
+                rows.append({
+                    "agent_id": a.get("id") or a.get("agent_id"),
+                    "agent_name": name,
+                    "status": a.get("status"),
+                    "ip": a.get("ip", ""),
+                    "total": v.get("total", 0),
+                    "critical": v.get("critical", 0),
+                    "high": v.get("high", 0),
+                    "medium": v.get("medium", 0),
+                    "low": v.get("low", 0),
+                    "unknown": v.get("unknown", 0),
+                })
+        else:
+            rows = [{
+                "agent_id": None,
+                "agent_name": b.get("agent_name", ""),
+                "status": None,
+                "ip": "",
+                **{k: b.get(k, 0) for k in ("total", "critical", "high", "medium", "low", "unknown")},
+            } for b in buckets]
+
+        rows.sort(key=lambda r: r["total"], reverse=True)
+        return rows[:limit]
+
+    async def get_resources(self) -> dict:
+        """Resource usage of the Wazuh Indexer node (CPU, OS RAM, JVM heap)."""
+        try:
+            from services.wazuh_indexer import get_indexer_client
+            return await get_indexer_client().get_node_stats() or {}
+        except Exception as e:
+            logger.warning("wazuh_resources_failed", error=str(e))
+            return {}
 
     async def get_health(self) -> dict:
         """

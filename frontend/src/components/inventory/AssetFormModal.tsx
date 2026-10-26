@@ -57,7 +57,7 @@ export function AssetFormModal({ mode, asset, onClose, onSaved }: Props) {
           location_id: form.location_id,
           comment: form.comment,
         };
-        const res = await updateMutation.mutateAsync({ id: asset.id, data: update });
+        const res = await updateMutation.mutateAsync({ id: asset.id, data: update, itemtype: asset.type });
         if (!res.success) throw new Error(res.error ?? 'Error al actualizar');
       }
       onSaved();

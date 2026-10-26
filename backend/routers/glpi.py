@@ -36,6 +36,19 @@ from services.wazuh_service import WazuhService, get_wazuh_service
 
 logger = structlog.get_logger(__name__)
 
+
+async def _refresh_inventory() -> None:
+    """Refresh the in-memory inventory mirror after a write (best effort).
+
+    The grid/detail read from the collector's 5-min mirror, so without this a
+    successful PATCH would keep showing stale data until the next cycle.
+    """
+    try:
+        from services.glpi_collector import get_glpi_collector
+        await get_glpi_collector().collect_now()
+    except Exception as e:
+        logger.warning("glpi_inventory_refresh_failed", error=str(e))
+
 router = APIRouter(prefix="/api/glpi", tags=["GLPI - Inventario"])
 
 
@@ -64,28 +77,27 @@ async def get_glpi_status(
         from config import get_settings
         settings = get_settings()
 
-        # Detectar si los tokens no están configurados
-        tokens_missing = not settings.glpi_app_token or not settings.glpi_user_token
-        if tokens_missing:
+        # Detectar si las credenciales OAuth2 no están configuradas
+        if not settings.glpi_configured:
             return APIResponse.ok(
                 GlpiAvailability(
                     available=False,
-                    message="Tokens de API no configurados (GLPI_APP_TOKEN / GLPI_USER_TOKEN)",
-                    url=settings.glpi_url,
+                    message="Credenciales OAuth2 no configuradas (GLPI_CLIENT_ID / GLPI_CLIENT_SECRET / GLPI_USERNAME / GLPI_PASSWORD)",
+                    url=settings.glpi_api_base,
                 ).model_dump()
             )
 
         available = await glpi.is_available()
         message = (
-            f"Conectado — {settings.glpi_url}"
+            f"Conectado — {settings.glpi_api_base}"
             if available
-            else f"Sin respuesta en {settings.glpi_url}"
+            else f"Sin respuesta en {settings.glpi_api_base}"
         )
         return APIResponse.ok(
             GlpiAvailability(
                 available=available,
                 message=message,
-                url=settings.glpi_url,
+                url=settings.glpi_api_base,
             ).model_dump()
         )
     except Exception as e:
@@ -146,89 +158,61 @@ async def search_assets(
 @router.get("/assets/health")
 async def get_assets_health(
     glpi: GLPIService = Depends(get_glpi),
-    wazuh: WazuhService = Depends(get_wz),
-    mikrotik: MikroTikService = Depends(get_mt),
 ) -> APIResponse:
-    """[GLPI+Wazuh+MikroTik] Combined asset health dashboard."""
+    """[GLPI API] Inventory status per asset — GLPI data only, no cross-tool correlation."""
     try:
-        wazuh_agents: list[dict] = []
-        try:
-            wazuh_agents = await wazuh.get_agents()
-        except Exception as e:
-            logger.warning("api_glpi_health_wazuh_unavailable", error=str(e))
-
-        arp_table: list[dict] = []
-        try:
-            arp_table = await mikrotik.get_arp_table()
-        except Exception as e:
-            logger.warning("api_glpi_health_mikrotik_unavailable", error=str(e))
-
-        health_data = await glpi.get_assets_health(wazuh_agents=wazuh_agents, arp_table=arp_table)
-        summary = {"ok": 0, "warning": 0, "critical": 0, "total": len(health_data)}
+        health_data = await glpi.get_assets_health()
+        summary: dict[str, int] = {"ok": 0, "warning": 0, "critical": 0, "total": len(health_data)}
+        by_type: dict[str, int] = {}
+        by_status: dict[str, int] = {}
         for item in health_data:
             summary[item["health"]] = summary.get(item["health"], 0) + 1
+            by_type[item["type"]] = by_type.get(item["type"], 0) + 1
+            by_status[item["glpi_status"]] = by_status.get(item["glpi_status"], 0) + 1
+        summary["active"] = summary["ok"]
+        summary["inactive"] = summary["warning"] + summary["critical"]
 
         logger.info("api_glpi_health_computed", **summary)
-        return APIResponse.ok({"assets": health_data, "summary": summary})
+        return APIResponse.ok({
+            "assets": health_data,
+            "summary": summary,
+            "by_type": by_type,
+            "by_status": by_status,
+        })
     except Exception as e:
         logger.error("api_glpi_get_health_failed", error=str(e))
-        return APIResponse.fail(f"Error al calcular salud de activos: {str(e)}")
+        return APIResponse.fail(f"Error al calcular estado de activos: {str(e)}")
 
 
-@router.get("/assets/by-location/{location_id}")
-async def get_assets_by_location(
-    location_id: int,
-    glpi: GLPIService = Depends(get_glpi),
-) -> APIResponse:
-    """[GLPI API] Get all computers in a specific location."""
-    try:
-        computers = await glpi.get_computers_by_location(location_id)
-        return APIResponse.ok({"assets": computers, "location_id": location_id})
-    except Exception as e:
-        logger.error("api_glpi_get_by_location_failed", location_id=location_id, error=str(e))
-        return APIResponse.fail(f"Error al obtener activos por ubicación: {str(e)}")
-
-
-@router.get("/assets/{asset_id}")
-async def get_asset(
-    asset_id: int,
-    glpi: GLPIService = Depends(get_glpi),
-) -> APIResponse:
-    """[GLPI API] Get complete technical detail of a single asset."""
-    try:
-        computer = await glpi.get_computer(asset_id)
-        return APIResponse.ok(computer)
-    except Exception as e:
-        logger.error("api_glpi_get_asset_failed", asset_id=asset_id, error=str(e))
-        return APIResponse.fail(f"Error al obtener activo #{asset_id}: {str(e)}")
-
-
-@router.get("/assets/{asset_id}/full-detail")
-async def get_asset_full_detail(
+@router.get("/assets/{itemtype}/{asset_id}/full-detail")
+async def get_asset_full_detail_by_type(
+    itemtype: str,
     asset_id: int,
 ) -> APIResponse:
     """
-    [GLPI Collector] Full parsed detail of an asset — fetched on demand from
-    GLPI on first access and cached in memory (TTL + date_mod change detection).
-    Includes: identification, location, status, network, hardware, disks,
-    software, audit logs, tickets, and relationships.
+    [GLPI Collector] Full parsed detail of an asset of a specific itemtype.
+    IDs are not unique across itemtypes (Computer#1 vs Printer#1), so the UI
+    should pass the asset's `type` here. Fetched on demand and cached in memory.
     """
     try:
         from services.glpi_collector import get_glpi_collector
         collector = get_glpi_collector()
-        detail = await collector.ensure_detail(asset_id)
+        detail = await collector.ensure_detail(asset_id, itemtype)
         if detail is None:
             return APIResponse.fail(
-                f"Activo #{asset_id} no encontrado o sin respuesta de GLPI. "
-                f"Verifique que el activo exista y que GLPI esté accesible."
+                f"Activo {itemtype}#{asset_id} no encontrado o sin respuesta de GLPI."
             )
         return APIResponse.ok({
             **detail,
             "asset_id": asset_id,
+            "itemtype": itemtype,
             "last_sync": collector.get_last_sync(),
         })
     except Exception as e:
-        logger.error("api_glpi_full_detail_failed", asset_id=asset_id, error=str(e))
+        logger.error(
+            "api_glpi_full_detail_by_type_failed",
+            itemtype=itemtype, asset_id=asset_id, error=str(e),
+        )
         return APIResponse.fail(f"Error al obtener detalle completo: {str(e)}")
 
 
@@ -270,6 +254,7 @@ async def create_asset(
             comment=f"Activo GLPI creado: {request.name}",
         )
         logger.info("api_glpi_asset_created", name=request.name)
+        await _refresh_inventory()
         return APIResponse.ok(result)
     except Exception as e:
         logger.error("api_glpi_create_asset_failed", name=request.name, error=str(e))
@@ -280,12 +265,13 @@ async def create_asset(
 async def update_asset(
     asset_id: int,
     request: GlpiAssetUpdate,
+    itemtype: str = Query(default="Computer", description="GLPI itemtype"),
     glpi: GLPIService = Depends(get_glpi),
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """[GLPI API] Update asset data in GLPI."""
     try:
-        result = await glpi.update_computer(asset_id, request.model_dump(exclude_none=True))
+        result = await glpi.update_computer(asset_id, request.model_dump(exclude_none=True), itemtype)
         await log_action(
             db,
             action_type="glpi_asset_updated",
@@ -294,6 +280,7 @@ async def update_asset(
             comment=f"Activo GLPI #{asset_id} actualizado",
         )
         logger.info("api_glpi_asset_updated", asset_id=asset_id)
+        await _refresh_inventory()
         return APIResponse.ok(result)
     except Exception as e:
         logger.error("api_glpi_update_asset_failed", asset_id=asset_id, error=str(e))
@@ -303,12 +290,13 @@ async def update_asset(
 @router.delete("/assets/{asset_id}")
 async def delete_asset(
     asset_id: int,
+    itemtype: str = Query(default="Computer", description="GLPI itemtype"),
     glpi: GLPIService = Depends(get_glpi),
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """[GLPI API] Delete a GLPI asset."""
     try:
-        result = await glpi.delete_computer(asset_id)
+        result = await glpi.delete_computer(asset_id, itemtype)
         await log_action(
             db,
             action_type="glpi_asset_deleted",
@@ -317,6 +305,7 @@ async def delete_asset(
             comment=f"Activo GLPI #{asset_id} eliminado",
         )
         logger.info("api_glpi_asset_deleted", asset_id=asset_id)
+        await _refresh_inventory()
         return APIResponse.ok(result)
     except Exception as e:
         logger.error("api_glpi_delete_asset_failed", asset_id=asset_id, error=str(e))
@@ -327,12 +316,13 @@ async def delete_asset(
 async def assign_asset(
     asset_id: int,
     request: GlpiAssignmentRequest,
+    itemtype: str = Query(default="Computer", description="GLPI itemtype"),
     glpi: GLPIService = Depends(get_glpi),
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """[GLPI API] Assign or unassign a GLPI asset to a user."""
     try:
-        result = await glpi.assign_asset(asset_id, request.user_id)
+        result = await glpi.assign_asset(asset_id, request.user_id, itemtype)
         await log_action(
             db,
             action_type="glpi_asset_assigned",
@@ -341,6 +331,7 @@ async def assign_asset(
             comment=f"Activo GLPI #{asset_id} asignado a usuario #{request.user_id}",
         )
         logger.info("api_glpi_asset_assigned", asset_id=asset_id, user_id=request.user_id)
+        await _refresh_inventory()
         return APIResponse.ok(result)
     except Exception as e:
         logger.error("api_glpi_assign_asset_failed", asset_id=asset_id, error=str(e))
@@ -377,6 +368,7 @@ async def quarantine_asset(
             comment=f"Cuarentena GLPI: activo #{asset_id} — {request.reason[:100]}",
         )
         logger.info("api_glpi_asset_quarantined", asset_id=asset_id, reason=request.reason)
+        await _refresh_inventory()
         return APIResponse.ok(result)
     except Exception as e:
         logger.error("api_glpi_quarantine_failed", asset_id=asset_id, error=str(e))
@@ -406,6 +398,7 @@ async def unquarantine_asset(
             comment=f"Cuarentena GLPI levantada: activo #{asset_id}",
         )
         logger.info("api_glpi_asset_unquarantined", asset_id=asset_id)
+        await _refresh_inventory()
         return APIResponse.ok(result)
     except Exception as e:
         logger.error("api_glpi_unquarantine_failed", asset_id=asset_id, error=str(e))

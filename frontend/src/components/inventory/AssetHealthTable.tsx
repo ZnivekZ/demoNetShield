@@ -1,6 +1,7 @@
 /**
- * AssetHealthTable — Per-asset health status table.
- * Shows: name, IP, location, GLPI status, Wazuh agent, network visibility, health.
+ * AssetHealthTable — Per-asset inventory status (GLPI only).
+ * Columns: equipo, tipo, ubicación, asignado, estado, última actualización.
+ * No Wazuh/MikroTik data is shown here.
  */
 import type { GlpiAssetHealth } from '../../types';
 
@@ -9,37 +10,14 @@ interface Props {
   isLoading: boolean;
 }
 
-function HealthDot({ health }: { health: 'ok' | 'warning' | 'critical' }) {
-  const colors = {
-    ok: '#22c55e',
-    warning: '#f59e0b',
-    critical: '#ef4444',
-  };
-  const glow = {
-    ok: 'rgba(34,197,94,0.4)',
-    warning: 'rgba(245,158,11,0.4)',
-    critical: 'rgba(239,68,68,0.4)',
-  };
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        width: 10,
-        height: 10,
-        borderRadius: '50%',
-        background: colors[health],
-        boxShadow: `0 0 6px ${glow[health]}`,
-        flexShrink: 0,
-      }}
-    />
-  );
-}
-
-function WazuhBadge({ status }: { status: string }) {
-  if (status === 'active') return <span className="badge badge-success" style={{ fontSize: '0.62rem' }}>Activo</span>;
-  if (status === 'disconnected') return <span className="badge badge-danger" style={{ fontSize: '0.62rem' }}>Desconectado</span>;
-  return <span className="badge badge-low" style={{ fontSize: '0.62rem' }}>No instalado</span>;
-}
+const TYPE_LABELS: Record<string, string> = {
+  Computer: 'Computadora',
+  Printer: 'Impresora',
+  Peripheral: 'Periférico',
+  Phone: 'Teléfono',
+  NetworkEquipment: 'Equipo de Red',
+  Monitor: 'Monitor',
+};
 
 function GlpiStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -61,6 +39,12 @@ function GlpiStatusBadge({ status }: { status: string }) {
       {labels[status] ?? status}
     </span>
   );
+}
+
+function formatDate(value: string): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
 }
 
 export function AssetHealthTable({ assets, isLoading }: Props) {
@@ -85,46 +69,28 @@ export function AssetHealthTable({ assets, isLoading }: Props) {
       <table className="data-table">
         <thead>
           <tr>
-            <th>Salud</th>
             <th>Equipo</th>
-            <th>IP</th>
+            <th>Tipo</th>
             <th>Ubicación</th>
-            <th>Estado GLPI</th>
-            <th>Wazuh</th>
-            <th>Red</th>
-            <th>Motivo</th>
+            <th>Asignado a</th>
+            <th>Estado</th>
+            <th>Última actualización</th>
           </tr>
         </thead>
         <tbody>
           {assets.map((asset) => (
-            <tr key={asset.asset_id}>
-              <td>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <HealthDot health={asset.health} />
-                </div>
-              </td>
-              <td style={{ fontWeight: 500, color: 'var(--color-surface-100)' }}>
-                {asset.name}
-              </td>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
-                {asset.ip || '—'}
+            <tr key={`${asset.type}-${asset.asset_id}`}>
+              <td style={{ fontWeight: 500, color: 'var(--color-surface-100)' }}>{asset.name}</td>
+              <td style={{ fontSize: '0.78rem', color: 'var(--color-surface-400)' }}>
+                {TYPE_LABELS[asset.type] ?? asset.type ?? '—'}
               </td>
               <td>{asset.location || '—'}</td>
+              <td>{asset.assigned_user || '—'}</td>
               <td>
                 <GlpiStatusBadge status={asset.glpi_status} />
               </td>
-              <td>
-                <WazuhBadge status={asset.wazuh_agent} />
-              </td>
-              <td>
-                {asset.network_visible ? (
-                  <span className="badge badge-success" style={{ fontSize: '0.62rem' }}>Visible</span>
-                ) : (
-                  <span className="badge badge-low" style={{ fontSize: '0.62rem' }}>No visible</span>
-                )}
-              </td>
-              <td style={{ fontSize: '0.72rem', color: 'var(--color-surface-500)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {asset.health_reason || '—'}
+              <td style={{ fontSize: '0.75rem', color: 'var(--color-surface-400)' }}>
+                {formatDate(asset.last_update)}
               </td>
             </tr>
           ))}

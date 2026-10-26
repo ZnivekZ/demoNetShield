@@ -34,8 +34,8 @@ export function CriticalAssets({ config }: { config?: { limit?: number } }) {
               <span className={`badge badge--${a.health === 'critical' ? 'danger' : a.health === 'warning' ? 'warn' : 'ok'}`}>
                 {a.health}
               </span>
-              <span className={`badge badge--${a.wazuh_agent === 'active' ? 'ok' : 'warn'}`}>
-                {a.wazuh_agent}
+              <span className={`badge badge--${a.glpi_status === 'activo' ? 'ok' : 'warn'}`}>
+                {a.glpi_status}
               </span>
             </div>
           </div>

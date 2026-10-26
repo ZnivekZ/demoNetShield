@@ -76,6 +76,8 @@ async def get_alerts_paginated(
                 if q in (a.get("rule_description") or "").lower()
                 or q in (a.get("agent_name") or "").lower()
                 or q in (a.get("rule_id") or "").lower()
+                or q in (a.get("mitre_id") or "").lower()
+                or q in (a.get("mitre_technique") or "").lower()
             ]
         if to_date:
             data = [a for a in data if (a.get("timestamp") or "") <= to_date]
@@ -105,6 +107,7 @@ async def get_alerts(
     level_min: int | None = Query(None, ge=1, le=15),
     offset: int = Query(0, ge=0),
     agent_id: str | None = Query(None),
+    time_from: str | None = Query(None),
     service: WazuhService = Depends(get_service),
 ) -> APIResponse:
     """
@@ -113,7 +116,8 @@ async def get_alerts(
     """
     try:
         data = await service.get_alerts(
-            limit=limit, level_min=level_min, offset=offset, agent_id=agent_id
+            limit=limit, level_min=level_min, offset=offset,
+            agent_id=agent_id, time_from=time_from,
         )
         return APIResponse.ok(data)
     except Exception as e:
@@ -311,6 +315,44 @@ async def get_wazuh_health(
         return APIResponse.fail(f"Failed to fetch Wazuh health: {str(e)}")
 
 
+# ── Resource metrics / agent ranking ──────────────────────────
+
+
+@router.get("/agents/by-vulnerabilities")
+async def get_agents_by_vulnerabilities(
+    limit: int = Query(default=8, ge=1, le=20),
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """[Wazuh] Active agents ordered by number of CVEs (Indexer aggregation)."""
+    try:
+        data = await asyncio.wait_for(
+            service.get_agents_by_vulnerabilities(limit), timeout=12.0
+        )
+        return APIResponse.ok(data)
+    except asyncio.TimeoutError:
+        logger.warning("api_wazuh_agents_by_vulns_timeout")
+        return APIResponse.fail("Wazuh no respondió a tiempo")
+    except Exception as e:
+        logger.error("api_wazuh_agents_by_vulns_failed", error=str(e))
+        return APIResponse.fail(f"Failed to rank agents by vulnerabilities: {str(e)}")
+
+
+@router.get("/resources")
+async def get_wazuh_resources(
+    service: WazuhService = Depends(get_service),
+) -> APIResponse:
+    """[Wazuh Indexer] CPU, OS RAM and JVM heap of the SIEM node."""
+    try:
+        data = await asyncio.wait_for(service.get_resources(), timeout=10.0)
+        return APIResponse.ok(data)
+    except asyncio.TimeoutError:
+        logger.warning("api_wazuh_resources_timeout")
+        return APIResponse.fail("Wazuh Indexer no respondió a tiempo")
+    except Exception as e:
+        logger.error("api_wazuh_resources_failed", error=str(e))
+        return APIResponse.fail(f"Failed to fetch Wazuh resources: {str(e)}")
+
+
 # ── Extended Wazuh endpoints (new Wazuh UI module) ────────────
 
 
@@ -346,6 +388,11 @@ async def get_vulnerabilities(
     """
     try:
         items = await service.get_vulnerabilities(agent_id=agent_id, limit=500)
+        # Normalize severity: Wazuh uses '-' / '' for unclassified CVEs. Map them
+        # to an explicit "unknown" bucket so the summary always sums to the total.
+        for v in items:
+            sev_raw = (v.get("severity") or "").strip().lower()
+            v["severity"] = sev_raw if sev_raw in ("critical", "high", "medium", "low") else "unknown"
         # Client-side filter + paginate (bounded dataset; switch to server-side
         # query when the index grows past ~thousands of CVEs)
         if severity:
@@ -360,11 +407,17 @@ async def get_vulnerabilities(
                 or q in (v.get("title") or "").lower()
             ]
         total = len(items)
+        # Severity breakdown over the FULL filtered set (not just the page) so the
+        # UI tabs/summary stay consistent with the totals.
+        severity_summary = {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0}
+        for v in items:
+            severity_summary[v["severity"]] += 1
         start = (page - 1) * page_size
         page_items = items[start:start + page_size]
         total_pages = max(1, (total + page_size - 1) // page_size)
         return APIResponse.ok({
             "items": page_items,
+            "summary": severity_summary,
             "pagination": {
                 "page": page,
                 "page_size": page_size,

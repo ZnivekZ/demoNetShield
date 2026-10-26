@@ -1,21 +1,32 @@
 """
-GLPI Service - HTTP client for GLPI Asset Management REST API.
+GLPI Service — HTTP client for the GLPI High-Level REST API (v3.0).
 
-Design decisions:
-- Singleton pattern: one instance shared across all requests (same as WazuhService)
-- Session Token authentication: POST /initSession with App-Token + user_token
-- Session renewal: re-initializes on 401 automatically
-- Exponential backoff retries for transient failures (tenacity)
-- SSL verification disabled for lab (self-signed / HTTP on local network)
-- All responses normalized to consistent format matching GlpiAsset schema
+Authentication (OAuth2, "password" grant):
+    POST {glpi_api_url}/token
+      grant_type=password & client_id & client_secret & username & password & scope=api
+    → {"access_token": "...", "token_type": "Bearer", "expires_in": 3600}
 
-[GLPI API] docs: https://glpi-project.org/DOC/en/restapi.html
+Resources:
+    {glpi_api_url}/{glpi_api_version}/Assets/Computer, /Assistance/Ticket, ...
+
+Design decisions (kept from the legacy implementation):
+- Singleton: one instance shared across all requests.
+- Token cache + automatic renewal before expiry (and on 401).
+- Retries for transient transport failures (tenacity).
+- All responses normalized to the flat schema the frontend already consumes
+  (`GlpiAsset`, `GlpiTicket`, `GlpiUser`, `GlpiLocation`) — the UI does not change.
+
+Known HLAPI v3.0 limitations (vs. the legacy apirest.php):
+- Network ports (IP/MAC) are NOT exposed → `ip`/`mac` are empty. Health
+  correlation therefore falls back to the asset name (Wazuh agent name).
+- Ticket↔asset links are not part of the Ticket resource → no `asset_id`.
+- Ticket history/logs are not exposed → `audit` is empty in full detail.
 """
 
 from __future__ import annotations
 
 import asyncio
-import random
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 
@@ -32,8 +43,7 @@ from config import get_settings
 
 logger = structlog.get_logger(__name__)
 
-# ── GLPI status mapping ──────────────────────────────────────────
-# GLPI itemtype Computer → states (configurables, estos son los defaults)
+# ── GLPI status mapping (Computer states) ────────────────────────
 GLPI_STATES = {
     1: "activo",
     2: "reparacion",
@@ -47,14 +57,47 @@ GLPI_STATE_IDS = {v: k for k, v in GLPI_STATES.items()}
 # Ticket priorities
 GLPI_PRIORITIES = {1: "Muy baja", 2: "Baja", 3: "Media", 4: "Alta", 5: "Muy alta"}
 
-# Ticket categories (numeric IDs from GLPI — configurables en cada instancia)
+# Ticket types
 GLPI_TICKET_TYPES = {1: "Incidencia", 2: "Requerimiento"}
+
+# Page size for bulk list calls
+_LIST_LIMIT = 500
+
+
+def _norm(text: str) -> str:
+    """Lowercase + strip accents for tolerant name matching."""
+    if not text:
+        return ""
+    decomposed = unicodedata.normalize("NFKD", str(text))
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).strip().lower()
+
+
+_STATE_NAME_TO_KEY: dict[str, str] = {
+    "activo": "activo",
+    "en uso": "activo",
+    "in use": "activo",
+    "en servicio": "activo",
+    "reparacion": "reparacion",
+    "en reparacion": "reparacion",
+    "repair": "reparacion",
+    "retirado": "retirado",
+    "retired": "retirado",
+    "desechado": "retirado",
+    "pendiente": "pendiente",
+    "pending": "pendiente",
+    "bajo investigacion": "bajo_investigacion",
+    "under investigation": "bajo_investigacion",
+}
+
+
+def _state_key_from_name(name: str) -> str | None:
+    return _STATE_NAME_TO_KEY.get(_norm(name))
 
 
 class GLPIService:
     """
-    Singleton service for GLPI Asset Management REST API.
-    Handles session token authentication with automatic renewal.
+    Singleton service for the GLPI High-Level REST API (v3.0).
+    Handles OAuth2 token acquisition, caching and renewal.
     """
 
     _instance: GLPIService | None = None
@@ -70,132 +113,176 @@ class GLPIService:
             return
         self._initialized = True
         self._settings = get_settings()
-        self._session_token: str | None = None
+        self._access_token: str | None = None
+        self._token_expires_at: float = 0.0
         self._token_lock = asyncio.Lock()
         self._client: httpx.AsyncClient | None = None
 
+    # ── HTTP / auth plumbing ──────────────────────────────────────
+
     def _get_client(self) -> httpx.AsyncClient:
-        """Get or create the httpx async client."""
+        """Get or create the httpx async client (no base_url: token and API differ)."""
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
-                base_url=self._settings.glpi_base_url,
                 verify=self._settings.glpi_verify_ssl,
                 timeout=httpx.Timeout(30.0, connect=10.0),
             )
         return self._client
 
     def _is_configured(self) -> bool:
-        """Check if GLPI credentials are configured."""
-        return bool(self._settings.glpi_app_token and self._settings.glpi_user_token)
+        """Check if the OAuth2 credentials are configured."""
+        return bool(self._settings.glpi_configured)
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
         retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
     )
-    async def _init_session(self) -> str:
-        """
-        [GLPI API] Initialize a new session and obtain a session token.
-        GLPI uses App-Token (identifies the app) + user_token (identifies the user).
-        POST /apirest.php/initSession
-        """
+    async def _init_token(self) -> tuple[str, float]:
+        """Request a new OAuth2 access token (password grant)."""
         client = self._get_client()
-        response = await client.get(
-            "/initSession",
+        response = await client.post(
+            self._settings.glpi_token_url,
+            data={
+                "grant_type": "password",
+                "client_id": self._settings.glpi_client_id,
+                "client_secret": self._settings.glpi_client_secret,
+                "username": self._settings.glpi_username,
+                "password": self._settings.glpi_password,
+                "scope": "api",
+            },
             headers={
-                "App-Token": self._settings.glpi_app_token,
-                "Authorization": f"user_token {self._settings.glpi_user_token}",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
             },
         )
         response.raise_for_status()
-        data = response.json()
-        token = data.get("session_token", "")
+        payload = response.json()
+        token = payload.get("access_token", "")
         if not token:
-            raise ValueError("Failed to obtain GLPI session token")
-        logger.info("glpi_session_initialized", host=self._settings.glpi_url)
-        return token
+            raise ValueError("GLPI token endpoint returned no access_token")
+        expires_in = int(payload.get("expires_in", 3600) or 3600)
+        # Refresh 60 s before the real expiry to avoid races.
+        expires_at = datetime.now(timezone.utc).timestamp() + max(60, expires_in - 60)
+        logger.info("glpi_token_acquired", expires_in=expires_in)
+        return token, expires_at
 
-    async def _ensure_session(self) -> str:
-        """Ensure we have a valid session token."""
+    async def _ensure_token(self) -> str:
+        """Return a valid access token, refreshing it when needed."""
         async with self._token_lock:
-            if self._session_token is None:
-                self._session_token = await self._init_session()
-            return self._session_token
+            now = datetime.now(timezone.utc).timestamp()
+            if self._access_token and now < self._token_expires_at:
+                return self._access_token
+            self._access_token, self._token_expires_at = await self._init_token()
+            return self._access_token
 
-    async def _api_request(
+    async def _api_request_meta(
         self,
         method: str,
-        endpoint: str,
+        path: str,
         params: dict | None = None,
         json_body: dict | None = None,
-    ) -> dict[str, Any] | list[dict]:
+    ) -> tuple[Any, dict[str, str]]:
         """
-        Make an authenticated API request to GLPI.
-        Automatically refreshes session on 401 (token expired).
+        Authenticated request against {glpi_api_base}. Returns (parsed_body, headers).
+        Refreshes the token and retries once on 401.
         """
-        token = await self._ensure_session()
+        url = f"{self._settings.glpi_api_base}{path}"
+        token = await self._ensure_token()
         client = self._get_client()
-        headers = {
-            "App-Token": self._settings.glpi_app_token,
-            "Session-Token": token,
-            "Content-Type": "application/json",
-        }
+
+        def _headers(tok: str) -> dict[str, str]:
+            headers = {
+                "Authorization": f"Bearer {tok}",
+                "Accept": "application/json",
+            }
+            # GLPI's HLAPI rejects a JSON Content-Type on bodiless GET/DELETE
+            # ("Invalid JSON body"), so only advertise it when sending a payload.
+            if json_body is not None:
+                headers["Content-Type"] = "application/json"
+            return headers
 
         try:
             response = await client.request(
-                method,
-                endpoint,
-                headers=headers,
-                params=params,
-                json=json_body,
+                method, url, headers=_headers(token), params=params, json=json_body
             )
-
-            # Session expired — reinitialize and retry
             if response.status_code == 401:
-                logger.info("glpi_session_expired_refreshing")
+                logger.info("glpi_token_expired_refreshing")
                 async with self._token_lock:
-                    self._session_token = await self._init_session()
-                headers["Session-Token"] = self._session_token
+                    self._access_token, self._token_expires_at = await self._init_token()
+                    token = self._access_token
                 response = await client.request(
-                    method,
-                    endpoint,
-                    headers=headers,
-                    params=params,
-                    json=json_body,
+                    method, url, headers=_headers(token), params=params, json=json_body
                 )
 
             response.raise_for_status()
-            # GLPI returns empty body on some mutations (204)
             if response.status_code == 204 or not response.content:
-                return {}
-            return response.json()
+                return {}, dict(response.headers)
+            return response.json(), dict(response.headers)
         except (httpx.ConnectError, httpx.TimeoutException, httpx.ConnectTimeout) as e:
-            logger.error("glpi_connection_failed", endpoint=endpoint, error=str(e))
+            logger.error("glpi_connection_failed", path=path, error=str(e))
             raise
         except httpx.HTTPStatusError as e:
             logger.error(
                 "glpi_api_error",
-                endpoint=endpoint,
+                path=path,
                 status_code=e.response.status_code,
                 detail=e.response.text[:500],
             )
             raise
         except Exception as e:
-            logger.error("glpi_api_request_failed", endpoint=endpoint, error=str(e))
+            logger.error("glpi_api_request_failed", path=path, error=str(e))
             raise
+
+    async def _api_request(
+        self,
+        method: str,
+        path: str,
+        params: dict | None = None,
+        json_body: dict | None = None,
+    ) -> dict[str, Any] | list[dict]:
+        """Authenticated request; returns only the parsed body."""
+        data, _headers = await self._api_request_meta(method, path, params, json_body)
+        return data
+
+    async def _api_list(
+        self,
+        path: str,
+        start: int = 0,
+        limit: int = _LIST_LIMIT,
+        sort: str | None = None,
+        rsql: str | None = None,
+    ) -> tuple[list[dict], int | None]:
+        """GET a collection with pagination. Returns (items, total_from_Content-Range)."""
+        params: dict[str, Any] = {"start": start, "limit": limit}
+        if sort:
+            params["sort"] = sort
+        if rsql:
+            params["filter"] = rsql
+        data, headers = await self._api_request_meta("GET", path, params=params)
+        items = data if isinstance(data, list) else []
+        total: int | None = None
+        content_range = headers.get("Content-Range") or headers.get("content-range") or ""
+        if "/" in content_range:
+            try:
+                total = int(content_range.split("/")[-1])
+            except ValueError:
+                total = None
+        return items, total
 
     # ── Availability check ────────────────────────────────────────
 
     async def is_available(self) -> bool:
-        """Quick ping to check if GLPI is reachable."""
+        """
+        Lightweight health probe: authenticated GET /Assets/Computer?limit=1.
+        (`/status` requires a scope this client does not have, so we probe a
+        resource the password-grant token can actually read.)
+        """
+        if not self._is_configured():
+            return False
         try:
-            client = self._get_client()
-            response = await client.get(
-                "/",
-                headers={"App-Token": self._settings.glpi_app_token},
-                timeout=5.0,
-            )
-            return response.status_code < 500
+            await self._api_request("GET", "/Assets/Computer", params={"limit": 1})
+            return True
         except Exception:
             return False
 
@@ -211,89 +298,66 @@ class GLPIService:
     ) -> list[dict]:
         """
         [GLPI API] Get all computers from inventory.
-        GET /apirest.php/Computer
-        Supports filtering by name/IP, location, status.
+        GET /Assets/Computer (paginated via start/limit).
         """
         try:
-            # Try to use collector cache first (populated every 5 min)
+            # Try the collector cache first (populated every 5 min)
             try:
                 from services.glpi_collector import get_glpi_collector
                 collector = get_glpi_collector()
                 cached = collector.get_cached_assets()
                 if cached:
                     result = [self._normalize_computer(c) for c in cached]
-                    # Apply filters
-                    if search:
-                        q = search.lower()
-                        result = [
-                            c for c in result
-                            if q in c["name"].lower()
-                            or q in (c.get("ip") or "").lower()
-                            or q in (c.get("serial") or "").lower()
-                        ]
-                    if status:
-                        result = [c for c in result if c.get("status") == status]
-                    # Apply pagination
-                    result = result[offset:offset + limit]
+                    result = self._filter_computers(result, search, location, status)
                     logger.debug("glpi_computers_from_collector", count=len(result))
-                    return result
+                    return result[offset:offset + limit]
             except Exception:
-                pass  # Fall through to direct API call
+                pass  # Fall through to the direct API call
 
-            params: dict[str, Any] = {
-                "range": f"{offset}-{offset + limit - 1}",
-                "expand_dropdowns": 1,
-                "with_networkports": 1,
-            }
-            if location:
-                params["searchText[locations_id]"] = str(location)
-
-            data = await self._api_request("GET", "/Computer", params=params)
-            computers = data if isinstance(data, list) else []
-            result = [self._normalize_computer(c) for c in computers]
-
-            # Optional client-side filtering by name/IP/serial
-            if search:
-                q = search.lower()
-                result = [
-                    c for c in result
-                    if q in c["name"].lower()
-                    or q in (c.get("ip") or "").lower()
-                    or q in (c.get("serial") or "").lower()
-                ]
-
-            # Filter by status
-            if status:
-                result = [c for c in result if c.get("status") == status]
-
+            # Filters require the full working set → fetch a big page, filter, slice.
+            want = _LIST_LIMIT if (search or location or status) else limit
+            items, _total = await self._api_list("/Assets/Computer", start=offset, limit=want)
+            result = [self._normalize_computer(c) for c in items]
+            result = self._filter_computers(result, search, location, status)
             logger.debug("glpi_computers_fetched", count=len(result))
-            return result
+            return result[:limit]
         except Exception as e:
             logger.error("glpi_get_computers_failed", error=str(e))
             raise
 
-    async def get_computer(self, computer_id: int) -> dict:
+    @staticmethod
+    def _filter_computers(
+        rows: list[dict],
+        search: str | None,
+        location: int | None,
+        status: str | None,
+    ) -> list[dict]:
+        result = rows
+        if location is not None:
+            result = [c for c in result if c.get("location_id") == location]
+        if status:
+            result = [c for c in result if c.get("status") == status]
+        if search:
+            q = search.lower()
+            result = [
+                c for c in result
+                if q in (c.get("name") or "").lower()
+                or q in (c.get("serial") or "").lower()
+                or q in (c.get("assigned_user") or "").lower()
+            ]
+        return result
+
+    async def get_computer(self, computer_id: int, itemtype: str = "Computer") -> dict:
         """
-        [GLPI API] Get full technical details of a single computer.
-        GET /apirest.php/Computer/{id}
-        Includes network ports, software, tickets, disks.
+        [GLPI API] Get full technical details of a single asset.
+        GET /Assets/{itemtype}/{id}
         """
         try:
-            data = await self._api_request(
-                "GET",
-                f"/Computer/{computer_id}",
-                params={
-                    "expand_dropdowns": 1,
-                    "with_networkports": 1,
-                    "with_softwares": 1,
-                    "with_tickets": 1,
-                    "with_disks": 1,
-                    "with_components": 1,
-                },
-            )
+            data = await self._api_request("GET", f"/Assets/{itemtype}/{computer_id}")
+            if not isinstance(data, dict):
+                raise ValueError(f"Unexpected GLPI response for computer {computer_id}")
             result = self._normalize_computer(data)
-            # Attach related tickets
-            result["tickets"] = await self._get_asset_tickets(computer_id, "Computer")
+            result["tickets"] = await self._get_asset_tickets(computer_id, itemtype)
             logger.debug("glpi_computer_fetched", id=computer_id)
             return result
         except Exception as e:
@@ -301,27 +365,17 @@ class GLPIService:
             raise
 
     async def search_computers(self, query: str) -> list[dict]:
-        """[GLPI API] Full-text search across computers by name, serial, IP."""
+        """[GLPI API] Full-text search across computers (client-side over one page)."""
         try:
-            # Criteria: search in name (field 1), serial (field 5), IP (networkports)
-            params: dict[str, Any] = {
-                "criteria[0][field]": "1",      # name
-                "criteria[0][searchtype]": "contains",
-                "criteria[0][value]": query,
-                "criteria[0][link]": "OR",
-                "criteria[1][field]": "5",      # serial
-                "criteria[1][searchtype]": "contains",
-                "criteria[1][value]": query,
-                "criteria[1][link]": "OR",
-                "criteria[2][field]": "126",    # IP address
-                "criteria[2][searchtype]": "contains",
-                "criteria[2][value]": query,
-                "expand_dropdowns": 1,
-                "range": "0-49",
-            }
-            data = await self._api_request("GET", "/search/Computer", params=params)
-            items = data.get("data", []) if isinstance(data, dict) else []
-            result = [self._normalize_search_result(item) for item in items]
+            items, _total = await self._api_list("/Assets/Computer", limit=_LIST_LIMIT)
+            result = [self._normalize_computer(c) for c in items]
+            q = query.lower()
+            result = [
+                c for c in result
+                if q in (c.get("name") or "").lower()
+                or q in (c.get("serial") or "").lower()
+                or q in (c.get("assigned_user") or "").lower()
+            ]
             logger.debug("glpi_computer_search", query=query, results=len(result))
             return result
         except Exception as e:
@@ -329,30 +383,22 @@ class GLPIService:
             raise
 
     async def create_computer(self, data: dict) -> dict:
-        """
-        [GLPI API] Register a new computer in GLPI.
-        POST /apirest.php/Computer
-        """
+        """[GLPI API] Register a new computer. POST /Assets/Computer (flat body)."""
         try:
-            payload = {
-                "input": {
-                    "name": data["name"],
-                    "states_id": GLPI_STATE_IDS.get(data.get("status", "activo"), 1),
-                }
+            payload: dict[str, Any] = {
+                "name": data["name"],
+                "status": {"id": GLPI_STATE_IDS.get(data.get("status", "activo"), 1)},
             }
-            # Optional fields
             if data.get("serial"):
-                payload["input"]["serial"] = data["serial"]
-            if data.get("os"):
-                payload["input"]["operatingsystems_id"] = data.get("os")
-            if data.get("location_id"):
-                payload["input"]["locations_id"] = data["location_id"]
-            if data.get("assigned_user_id"):
-                payload["input"]["users_id_tech"] = data["assigned_user_id"]
+                payload["serial"] = data["serial"]
             if data.get("comment"):
-                payload["input"]["comment"] = data["comment"]
+                payload["comment"] = data["comment"]
+            if data.get("location_id"):
+                payload["location"] = {"id": data["location_id"]}
+            if data.get("assigned_user_id"):
+                payload["user_tech"] = {"id": data["assigned_user_id"]}
 
-            result = await self._api_request("POST", "/Computer", json_body=payload)
+            result = await self._api_request("POST", "/Assets/Computer", json_body=payload)
             glpi_id = result.get("id") if isinstance(result, dict) else None
             logger.info("glpi_computer_created", name=data["name"], id=glpi_id)
             return {"id": glpi_id, "name": data["name"], "created": True}
@@ -360,27 +406,22 @@ class GLPIService:
             logger.error("glpi_create_computer_failed", name=data.get("name"), error=str(e))
             raise
 
-    async def update_computer(self, computer_id: int, data: dict) -> dict:
-        """
-        [GLPI API] Update a computer's data in GLPI.
-        PUT /apirest.php/Computer/{id}
-        """
+    async def update_computer(self, computer_id: int, data: dict, itemtype: str = "Computer") -> dict:
+        """[GLPI API] Update an asset. PATCH /Assets/{itemtype}/{id}."""
         try:
-            input_data: dict[str, Any] = {"id": computer_id}
+            patch: dict[str, Any] = {}
             if "status" in data:
-                input_data["states_id"] = GLPI_STATE_IDS.get(data["status"], 1)
+                patch["status"] = {"id": GLPI_STATE_IDS.get(data["status"], 1)}
             if "name" in data:
-                input_data["name"] = data["name"]
+                patch["name"] = data["name"]
             if "comment" in data:
-                input_data["comment"] = data["comment"]
+                patch["comment"] = data["comment"]
             if "location_id" in data:
-                input_data["locations_id"] = data["location_id"]
+                patch["location"] = {"id": data["location_id"]}
             if "assigned_user_id" in data:
-                input_data["users_id_tech"] = data["assigned_user_id"]
+                patch["user_tech"] = {"id": data["assigned_user_id"]}
 
-            await self._api_request(
-                "PUT", f"/Computer/{computer_id}", json_body={"input": input_data}
-            )
+            await self._api_request("PATCH", f"/Assets/{itemtype}/{computer_id}", json_body=patch)
             logger.info("glpi_computer_updated", id=computer_id)
             return {"id": computer_id, "updated": True}
         except Exception as e:
@@ -388,10 +429,7 @@ class GLPIService:
             raise
 
     async def get_asset_stats(self) -> dict:
-        """
-        [GLPI API] Get count of computers by status.
-        Returns data ready for a pie chart.
-        """
+        """[GLPI API] Get count of computers by status (pie chart)."""
         try:
             computers = await self.get_computers(limit=500)
             stats = {"activo": 0, "reparacion": 0, "retirado": 0, "pendiente": 0, "total": 0}
@@ -409,25 +447,19 @@ class GLPIService:
     # ── Locations ─────────────────────────────────────────────────
 
     async def get_locations(self) -> list[dict]:
-        """
-        [GLPI API] Get all physical locations (classrooms, labs).
-        GET /apirest.php/Location
-        """
+        """[GLPI API] Get all physical locations. GET /Dropdowns/Location."""
         try:
-            data = await self._api_request(
-                "GET", "/Location", params={"range": "0-999", "expand_dropdowns": 1}
-            )
-            locations = data if isinstance(data, list) else []
+            items, _total = await self._api_list("/Dropdowns/Location", limit=_LIST_LIMIT)
             result = [
                 {
                     "id": loc.get("id"),
-                    "name": loc.get("name", ""),
-                    "completename": loc.get("completename", ""),
-                    "comment": loc.get("comment", ""),
-                    "building": loc.get("building", ""),
-                    "room": loc.get("room", ""),
+                    "name": loc.get("name", "") or "",
+                    "completename": loc.get("completename", "") or loc.get("name", "") or "",
+                    "comment": loc.get("comment") or "",
+                    "building": loc.get("building") or "",
+                    "room": loc.get("room") or "",
                 }
-                for loc in locations
+                for loc in items
             ]
             logger.debug("glpi_locations_fetched", count=len(result))
             return result
@@ -436,19 +468,9 @@ class GLPIService:
             raise
 
     async def get_computers_by_location(self, location_id: int) -> list[dict]:
-        """
-        [GLPI API] Get computers in a specific physical location.
-        GET /apirest.php/Computer filtered by locations_id
-        """
+        """[GLPI API] Get computers in a specific location."""
         try:
-            params: dict[str, Any] = {
-                "searchText[locations_id]": str(location_id),
-                "expand_dropdowns": 1,
-                "range": "0-999",
-            }
-            data = await self._api_request("GET", "/Computer", params=params)
-            computers = data if isinstance(data, list) else []
-            result = [self._normalize_computer(c) for c in computers]
+            result = await self.get_computers(location=location_id, limit=500)
             logger.debug("glpi_computers_by_location", location_id=location_id, count=len(result))
             return result
         except Exception as e:
@@ -465,24 +487,18 @@ class GLPIService:
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict]:
-        """
-        [GLPI API] Get tickets filtered by status/priority/assignee.
-        GET /apirest.php/Ticket
-        Filters for categories: red | hardware | so | seguridad
-        """
+        """[GLPI API] Get tickets. GET /Assistance/Ticket."""
         try:
-            params: dict[str, Any] = {
-                "range": f"{offset}-{offset + limit - 1}",
-                "expand_dropdowns": 1,
-                "sort": "date",
-                "order": "DESC",
-            }
+            items, _total = await self._api_list(
+                "/Assistance/Ticket", start=offset, limit=limit, sort="date:desc"
+            )
+            result = [self._normalize_ticket(t) for t in items]
             if priority:
-                params["searchText[priority]"] = str(priority)
-
-            data = await self._api_request("GET", "/Ticket", params=params)
-            tickets = data if isinstance(data, list) else []
-            result = [self._normalize_ticket(t) for t in tickets]
+                result = [t for t in result if t.get("priority") == priority]
+            if status:
+                result = [t for t in result if t.get("status") == status]
+            if assigned_to:
+                result = [t for t in result if str(t.get("assigned_user_id")) == str(assigned_to)]
             logger.debug("glpi_tickets_fetched", count=len(result))
             return result
         except Exception as e:
@@ -490,16 +506,11 @@ class GLPIService:
             raise
 
     async def get_ticket(self, ticket_id: int) -> dict:
-        """
-        [GLPI API] Get full details of a ticket.
-        GET /apirest.php/Ticket/{id}
-        """
+        """[GLPI API] Get full details of a ticket. GET /Assistance/Ticket/{id}."""
         try:
-            data = await self._api_request(
-                "GET",
-                f"/Ticket/{ticket_id}",
-                params={"expand_dropdowns": 1},
-            )
+            data = await self._api_request("GET", f"/Assistance/Ticket/{ticket_id}")
+            if not isinstance(data, dict):
+                raise ValueError(f"Unexpected GLPI response for ticket {ticket_id}")
             result = self._normalize_ticket(data)
             logger.debug("glpi_ticket_fetched", id=ticket_id)
             return result
@@ -508,26 +519,18 @@ class GLPIService:
             raise
 
     async def create_ticket(self, data: dict) -> dict:
-        """
-        [GLPI API] Create a new ticket.
-        POST /apirest.php/Ticket
-        """
+        """[GLPI API] Create a ticket. POST /Assistance/Ticket (flat body)."""
         try:
-            payload = {
-                "input": {
-                    "name": data["title"],
-                    "content": data.get("description", ""),
-                    "priority": data.get("priority", 3),
-                    "itilcategories_id": data.get("category_id", 0),
-                    "type": 1,  # 1=Incidencia, 2=Requerimiento
-                }
+            payload: dict[str, Any] = {
+                "name": data["title"],
+                "content": data.get("description", ""),
+                "priority": data.get("priority", 3),
+                "type": 1,  # 1=Incidencia
             }
-            if data.get("asset_id"):
-                # Link ticket to computer item
-                payload["input"]["itemtype"] = "Computer"
-                payload["input"]["items_id"] = data["asset_id"]
+            if data.get("category_id"):
+                payload["category"] = {"id": data["category_id"]}
 
-            result = await self._api_request("POST", "/Ticket", json_body=payload)
+            result = await self._api_request("POST", "/Assistance/Ticket", json_body=payload)
             ticket_id = result.get("id") if isinstance(result, dict) else None
             logger.info("glpi_ticket_created", title=data["title"], id=ticket_id)
             return {"id": ticket_id, "title": data["title"], "created": True}
@@ -536,17 +539,12 @@ class GLPIService:
             raise
 
     async def update_ticket_status(self, ticket_id: int, status: int) -> dict:
-        """
-        [GLPI API] Update ticket status.
-        PUT /apirest.php/Ticket/{id}
-        GLPI ticket statuses: 1=Nuevo, 2=En proceso (asignado), 3=En proceso (planificado),
-        4=Pendiente, 5=Resuelto, 6=Cerrado
-        """
+        """[GLPI API] Update ticket status. PATCH /Assistance/Ticket/{id}."""
         try:
             await self._api_request(
-                "PUT",
-                f"/Ticket/{ticket_id}",
-                json_body={"input": {"id": ticket_id, "status": status}},
+                "PATCH",
+                f"/Assistance/Ticket/{ticket_id}",
+                json_body={"status": {"id": status}},
             )
             logger.info("glpi_ticket_status_updated", id=ticket_id, status=status)
             return {"id": ticket_id, "status": status, "updated": True}
@@ -557,54 +555,43 @@ class GLPIService:
     # ── Users ─────────────────────────────────────────────────────
 
     async def get_users(self, search: str | None = None, limit: int = 100) -> list[dict]:
-        """
-        [GLPI API] Get users from GLPI.
-        GET /apirest.php/User
-        """
+        """[GLPI API] Get users. GET /Administration/User."""
         try:
-            params: dict[str, Any] = {
-                "range": f"0-{limit - 1}",
-                "expand_dropdowns": 1,
-            }
+            items, _total = await self._api_list("/Administration/User", limit=max(limit, 100))
+            result = [self._normalize_user(u) for u in items]
             if search:
-                params["searchText[name]"] = search
-
-            data = await self._api_request("GET", "/User", params=params)
-            users = data if isinstance(data, list) else []
-            result = [self._normalize_user(u) for u in users]
+                q = search.lower()
+                result = [
+                    u for u in result
+                    if q in (u.get("name") or "").lower()
+                    or q in (u.get("realname") or "").lower()
+                    or q in (u.get("firstname") or "").lower()
+                    or q in (u.get("email") or "").lower()
+                ]
             logger.debug("glpi_users_fetched", count=len(result))
-            return result
+            return result[:limit]
         except Exception as e:
             logger.error("glpi_get_users_failed", error=str(e))
             raise
 
     async def get_user_assets(self, user_id: int) -> list[dict]:
-        """
-        [GLPI API] Get computers assigned to a specific user.
-        GET /apirest.php/Computer with users filter
-        """
+        """[GLPI API] Get computers assigned to a specific user."""
         try:
-            params: dict[str, Any] = {
-                "searchText[users_id_tech]": str(user_id),
-                "expand_dropdowns": 1,
-                "range": "0-999",
-            }
-            data = await self._api_request("GET", "/Computer", params=params)
-            computers = data if isinstance(data, list) else []
-            result = [self._normalize_computer(c) for c in computers]
+            items, _total = await self._api_list("/Assets/Computer", limit=_LIST_LIMIT)
+            result = [
+                self._normalize_computer(c) for c in items
+                if self._fk_id(c.get("user_tech")) == int(user_id)
+            ]
             logger.debug("glpi_user_assets_fetched", user_id=user_id, count=len(result))
             return result
         except Exception as e:
             logger.error("glpi_get_user_assets_failed", user_id=user_id, error=str(e))
             raise
 
-    async def delete_computer(self, computer_id: int) -> dict:
-        """
-        [GLPI API] Delete a computer from GLPI inventory.
-        DELETE /apirest.php/Computer/{id}
-        """
+    async def delete_computer(self, computer_id: int, itemtype: str = "Computer") -> dict:
+        """[GLPI API] Delete an asset. DELETE /Assets/{itemtype}/{id}."""
         try:
-            await self._api_request("DELETE", f"/Computer/{computer_id}")
+            await self._api_request("DELETE", f"/Assets/{itemtype}/{computer_id}")
             logger.info("glpi_computer_deleted", id=computer_id)
             return {"id": computer_id, "deleted": True}
         except Exception as e:
@@ -612,34 +599,27 @@ class GLPIService:
             raise
 
     async def get_user(self, user_id: int) -> dict:
-        """
-        [GLPI API] Get a single user by ID.
-        GET /apirest.php/User/{id}
-        """
+        """[GLPI API] Get a single user by ID. GET /Administration/User/{id}."""
         try:
-            data = await self._api_request("GET", f"/User/{user_id}", params={"expand_dropdowns": 1})
+            data = await self._api_request("GET", f"/Administration/User/{user_id}")
+            if not isinstance(data, dict):
+                raise ValueError(f"Unexpected GLPI response for user {user_id}")
             return self._normalize_user(data)
         except Exception as e:
             logger.error("glpi_get_user_failed", id=user_id, error=str(e))
             raise
 
     async def create_user(self, data: dict) -> dict:
-        """
-        [GLPI API] Create a new user in GLPI.
-        POST /apirest.php/User
-        """
+        """[GLPI API] Create a user. POST /Administration/User (flat body)."""
         try:
-            payload = {
-                "input": {
-                    "name": data["name"],
-                    "realname": data.get("realname", ""),
-                    "firstname": data.get("firstname", ""),
-                    "email": data.get("email", ""),
-                    "phone": data.get("phone", ""),
-                    "comment": data.get("comment", ""),
-                }
+            payload: dict[str, Any] = {
+                "username": data["name"],
+                "realname": data.get("realname", ""),
+                "firstname": data.get("firstname", ""),
+                "phone": data.get("phone", ""),
+                "comment": data.get("comment", ""),
             }
-            result = await self._api_request("POST", "/User", json_body=payload)
+            result = await self._api_request("POST", "/Administration/User", json_body=payload)
             glpi_id = result.get("id") if isinstance(result, dict) else None
             logger.info("glpi_user_created", name=data["name"], id=glpi_id)
             return {"id": glpi_id, "name": data["name"], "created": True}
@@ -648,16 +628,13 @@ class GLPIService:
             raise
 
     async def update_user(self, user_id: int, data: dict) -> dict:
-        """
-        [GLPI API] Update a user in GLPI.
-        PUT /apirest.php/User/{id}
-        """
+        """[GLPI API] Update a user. PATCH /Administration/User/{id}."""
         try:
-            input_data: dict[str, Any] = {"id": user_id}
-            for field in ("realname", "firstname", "email", "phone", "comment"):
+            patch: dict[str, Any] = {}
+            for field in ("realname", "firstname", "phone", "comment"):
                 if field in data and data[field] is not None:
-                    input_data[field] = data[field]
-            await self._api_request("PUT", f"/User/{user_id}", json_body={"input": input_data})
+                    patch[field] = data[field]
+            await self._api_request("PATCH", f"/Administration/User/{user_id}", json_body=patch)
             logger.info("glpi_user_updated", id=user_id)
             return {"id": user_id, "updated": True}
         except Exception as e:
@@ -665,29 +642,23 @@ class GLPIService:
             raise
 
     async def delete_user(self, user_id: int) -> dict:
-        """
-        [GLPI API] Delete a user from GLPI.
-        DELETE /apirest.php/User/{id}
-        """
+        """[GLPI API] Delete a user. DELETE /Administration/User/{id}."""
         try:
-            await self._api_request("DELETE", f"/User/{user_id}")
+            await self._api_request("DELETE", f"/Administration/User/{user_id}")
             logger.info("glpi_user_deleted", id=user_id)
             return {"id": user_id, "deleted": True}
         except Exception as e:
             logger.error("glpi_delete_user_failed", id=user_id, error=str(e))
             raise
 
-    async def assign_asset(self, asset_id: int, user_id: int | None) -> dict:
-        """
-        [GLPI API] Assign or unassign an asset to a user.
-        PUT /apirest.php/Computer/{id} with users_id_tech
-        """
+    async def assign_asset(self, asset_id: int, user_id: int | None, itemtype: str = "Computer") -> dict:
+        """[GLPI API] Assign/unassign an asset to a user. PATCH user_tech."""
         try:
-            input_data: dict[str, Any] = {
-                "id": asset_id,
-                "users_id_tech": user_id if user_id is not None else 0,
-            }
-            await self._api_request("PUT", f"/Computer/{asset_id}", json_body={"input": input_data})
+            await self._api_request(
+                "PATCH",
+                f"/Assets/{itemtype}/{asset_id}",
+                json_body={"user_tech": {"id": user_id if user_id is not None else 0}},
+            )
             logger.info("glpi_asset_assigned", asset_id=asset_id, user_id=user_id)
             return {"id": asset_id, "user_id": user_id, "assigned": True}
         except Exception as e:
@@ -696,77 +667,36 @@ class GLPIService:
 
     # ── Hybrid: Health ────────────────────────────────────────────
 
-    async def get_assets_health(
-        self,
-        wazuh_agents: list[dict],
-        arp_table: list[dict],
-    ) -> list[dict]:
+    async def get_assets_health(self) -> list[dict]:
         """
-        [GLPI API + Wazuh API + MikroTik API] Compute combined health status.
-        Receives pre-fetched Wazuh agents and MikroTik ARP table.
-        Correlates by IP address.
-        Returns per-asset: glpi_status + wazuh_agent + network_visible + health
+        [GLPI API] Inventory status per asset — GLPI data only.
+
+        No cross-tool correlation (no Wazuh agent, no ARP). An asset is
+        "operativo" when its GLPI status is `activo`; the rest is reported
+        as warning/critical so the dashboard stays purely inventory-driven.
         """
         try:
             computers = await self.get_computers(limit=500)
-
-            # Build lookup maps
-            wazuh_by_ip = {a.get("ip", ""): a for a in wazuh_agents if a.get("ip")}
-            arp_ips = {e.get("ip_address", "") for e in arp_table}
-
             result = []
-            for computer in computers:
-                ip = computer.get("ip") or ""
-                glpi_status = computer.get("status", "activo")
-
-                # Wazuh check
-                wazuh_entry = wazuh_by_ip.get(ip)
-                if wazuh_entry:
-                    wazuh_status = wazuh_entry.get("status", "disconnected")
-                    if wazuh_status == "active":
-                        wazuh_agent = "active"
-                    else:
-                        wazuh_agent = "disconnected"
-                elif ip:
-                    wazuh_agent = "not_installed"
+            for c in computers:
+                status = c.get("status", "activo")
+                if status == "activo":
+                    health, reason = "ok", ""
+                elif status in ("reparacion", "pendiente"):
+                    health, reason = "warning", f"Estado GLPI: {status}"
                 else:
-                    wazuh_agent = "not_installed"
-
-                # Network check (ARP table)
-                network_visible = ip in arp_ips if ip else False
-
-                # Compute health
-                if (
-                    glpi_status == "activo"
-                    and wazuh_agent == "active"
-                    and network_visible
-                ):
-                    health = "ok"
-                    health_reason = ""
-                elif wazuh_agent == "disconnected" and not network_visible:
-                    health = "critical"
-                    health_reason = "Agente Wazuh desconectado y equipo no visible en red"
-                else:
-                    issues = []
-                    if glpi_status != "activo":
-                        issues.append(f"Estado GLPI: {glpi_status}")
-                    if wazuh_agent != "active":
-                        issues.append(f"Wazuh: {wazuh_agent}")
-                    if not network_visible:
-                        issues.append("No visible en ARP")
-                    health = "warning"
-                    health_reason = " | ".join(issues)
+                    health, reason = "critical", f"Estado GLPI: {status}"
 
                 result.append({
-                    "asset_id": computer.get("id"),
-                    "name": computer.get("name", ""),
-                    "ip": ip,
-                    "location": computer.get("location", ""),
-                    "glpi_status": glpi_status,
-                    "wazuh_agent": wazuh_agent,
-                    "network_visible": network_visible,
+                    "asset_id": c.get("id"),
+                    "name": c.get("name", ""),
+                    "type": c.get("type") or "Computer",
+                    "location": c.get("location", ""),
+                    "assigned_user": c.get("assigned_user", ""),
+                    "glpi_status": status,
                     "health": health,
-                    "health_reason": health_reason,
+                    "health_reason": reason,
+                    "last_update": c.get("last_update", ""),
                 })
 
             logger.debug("glpi_health_computed", assets=len(result))
@@ -775,58 +705,47 @@ class GLPIService:
             logger.error("glpi_get_health_failed", error=str(e))
             raise
 
-    async def get_asset_network_context(
-        self, computer_id: int, arp_table: list[dict]
-    ) -> dict:
+    async def get_asset_network_context(self, computer_id: int, arp_table: list[dict]) -> dict:
         """
-        [GLPI API + MikroTik API] Get network context for a specific asset.
-        Looks up MAC address in ARP table to find interface/VLAN.
+        [GLPI API + MikroTik API] Network context for an asset.
+        The HLAPI exposes no MAC/IP, so the ARP lookup is best-effort by name.
         """
         try:
             computer = await self.get_computer(computer_id)
             mac = computer.get("mac", "")
             ip = computer.get("ip", "")
+            name = computer.get("name", "")
 
-            # Search ARP by IP or MAC
             interface = ""
             vlan = ""
             last_seen = ""
             ip_assigned = ip
 
             for entry in arp_table:
+                entry_name = _norm(entry.get("comment", "") or entry.get("hostname", ""))
                 if (
-                    (mac and entry.get("mac_address", "").upper() == mac.upper())
+                    (mac and (entry.get("mac_address", "") or "").upper() == mac.upper())
                     or (ip and entry.get("ip_address") == ip)
+                    or (name and entry_name and entry_name == _norm(name))
                 ):
                     interface = entry.get("interface", "")
                     ip_assigned = entry.get("ip_address", ip)
-                    last_seen = "Ahora"  # ARP entries are live
+                    last_seen = "Ahora"
                     break
 
-            # Extract VLAN from interface name if present (e.g. "vlan10" → "10")
             if "vlan" in interface.lower():
                 vlan = interface.lower().replace("vlan", "").strip()
 
-            result = {
+            logger.debug("glpi_network_context", id=computer_id, interface=interface)
+            return {
                 "asset_id": computer_id,
-                "asset_name": computer.get("name", ""),
+                "asset_name": name,
                 "interface": interface,
                 "vlan": vlan,
                 "ip_assigned": ip_assigned,
                 "last_seen": last_seen,
                 "mac": mac,
             }
-
-            # Update computer in GLPI with network info if found
-            if interface and not computer.get("comment", "").startswith("[NetShield]"):
-                try:
-                    comment = f"[NetShield] Interface: {interface}, VLAN: {vlan or 'N/A'}, Last seen: Activo"
-                    await self.update_computer(computer_id, {"comment": comment})
-                except Exception:
-                    pass  # Non-critical: GLPI update failure doesn't block response
-
-            logger.debug("glpi_network_context", id=computer_id, interface=interface)
-            return result
         except Exception as e:
             logger.error("glpi_get_network_context_failed", id=computer_id, error=str(e))
             raise
@@ -834,24 +753,18 @@ class GLPIService:
     # ── Quarantine ────────────────────────────────────────────────
 
     async def quarantine_asset(self, computer_id: int, reason: str) -> dict:
-        """
-        [GLPI API] Mark asset as "Bajo Investigación" and create incident ticket.
-        Updates computer state + creates automatic ticket.
-        """
+        """[GLPI API] Mark asset as 'bajo_investigacion' + create an incident ticket."""
         try:
-            # 1. Update state to "bajo_investigacion" (state_id=5 in default GLPI)
             await self.update_computer(computer_id, {"status": "bajo_investigacion"})
 
-            # 2. Create automatic ticket
             ticket_data = {
                 "title": f"[NetShield] Cuarentena automática — Activo #{computer_id}",
                 "description": (
-                    f"Cuarentena iniciada automáticamente por NetShield Dashboard.\n"
+                    "Cuarentena iniciada automáticamente por NetShield Dashboard.\n"
                     f"Motivo: {reason}\n"
                     f"Fecha: {datetime.now(timezone.utc).isoformat()}"
                 ),
-                "priority": 4,  # Alta
-                "asset_id": computer_id,
+                "priority": 4,
             }
             ticket_result = await self.create_ticket(ticket_data)
 
@@ -867,13 +780,9 @@ class GLPIService:
             raise
 
     async def unquarantine_asset(self, computer_id: int) -> dict:
-        """
-        [GLPI API] Restore asset status and close quarantine ticket.
-        """
+        """[GLPI API] Restore asset status to 'activo'."""
         try:
-            # Restore to "activo"
             await self.update_computer(computer_id, {"status": "activo"})
-
             logger.info("glpi_asset_unquarantined", id=computer_id)
             return {"asset_id": computer_id, "unquarantined": True}
         except Exception as e:
@@ -881,113 +790,105 @@ class GLPIService:
             raise
 
     async def kill_session(self) -> None:
-        """
-        [GLPI API] Close the current GLPI session.
-        GET /apirest.php/killSession
-        """
-        if self._session_token is None:
-            return
-        try:
-            client = self._get_client()
-            await client.get(
-                "/killSession",
-                headers={
-                    "App-Token": self._settings.glpi_app_token,
-                    "Session-Token": self._session_token,
-                },
-            )
-            self._session_token = None
-            logger.info("glpi_session_killed")
-        except Exception as e:
-            logger.warning("glpi_kill_session_failed", error=str(e))
+        """Deprecated: OAuth2 tokens are stateless — just drop the cached one."""
+        self._access_token = None
+        self._token_expires_at = 0.0
 
     async def close(self) -> None:
-        """Kill session and close the HTTP client."""
-        await self.kill_session()
+        """Drop the token and close the HTTP client."""
+        self._access_token = None
+        self._token_expires_at = 0.0
         if self._client and not self._client.is_closed:
             await self._client.aclose()
             logger.info("glpi_client_closed")
 
-    # ── Normalizers ───────────────────────────────────────────────
+    # ── Normalizers (HLAPI v3.0 shapes → flat frontend schema) ────
+
+    @staticmethod
+    def _fk_id(value: Any) -> int | None:
+        """Extract an id from a nested {id, name} object or a scalar."""
+        if isinstance(value, dict):
+            value = value.get("id")
+        try:
+            return int(value) if value not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _fk_name(value: Any) -> str:
+        """
+        Extract a display name from a nested FK object or a scalar.
+        GLPI person FKs (user_tech, user_recipient…) expose `username`, not
+        `name`, so that is part of the fallback chain.
+        """
+        if isinstance(value, dict):
+            return (
+                value.get("completename")
+                or value.get("name")
+                or value.get("username")
+                or value.get("designation")
+                or ""
+            )
+        return str(value) if isinstance(value, str) else ""
+
+    @staticmethod
+    def _state_key(raw: dict) -> str:
+        """Map a v3 `status` object to our normalized status key."""
+        status = raw.get("status")
+        name = ""
+        state_id = None
+        if isinstance(status, dict):
+            name = status.get("name") or ""
+            state_id = status.get("id")
+        elif isinstance(status, str):
+            name = status
+        elif isinstance(status, int):
+            state_id = status
+
+        by_name = _state_key_from_name(name)
+        if by_name:
+            return by_name
+        try:
+            return GLPI_STATES.get(int(state_id), "activo") if state_id is not None else "activo"
+        except (TypeError, ValueError):
+            return "activo"
 
     def _normalize_computer(self, raw: dict) -> dict:
-        """Normalize GLPI Computer raw data to consistent schema."""
-        state_id = raw.get("states_id", 1)
-        # GLPI may return state as a dict when expand_dropdowns=1
-        if isinstance(state_id, dict):
-            state_name = state_id.get("name", "activo").lower()
-            state_id = GLPI_STATE_IDS.get(state_name, 1)
-        status = GLPI_STATES.get(int(state_id) if state_id else 1, "activo")
-
-        # Location may be a dict (expanded) or an ID
-        location = raw.get("locations_id", "")
-        if isinstance(location, dict):
-            location = location.get("completename", "") or location.get("name", "")
-
-        # User (technician / assigned user)
-        user = raw.get("users_id_tech", "")
-        if isinstance(user, dict):
-            user = user.get("name", "")
-
-        # Extract IP from network ports if available
-        ip = ""
-        network_ports = raw.get("_networkports", {})
-        if isinstance(network_ports, dict):
-            for port_type_list in network_ports.values():
-                if isinstance(port_type_list, list):
-                    for port in port_type_list:
-                        addrs = port.get("NetworkName", {}).get("IPAddress", [])
-                        if isinstance(addrs, list) and addrs:
-                            ip = addrs[0].get("name", "")
-                            break
-
-        # MAC from network ports
-        mac = ""
-        if isinstance(network_ports, dict):
-            for port_type_list in network_ports.values():
-                if isinstance(port_type_list, list):
-                    for port in port_type_list:
-                        mac = port.get("mac", "")
-                        if mac:
-                            break
-
+        """Normalize a v3 Computer resource to the flat GlpiAsset schema."""
+        location_obj = raw.get("location")
+        user_obj = raw.get("user_tech") or raw.get("user")
         return {
             "id": raw.get("id"),
-            "name": raw.get("name", ""),
-            "serial": raw.get("serial", ""),
-            "ip": ip,
-            "mac": mac,
-            "os": raw.get("operatingsystems_id", ""),
-            "cpu": raw.get("processors", ""),
-            "ram": raw.get("ram", ""),
-            "location": location,
-            "location_id": raw.get("locations_id") if not isinstance(raw.get("locations_id"), dict) else None,
-            "assigned_user": user,
-            "status": status,
-            "comment": raw.get("comment", ""),
-            "last_update": raw.get("date_mod", ""),
+            "name": raw.get("name") or "",
+            # Itemtype (Computer/Printer/…): the inventory grid filters by it.
+            "type": raw.get("_itemtype") or "Computer",
+            "serial": raw.get("serial") or "",
+            # HLAPI v3.0 does not expose network ports (IP/MAC unavailable).
+            "ip": "",
+            "mac": "",
+            # OS is only available on the detail view (/OSInstallation).
+            "os": "",
+            "cpu": "",
+            "ram": "",
+            "location": self._fk_name(location_obj),
+            "location_id": self._fk_id(location_obj),
+            "assigned_user": self._fk_name(user_obj),
+            "status": self._state_key(raw),
+            "comment": raw.get("comment") or "",
+            "last_update": raw.get("date_mod") or "",
         }
 
     def _normalize_search_result(self, raw: dict) -> dict:
-        """Normalize GLPI search result (different structure from direct GET)."""
-        return {
-            "id": raw.get("2"),           # GLPI field 2 = id
-            "name": raw.get("1", ""),     # field 1 = name
-            "serial": raw.get("5", ""),   # field 5 = serial
-            "ip": raw.get("126", ""),     # field 126 = IP
-            "location": raw.get("3", ""), # field 3 = location
-            "status": GLPI_STATES.get(raw.get("31", 1), "activo"),  # field 31 = state
-            "mac": "",
-            "os": "",
-            "comment": "",
-            "last_update": "",
-        }
+        """Search results share the Computer shape in the HLAPI."""
+        return self._normalize_computer(raw)
 
     def _normalize_ticket(self, raw: dict) -> dict:
-        """Normalize GLPI Ticket raw data."""
+        """Normalize a v3 Ticket resource to the flat GlpiTicket schema."""
         priority = raw.get("priority", 3)
-        status_id = raw.get("status", 1)
-        # Map GLPI status to kanban column
+        status_obj = raw.get("status")
+        status_id = self._fk_id(status_obj) if isinstance(status_obj, dict) else status_obj
+        status_id = status_id if status_id is not None else 1
+
         if status_id in (1, 2):
             status = "pendiente"
         elif status_id in (3, 4):
@@ -995,63 +896,62 @@ class GLPIService:
         else:
             status = "resuelto"
 
-        assigned_user = raw.get("users_id_assign", "")
-        if isinstance(assigned_user, dict):
-            assigned_user = assigned_user.get("name", "")
-
-        # Asset linked (may not be present)
-        asset_name = ""
-        items_id = raw.get("items_id", "")
-        if isinstance(items_id, dict):
-            asset_name = items_id.get("name", "")
+        assigned = raw.get("user_editor") or raw.get("user_recipient")
+        category = raw.get("category")
+        name = raw.get("name") or ""
 
         return {
             "id": raw.get("id"),
-            "title": raw.get("name", ""),
-            "description": raw.get("content", ""),
+            "title": name,
+            "description": raw.get("content") or "",
             "priority": priority,
             "priority_label": GLPI_PRIORITIES.get(priority, "Media"),
             "status": status,
             "status_id": status_id,
-            "assigned_user": assigned_user,
-            "asset_name": asset_name,
-            "asset_id": raw.get("items_id") if not isinstance(raw.get("items_id"), dict) else None,
-            "category": raw.get("itilcategories_id", ""),
-            "created_at": raw.get("date", ""),
-            "due_date": raw.get("time_to_resolve", ""),
-            "is_netshield": raw.get("name", "").startswith("[NetShield]"),
+            "assigned_user": self._fk_name(assigned),
+            "assigned_user_id": self._fk_id(assigned),
+            "asset_name": "",
+            "asset_id": None,
+            "category": self._fk_name(category),
+            "created_at": raw.get("date") or raw.get("date_creation") or "",
+            "due_date": raw.get("internal_resolution_date") or "",
+            "is_netshield": name.startswith("[NetShield]"),
         }
 
     def _normalize_user(self, raw: dict) -> dict:
-        """Normalize GLPI User raw data."""
+        """Normalize a v3 User resource to the flat GlpiUser schema."""
+        emails = raw.get("emails") or []
+        email = ""
+        if isinstance(emails, list) and emails:
+            first = emails[0]
+            email = (first.get("email") or first.get("name") or "") if isinstance(first, dict) else str(first)
+
+        title = raw.get("title")
+        category = raw.get("category")
+        location = raw.get("location")
+        firstname = raw.get("firstname") or ""
+        realname = raw.get("realname") or ""
+        username = raw.get("username") or raw.get("name") or ""
+
         return {
             "id": raw.get("id"),
-            "name": raw.get("name", ""),
-            "realname": raw.get("realname", ""),
-            "firstname": raw.get("firstname", ""),
-            "email": raw.get("email", ""),
-            "phone": raw.get("phone", ""),
-            "department": raw.get("usertitles_id", ""),
-            "location": raw.get("locations_id", "") if not isinstance(raw.get("locations_id"), dict) else raw.get("locations_id", {}).get("name", ""),
-            "title": raw.get("usertitles_id", "") if isinstance(raw.get("usertitles_id"), str) else "",
-            "display_name": f"{raw.get('firstname', '')} {raw.get('realname', '')}".strip()
-                or raw.get("name", ""),
+            "name": username,
+            "realname": realname,
+            "firstname": firstname,
+            "email": email,
+            "phone": raw.get("phone") or "",
+            "department": self._fk_name(category),
+            "location": self._fk_name(location),
+            "title": self._fk_name(title),
+            "display_name": f"{firstname} {realname}".strip() or username,
         }
 
     async def _get_asset_tickets(self, item_id: int, item_type: str = "Computer") -> list[dict]:
-        """Get tickets linked to a specific asset."""
-        try:
-            params: dict[str, Any] = {
-                "searchText[itemtype]": item_type,
-                "searchText[items_id]": str(item_id),
-                "expand_dropdowns": 1,
-                "range": "0-19",
-            }
-            data = await self._api_request("GET", "/Ticket", params=params)
-            tickets = data if isinstance(data, list) else []
-            return [self._normalize_ticket(t) for t in tickets]
-        except Exception:
-            return []
+        """
+        Tickets linked to an asset. The HLAPI v3.0 Ticket resource does not carry
+        the itemtype/items_id link, so this returns an empty list (best-effort).
+        """
+        return []
 
 
 def get_glpi_service() -> GLPIService:

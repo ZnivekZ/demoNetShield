@@ -16,9 +16,10 @@ import { createPortal } from 'react-dom';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   ShieldAlert, Filter, X, ChevronLeft, ChevronRight,
-  Search, Activity, Hash, Server, ScrollText,
+  Search, Activity, Hash, Server, ScrollText, RefreshCw,
 } from 'lucide-react';
 import { useWazuhAlerts } from '../../hooks/useWazuh';
+import { useAgentsList } from '../../hooks/useWazuhSummary';
 import { formatDateTime, severityClass } from '../utils/time';
 import type { WazuhAlertsFilters, WazuhAlert } from '../../types';
 
@@ -57,7 +58,8 @@ export function WazuhAlertsPage() {
     search: search || undefined,
   };
 
-  const { data, isLoading, isFetching } = useWazuhAlerts(filters);
+  const { data, isLoading, isFetching, refetch } = useWazuhAlerts(filters);
+  const { data: agents = [] } = useAgentsList();
 
   const items = data?.items ?? [];
   const pagination = data?.pagination;
@@ -100,6 +102,15 @@ export function WazuhAlertsPage() {
 
         <div className="flex items-center gap-2">
           <button
+            className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            title="Traer datos actualizados de Wazuh"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+            {isFetching ? 'Actualizando…' : 'Actualizar'}
+          </button>
+          <button
             className={`btn-secondary flex items-center gap-2 text-sm ${
               hasFilters ? 'border-cyan-500/50 text-cyan-300' : ''
             }`}
@@ -137,14 +148,20 @@ export function WazuhAlertsPage() {
           </div>
           <div>
             <label className="text-xs text-surface-400 mb-1 flex items-center gap-1">
-              <Server className="w-3 h-3" /> Agent ID
+              <Server className="w-3 h-3" /> Agente
             </label>
-            <input
-              className="input-sm w-full font-mono"
-              placeholder="ej: 001"
+            <select
+              className="input-sm w-full"
               value={agentId}
               onChange={e => setAgentId(e.target.value)}
-            />
+            >
+              <option value="">Todos los agentes</option>
+              {agents.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name || a.id} ({a.id})
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="text-xs text-surface-400 mb-1 flex items-center gap-1">
@@ -185,7 +202,11 @@ export function WazuhAlertsPage() {
           {levelMin !== '' && (
             <Chip onRemove={() => setLevelMin('')}>Nivel ≥ {levelMin}</Chip>
           )}
-          {agentId && <Chip onRemove={() => setAgentId('')}>Agent {agentId}</Chip>}
+          {agentId && (
+            <Chip onRemove={() => setAgentId('')}>
+              Agente: {agents.find(a => a.id === agentId)?.name || agentId}
+            </Chip>
+          )}
           {ruleId && <Chip onRemove={() => setRuleId('')}>Regla {ruleId}</Chip>}
           {search && <Chip onRemove={() => setSearch('')}>“{search}”</Chip>}
         </div>

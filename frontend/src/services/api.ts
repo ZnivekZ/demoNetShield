@@ -52,8 +52,7 @@ import type {
   GlpiAssetCreate,
   GlpiAssetUpdate,
   GlpiAssetStats,
-  GlpiAssetHealth,
-  GlpiHealthSummary,
+  GlpiHealthReport,
   GlpiNetworkContext,
   GlpiLocation,
   GlpiTicket,
@@ -85,7 +84,6 @@ import type {
   TopSignature,
   CategoryDistribution,
   FlowsStats,
-  SuricataCorrelation,
   WazuhCorrelation,
   AutoResponseConfig,
   AutoResponseHistoryEntry,
@@ -99,24 +97,26 @@ import type {
   TelegramSendResult,
   AuditHistoryResponse,
   // Report types (new)
-  SavedReport,
-  SavedReportPagination,
-  ReportSchedule,
-  ReportTemplate,
-  AIModel,
-  // Wazuh extended (pagination, vulnerabilities, mitre, agent detail)
-  WazuhAlertsFilters,
-  WazuhAlertsPagination,
-  WazuhAgentsFilters,
-  WazuhAgentsPagination,
-  WazuhAgentDetail,
-  WazuhSyscheckEvent,
-  WazuhSyscollectorInfo,
-  WazuhVulnerabilitiesFilters,
-  WazuhVulnerabilitiesPagination,
-  WazuhMitreMatrix,
-  WazuhStatsSummary,
-} from '../types';
+    SavedReport,
+    SavedReportPagination,
+    ReportSchedule,
+    ReportTemplate,
+    // Wazuh extended (pagination, vulnerabilities, mitre, agent detail)
+    WazuhAlertsFilters,
+    WazuhAlertsPagination,
+    WazuhAgentsFilters,
+    WazuhAgentsPagination,
+    WazuhAgentDetail,
+    WazuhSyscheckEvent,
+    WazuhSyscollectorInfo,
+    WazuhVulnerabilitiesFilters,
+    WazuhVulnerabilitiesPagination,
+    WazuhMitreMatrix,
+    WazuhStatsSummary,
+  WazuhNodeResources,
+  AgentVulnRanking,
+  } from '../types';
+import { groupMitreTactics, tacticForRow } from './mitre';
 
 const api = axios.create({
   baseURL: '/api',
@@ -242,9 +242,19 @@ export const wazuhApi = {
   getAgents: () =>
     api.get<APIResponse<WazuhAgent[]>>('/wazuh/agents').then(r => r.data),
 
-  getAlerts: (limit = 50, levelMin?: number, offset = 0) =>
+  /** CPU / RAM / heap del nodo del Indexer. */
+  getResources: () =>
+    api.get<APIResponse<WazuhNodeResources>>('/wazuh/resources').then(r => r.data),
+
+  /** Agentes activos ordenados por cantidad de vulnerabilidades. */
+  getAgentsByVulnerabilities: (limit = 8) =>
+    api.get<APIResponse<AgentVulnRanking[]>>('/wazuh/agents/by-vulnerabilities', {
+      params: { limit },
+    }).then(r => r.data),
+
+  getAlerts: (limit = 50, levelMin?: number, offset = 0, timeFrom?: string) =>
     api.get<APIResponse<WazuhAlert[]>>('/wazuh/alerts', {
-      params: { limit, level_min: levelMin, offset },
+      params: { limit, level_min: levelMin, offset, time_from: timeFrom },
     }).then(r => r.data),
 
   getAlertsByAgent: (agentId: string, limit = 50, offset = 0) =>
@@ -278,26 +288,26 @@ export const wazuhApi = {
     api.get<APIResponse<WazuhHealthResponse>>('/wazuh/health').then(r => r.data),
 
   sendActiveResponse: (agentId: string, command: string, args: string[] = []) =>
-    api.post<APIResponse>('/wazuh/active-response', {
-      agent_id: agentId,
-      command,
-      args,
-    }).then(r => r.data),
-};
+      api.post<APIResponse>('/wazuh/active-response', {
+        agent_id: agentId,
+        command,
+        args,
+      }).then(r => r.data),
+  };
 
-/**
- * wazuhApiExtended — Extended Wazuh API client.
- *
- * Some of these endpoints do NOT exist in the backend yet (e.g. /agents/{id},
- * /vulnerability, /mitre/matrix). When that's the case, each method catches
- * the network/server error and returns a not_available response so the UI
- * can render a graceful "Pendiente de integración backend" message instead
- * of crashing.
- *
- * Always prefer the existing wazuhApi for endpoints that are already wired
- * (health, alerts, alerts/critical, alerts/timeline, alerts/last-critical,
- * agents, agents/top, agents/summary, mitre/summary, active-response).
- */
+  /**
+   * wazuhApiExtended — Extended Wazuh API client.
+   *
+   * Some of these endpoints do NOT exist in the backend yet (e.g. /agents/{id},
+   * /vulnerability, /mitre/matrix). When that's the case, each method catches
+   * the network/server error and returns a not_available response so the UI
+   * can render a graceful "Pendiente de integración backend" message instead
+   * of crashing.
+   *
+   * Always prefer the existing wazuhApi for endpoints that are already wired
+   * (health, alerts, alerts/critical, alerts/timeline, alerts/last-critical,
+   * agents, agents/top, agents/summary, mitre/summary, active-response).
+   */
 export const wazuhApiExtended = {
   // ── Alerts with pagination + filters ─────────────────────────────
   getAlertsPaginated: async (filters: WazuhAlertsFilters): Promise<APIResponse<WazuhAlertsPagination>> => {
@@ -321,58 +331,21 @@ export const wazuhApiExtended = {
 
   // ── Agents list with pagination + filters ────────────────────────
   getAgentsPaginated: async (filters: WazuhAgentsFilters): Promise<APIResponse<WazuhAgentsPagination>> => {
-    try {
-      const params: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.page_size ?? 50 };
-      if (filters.status) params.status = filters.status;
-      if (filters.search) params.search = filters.search;
+      try {
+        const params: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.page_size ?? 50 };
+        if (filters.status) params.status = filters.status;
+        if (filters.search) params.search = filters.search;
 
-      const resp = await api
-        .get<APIResponse<WazuhAgentsPagination | WazuhAgent[]>>('/wazuh/agents', { params });
+        const resp = await api
+          .get<APIResponse<WazuhAgentsPagination | WazuhAgent[]>>('/wazuh/agents', { params });
 
-      // Normalize: backend may return either WazuhAgentsPagination OR a flat WazuhAgent[]
-      // (depending on whether the backend honors pagination params).
-      const payload = resp.data;
-      if (payload?.success && payload.data) {
-        if (Array.isArray(payload.data)) {
-          // Flat list — paginate client-side and apply filters
-          const all = payload.data;
-          const filtered = all.filter(a => {
-            if (filters.status && a.status !== filters.status) return false;
-            if (filters.search) {
-              const q = filters.search.toLowerCase();
-              if (!a.name.toLowerCase().includes(q) && !a.ip.toLowerCase().includes(q) && !a.id.toLowerCase().includes(q)) return false;
-            }
-            return true;
-          });
-          const page = filters.page ?? 1;
-          const size = filters.page_size ?? 50;
-          return {
-            success: true,
-            data: {
-              items: filtered.slice((page - 1) * size, page * size),
-              pagination: {
-                page,
-                page_size: size,
-                total: filtered.length,
-                total_pages: Math.max(1, Math.ceil(filtered.length / size)),
-                has_next: page * size < filtered.length,
-                has_prev: page > 1,
-              },
-            },
-            error: null,
-          };
-        }
-        // Already in paginated form
-        return payload as APIResponse<WazuhAgentsPagination>;
-      }
-      return payload as APIResponse<WazuhAgentsPagination>;
-    } catch (e: unknown) {
-      const status = (e as { response?: { status?: number } })?.response?.status;
-      if (status && status >= 400 && status < 500) {
-        try {
-          const basic = await wazuhApi.getAgents();
-          if (basic.success && basic.data) {
-            const all = basic.data;
+        // Normalize: backend may return either WazuhAgentsPagination OR a flat WazuhAgent[]
+        // (depending on whether the backend honors pagination params).
+        const payload = resp.data;
+        if (payload?.success && payload.data) {
+          if (Array.isArray(payload.data)) {
+            // Flat list — paginate client-side and apply filters
+            const all = payload.data;
             const filtered = all.filter(a => {
               if (filters.status && a.status !== filters.status) return false;
               if (filters.search) {
@@ -399,13 +372,50 @@ export const wazuhApiExtended = {
               error: null,
             };
           }
-        } catch {
-          // ignore
+          // Already in paginated form
+          return payload as APIResponse<WazuhAgentsPagination>;
         }
+        return payload as APIResponse<WazuhAgentsPagination>;
+      } catch (e: unknown) {
+        const status = (e as { response?: { status?: number } })?.response?.status;
+        if (status && status >= 400 && status < 500) {
+          try {
+            const basic = await wazuhApi.getAgents();
+            if (basic.success && basic.data) {
+              const all = basic.data;
+              const filtered = all.filter(a => {
+                if (filters.status && a.status !== filters.status) return false;
+                if (filters.search) {
+                  const q = filters.search.toLowerCase();
+                  if (!a.name.toLowerCase().includes(q) && !a.ip.toLowerCase().includes(q) && !a.id.toLowerCase().includes(q)) return false;
+                }
+                return true;
+              });
+              const page = filters.page ?? 1;
+              const size = filters.page_size ?? 50;
+              return {
+                success: true,
+                data: {
+                  items: filtered.slice((page - 1) * size, page * size),
+                  pagination: {
+                    page,
+                    page_size: size,
+                    total: filtered.length,
+                    total_pages: Math.max(1, Math.ceil(filtered.length / size)),
+                    has_next: page * size < filtered.length,
+                    has_prev: page > 1,
+                  },
+                },
+                error: null,
+              };
+            }
+          } catch {
+            // ignore
+          }
+        }
+        return notAvailableResponse<WazuhAgentsPagination>('getAgentsPaginated');
       }
-      return notAvailableResponse<WazuhAgentsPagination>('getAgentsPaginated');
-    }
-  },
+    },
 
   // ── Agent detail (flat agent fields — same shape as the agents list) ──
   getAgentDetail: async (agentId: string): Promise<APIResponse<WazuhAgentDetail>> => {
@@ -490,7 +500,7 @@ export const wazuhApiExtended = {
           // Group techniques by inferred tactic prefix (T1xxx → Initial Access, etc.)
           const tacticMap = new Map<string, { name: string; techniques: typeof summaryRes.data }>();
           for (const tech of summaryRes.data) {
-            const tac = inferTacticFromTechnique(tech.technique_id);
+            const tac = tacticForRow(tech);
             if (!tacticMap.has(tac.id)) tacticMap.set(tac.id, { name: tac.name, techniques: [] });
             tacticMap.get(tac.id)!.techniques.push(tech);
           }
@@ -516,45 +526,40 @@ export const wazuhApiExtended = {
   // ── Stats summary (aggregated dashboard KPIs) ──────────────────
   getStatsSummary: async (): Promise<APIResponse<WazuhStatsSummary>> => {
     try {
-      // Compose from existing endpoints — no dedicated endpoint needed
-      const [criticalRes, summaryRes, topAgentsRes, mitreRes] = await Promise.all([
-        wazuhApi.getCriticalAlerts(500, 0),
+      // Compose from existing endpoints — no dedicated endpoint needed.
+      // IMPORTANT: use getAlerts (ALL levels) for the totals, NOT getCriticalAlerts
+      // (only level>=12 and capped — that reported a fixed "50").
+      const [alertsRes, summaryRes, mitreRes, vulnRes] = await Promise.all([
+        wazuhApi.getAlerts(500, undefined, 0, 'now-24h'),
         wazuhApi.getAgentsSummary(),
-        wazuhApi.getTopAgents(100),
         wazuhApi.getMitreSummary(),
+        wazuhApiExtended.getVulnerabilities({ page: 1, page_size: 1 }),
       ]);
 
-      const total24h = criticalRes.data?.length ?? 0;
-      const critical24h = (criticalRes.data ?? []).filter(a => a.rule_level >= 12).length;
-      const high24h = (criticalRes.data ?? []).filter(a => a.rule_level >= 8 && a.rule_level < 12).length;
-      const medium24h = (criticalRes.data ?? []).filter(a => a.rule_level >= 5 && a.rule_level < 8).length;
-      const low24h = (criticalRes.data ?? []).filter(a => a.rule_level < 5).length;
+      const alerts = alertsRes.data ?? [];
+      const total24h = alerts.length;
+      const critical24h = alerts.filter(a => a.rule_level >= 12).length;
+      const high24h = alerts.filter(a => a.rule_level >= 8 && a.rule_level < 12).length;
+      const medium24h = alerts.filter(a => a.rule_level >= 5 && a.rule_level < 8).length;
+      const low24h = alerts.filter(a => a.rule_level < 5).length;
 
-      const tacticsMap = new Map<string, { name: string; count: number }>();
-      for (const m of mitreRes.data ?? []) {
-        const tac = inferTacticFromTechnique(m.technique_id);
-        const cur = tacticsMap.get(tac.id);
-        if (cur) cur.count += m.count;
-        else tacticsMap.set(tac.id, { name: tac.name, count: m.count });
-      }
-      const topTactics = Array.from(tacticsMap.entries())
-        .map(([tactic_id, v]) => ({ tactic_id, tactic_name: v.name, count: v.count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
+      // Real tactics (from the Indexer's `tactic` field), no truncation.
+      const topTactics = groupMitreTactics(mitreRes.data ?? []);
 
+      const vulnPayload = vulnRes.data;
       return {
         success: true,
         data: {
           total_alerts_24h: total24h,
-          total_alerts_7d: total24h, // Backend only exposes 24h; same number is fine
+          total_alerts_7d: total24h,
           critical_alerts_24h: critical24h,
           high_alerts_24h: high24h,
           medium_alerts_24h: medium24h,
           low_alerts_24h: low24h,
           active_agents: summaryRes.data?.active ?? 0,
           total_agents: summaryRes.data?.total ?? 0,
-          vulnerabilities_total: 0, // No backend endpoint — UI shows "no disponible"
-          vulnerabilities_critical: 0,
+          vulnerabilities_total: vulnPayload?.pagination?.total ?? 0,
+          vulnerabilities_critical: vulnPayload?.summary?.critical ?? 0,
           top_mitre_tactics: topTactics,
         },
         error: null,
@@ -567,7 +572,7 @@ export const wazuhApiExtended = {
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
-function notAvailableResponse<T>(endpoint: string): APIResponse<T> {
+function notAvailableResponse<T>(_endpoint: string): APIResponse<T> {
   return {
     success: false,
     data: null,
@@ -580,26 +585,6 @@ function notAvailableResponse<T>(endpoint: string): APIResponse<T> {
  * This is a best-effort approximation based on the ATT&CK matrix
  * ordering — not exhaustive, but covers the most common prefixes.
  */
-function inferTacticFromTechnique(techniqueId: string): { id: string; name: string } {
-  const num = parseInt(techniqueId.replace(/\D/g, ''), 10);
-  if (isNaN(num)) return { id: 'TA0000', name: 'Other' };
-  if (num < 1000) return { id: 'TA0043', name: 'Reconnaissance' };
-  if (num < 2000) return { id: 'TA0042', name: 'Resource Development' };
-  if (num < 3000) return { id: 'TA0001', name: 'Initial Access' };
-  if (num < 4000) return { id: 'TA0002', name: 'Execution' };
-  if (num < 5000) return { id: 'TA0003', name: 'Persistence' };
-  if (num < 6000) return { id: 'TA0004', name: 'Privilege Escalation' };
-  if (num < 7000) return { id: 'TA0005', name: 'Defense Evasion' };
-  if (num < 8000) return { id: 'TA0006', name: 'Credential Access' };
-  if (num < 9000) return { id: 'TA0007', name: 'Discovery' };
-  if (num < 10000) return { id: 'TA0008', name: 'Lateral Movement' };
-  if (num < 11000) return { id: 'TA0009', name: 'Collection' };
-  if (num < 12000) return { id: 'TA0011', name: 'Command and Control' };
-  if (num < 13000) return { id: 'TA0010', name: 'Exfiltration' };
-  if (num < 14000) return { id: 'TA0040', name: 'Impact' };
-  return { id: 'TA0000', name: 'Other' };
-}
-
 /* ── Network ──────────────────────────────────────────────────── */
 
 export const networkApi = {
@@ -649,7 +634,7 @@ export const reportsApi = {
     date_range?: { from_date: string; to_date: string };
     comparison_range?: { from_date: string; to_date: string };
   }) =>
-    api.post<APIResponse<ReportDraft>>('/reports/generate', params, { timeout: 300000 }).then(r => r.data),
+    api.post<APIResponse<ReportDraft>>('/reports/generate', params).then(r => r.data),
 
   exportPdf: (htmlContent: string, title: string, metadata: Record<string, string> = {}) =>
     api.post('/reports/export-pdf', {
@@ -820,8 +805,10 @@ export const glpiApi = {
       { params }
     ).then(r => r.data),
 
-  getAsset: (id: number) =>
-    api.get<APIResponse<GlpiAsset>>(`/glpi/assets/${id}`).then(r => r.data),
+  getAsset: (id: number, itemtype?: string) =>
+    api.get<APIResponse<GlpiAsset>>(
+      `/glpi/assets/${id}${itemtype ? `?itemtype=${encodeURIComponent(itemtype)}` : ''}`
+    ).then(r => r.data),
 
   searchAssets: (q: string) =>
     api.get<APIResponse<{ results: GlpiAsset[]; query: string }>>(
@@ -833,9 +820,7 @@ export const glpiApi = {
     api.get<APIResponse<GlpiAssetStats>>('/glpi/assets/stats').then(r => r.data),
 
   getAssetHealth: () =>
-    api.get<APIResponse<{ assets: GlpiAssetHealth[]; summary: GlpiHealthSummary }>>(
-      '/glpi/assets/health'
-    ).then(r => r.data),
+    api.get<APIResponse<GlpiHealthReport>>('/glpi/assets/health').then(r => r.data),
 
   getAssetsByLocation: (locationId: number) =>
     api.get<APIResponse<{ assets: GlpiAsset[]; location_id: number }>>(
@@ -845,20 +830,30 @@ export const glpiApi = {
   getAssetNetworkContext: (id: number) =>
     api.get<APIResponse<GlpiNetworkContext>>(`/glpi/assets/${id}/network-context`).then(r => r.data),
 
-  getAssetFullDetail: (id: number) =>
-    api.get<APIResponse<GlpiAssetFullDetail>>(`/glpi/assets/${id}/full-detail`).then(r => r.data),
+  getAssetFullDetail: (id: number, itemtype?: string) =>
+    api.get<APIResponse<GlpiAssetFullDetail>>(
+      itemtype
+        ? `/glpi/assets/${encodeURIComponent(itemtype)}/${id}/full-detail`
+        : `/glpi/assets/${id}/full-detail`
+    ).then(r => r.data),
 
   createAsset: (data: GlpiAssetCreate) =>
     api.post<APIResponse>('/glpi/assets', data).then(r => r.data),
 
-  updateAsset: (id: number, data: GlpiAssetUpdate) =>
-    api.put<APIResponse>(`/glpi/assets/${id}`, data).then(r => r.data),
+  updateAsset: (id: number, data: GlpiAssetUpdate, itemtype?: string) =>
+    api.put<APIResponse>(
+      `/glpi/assets/${id}${itemtype ? `?itemtype=${encodeURIComponent(itemtype)}` : ''}`, data
+    ).then(r => r.data),
 
-  deleteAsset: (id: number) =>
-    api.delete<APIResponse>(`/glpi/assets/${id}`).then(r => r.data),
+  deleteAsset: (id: number, itemtype?: string) =>
+    api.delete<APIResponse>(
+      `/glpi/assets/${id}${itemtype ? `?itemtype=${encodeURIComponent(itemtype)}` : ''}`
+    ).then(r => r.data),
 
-  assignAsset: (assetId: number, data: GlpiAssignmentRequest) =>
-    api.put<APIResponse>(`/glpi/assets/${assetId}/assign`, data).then(r => r.data),
+  assignAsset: (assetId: number, data: GlpiAssignmentRequest, itemtype?: string) =>
+    api.put<APIResponse>(
+      `/glpi/assets/${assetId}/assign${itemtype ? `?itemtype=${encodeURIComponent(itemtype)}` : ''}`, data
+    ).then(r => r.data),
 
   quarantineAsset: (id: number, data: GlpiQuarantineRequest) =>
     api.post<APIResponse>(`/glpi/assets/${id}/quarantine`, data).then(r => r.data),
@@ -914,13 +909,6 @@ export const glpiApi = {
   // ── Locations ────────────────────────────────────────────
   getLocations: () =>
     api.get<APIResponse<{ locations: GlpiLocation[] }>>('/glpi/locations').then(r => r.data),
-};
-
-/* ── CrowdSec (TEMPORAL: Stub para no romper imports pendientes) ───────── */
-export const crowdsecApi = {
-  getDecisions: () => Promise.resolve({ data: [] }),
-  getAlerts: (_params?: any) => Promise.resolve({ data: { alerts: [], total: 0 } }),
-  getMetrics: () => Promise.resolve({ data: {} }),
 };
 
 

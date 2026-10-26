@@ -306,6 +306,8 @@ export interface CriticalAlert {
   mitre_technique: string;
   mitre_id: string;
   rule_groups: string[];
+  rule_id?: string;
+  full_log?: string;
 }
 
 export interface AlertTimelinePoint {
@@ -334,6 +336,8 @@ export interface MitreSummaryItem {
   technique_name: string;
   count: number;
   last_seen: string;
+  /** Real MITRE tactic name from the Indexer aggregation (e.g. "Defense Evasion"). */
+  tactic?: string;
 }
 
 export interface WazuhHealthItem {
@@ -345,6 +349,39 @@ export interface WazuhHealthResponse {
   services: WazuhHealthItem[];
   version: string;
   cluster_enabled: boolean;
+}
+
+/** Recursos reales del nodo del Indexer de Wazuh. */
+export interface WazuhNodeResources {
+  node_name?: string;
+  /** CPU del proceso del Indexer (JVM). */
+  cpu_percent?: number | null;
+  /** CPU del host (SO del nodo). */
+  host_cpu_percent?: number | null;
+  ram_used_percent?: number | null;
+  ram_used_bytes?: number | null;
+  ram_total_bytes?: number | null;
+  heap_used_percent?: number | null;
+  uptime_ms?: number | null;
+  disk_total_bytes?: number | null;
+  disk_used_bytes?: number | null;
+  disk_free_bytes?: number | null;
+  disk_used_percent?: number | null;
+  disk_mount?: string;
+}
+
+/** Agente activo ordenado por cantidad de vulnerabilidades. */
+export interface AgentVulnRanking {
+  agent_id: string | null;
+  agent_name: string;
+  status: string | null;
+  ip: string;
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  unknown: number;
 }
 
 /* ── Wazuh Extended Types (Pagination, Vulnerabilities, MITRE, Agent Detail) ─ */
@@ -428,7 +465,7 @@ export interface WazuhVulnerability {
   cve_id: string;
   title: string;
   description: string;
-  severity: 'critical' | 'high' | 'medium' | 'low';
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'unknown';
   cvss_score: number;
   package_name: string;
   package_version: string;
@@ -443,6 +480,7 @@ export interface WazuhVulnerability {
 
 export interface WazuhVulnerabilitiesPagination {
   items: WazuhVulnerability[];
+  summary?: { critical: number; high: number; medium: number; low: number; unknown?: number };
   pagination: {
     page: number;
     page_size: number;
@@ -760,6 +798,8 @@ export type GlpiWazuhAgent = 'active' | 'disconnected' | 'not_installed';
 export interface GlpiAsset {
   id: number;
   name: string;
+  /** GLPI itemtype: Computer | Printer | Peripheral | Phone | NetworkEquipment | Monitor */
+  type?: string;
   serial: string;
   ip: string;
   mac: string;
@@ -811,13 +851,13 @@ export interface GlpiAssetStats {
 export interface GlpiAssetHealth {
   asset_id: number;
   name: string;
-  ip: string;
+  type: string;
   location: string;
+  assigned_user: string;
   glpi_status: GlpiAssetStatus;
-  wazuh_agent: GlpiWazuhAgent;
-  network_visible: boolean;
   health: GlpiHealth;
   health_reason: string;
+  last_update: string;
 }
 
 export interface GlpiHealthSummary {
@@ -825,6 +865,15 @@ export interface GlpiHealthSummary {
   warning: number;
   critical: number;
   total: number;
+  active?: number;
+  inactive?: number;
+}
+
+export interface GlpiHealthReport {
+  assets: GlpiAssetHealth[];
+  summary: GlpiHealthSummary;
+  by_type?: Record<string, number>;
+  by_status?: Record<string, number>;
 }
 
 export interface GlpiNetworkContext {

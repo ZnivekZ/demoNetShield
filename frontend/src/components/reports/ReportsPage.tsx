@@ -11,7 +11,7 @@ import {
   Upload, Bot, Clock, History, GitCompare, Save, Info,
 } from 'lucide-react';
 import {
-  reportsApi, mikrotikApi, wazuhApi, crowdsecApi, suricataApi,
+  reportsApi, mikrotikApi, wazuhApi, /* crowdsecApi — suspendido */ suricataApi,
   glpiApi, geoipApi, actionsApi, auditApi,
 } from '../../services/api';
 import { TelegramTab } from './TelegramTab';
@@ -489,35 +489,36 @@ const SOURCE_FETCHERS: Record<string, SourceFetcher> = {
     columns: [{ key: 'technique_id', label: 'Técnica' }, { key: 'technique', label: 'Nombre' }, { key: 'count', label: 'Alertas' }],
     rowLabel: (i) => `${i.technique_id ?? ''} — ${i.technique ?? ''} (${i.count ?? 0})`,
   },
-  crowdsec_decisions: {
-    fetch: () => crowdsecApi.getDecisions(),
-    extractItems: (r) => (Array.isArray(r?.data) ? r.data.slice(0, 80) : []),
-    columns: [{ key: 'value', label: 'IP/Rango' }, { key: 'scenario', label: 'Escenario' }, { key: 'type', label: 'Tipo' }, { key: 'duration', label: 'Duración' }],
-    rowLabel: (i) => `${i.value ?? ''} — ${i.scenario ?? ''}`,
-  },
-  crowdsec_alerts: {
-    fetch: () => crowdsecApi.getAlerts({ limit: 50 }),
-    extractItems: (r) => {
-      const d = r?.data;
-      if (Array.isArray(d)) return d.slice(0, 50);
-      if (Array.isArray(d?.alerts)) return d.alerts.slice(0, 50);
-      return [];
-    },
-    columns: [{ key: 'scenario', label: 'Escenario' }, { key: 'source_ip', label: 'IP Atacante' }, { key: 'events_count', label: 'Eventos' }],
-    rowLabel: (i) => `${i.scenario ?? ''} — ${i.source_ip ?? ''}`,
-  },
-  crowdsec_metrics: {
-    fetch: () => crowdsecApi.getMetrics(),
-    extractItems: (r) => (r?.data ? [r.data] : []),
-    columns: [{ key: 'total_decisions', label: 'Decisiones' }, { key: 'bouncers_count', label: 'Bouncers' }],
-    rowLabel: (_i) => 'Métricas del motor CrowdSec',
-  },
-  crowdsec_top_attackers: {
-    fetch: () => crowdsecApi.getDecisions(),
-    extractItems: (r) => (Array.isArray(r?.data) ? r.data.slice(0, 20) : []),
-    columns: [{ key: 'value', label: 'IP' }, { key: 'scenario', label: 'Escenario' }, { key: 'origin', label: 'Origen' }],
-    rowLabel: (i) => `${i.value ?? ''} — ${i.scenario ?? ''}`,
-  },
+  // ── CrowdSec suspendido temporalmente — descomentar cuando se reactive ──
+  // crowdsec_decisions: {
+  //   fetch: () => crowdsecApi.getDecisions(),
+  //   extractItems: (r) => (Array.isArray(r?.data) ? r.data.slice(0, 80) : []),
+  //   columns: [{ key: 'value', label: 'IP/Rango' }, { key: 'scenario', label: 'Escenario' }, { key: 'type', label: 'Tipo' }, { key: 'duration', label: 'Duración' }],
+  //   rowLabel: (i) => `${i.value ?? ''} — ${i.scenario ?? ''}`,
+  // },
+  // crowdsec_alerts: {
+  //   fetch: () => crowdsecApi.getAlerts({ limit: 50 }),
+  //   extractItems: (r) => {
+  //     const d = r?.data;
+  //     if (Array.isArray(d)) return d.slice(0, 50);
+  //     if (Array.isArray(d?.alerts)) return d.alerts.slice(0, 50);
+  //     return [];
+  //   },
+  //   columns: [{ key: 'scenario', label: 'Escenario' }, { key: 'source_ip', label: 'IP Atacante' }, { key: 'events_count', label: 'Eventos' }],
+  //   rowLabel: (i) => `${i.scenario ?? ''} — ${i.source_ip ?? ''}`,
+  // },
+  // crowdsec_metrics: {
+  //   fetch: () => crowdsecApi.getMetrics(),
+  //   extractItems: (r) => (r?.data ? [r.data] : []),
+  //   columns: [{ key: 'total_decisions', label: 'Decisiones' }, { key: 'bouncers_count', label: 'Bouncers' }],
+  //   rowLabel: (_i) => 'Métricas del motor CrowdSec',
+  // },
+  // crowdsec_top_attackers: {
+  //   fetch: () => crowdsecApi.getDecisions(),
+  //   extractItems: (r) => (Array.isArray(r?.data) ? r.data.slice(0, 20) : []),
+  //   columns: [{ key: 'value', label: 'IP' }, { key: 'scenario', label: 'Escenario' }, { key: 'origin', label: 'Origen' }],
+  //   rowLabel: (i) => `${i.value ?? ''} — ${i.scenario ?? ''}`,
+  // },
   suricata_alerts: {
     fetch: () => suricataApi.getAlerts({ limit: 50 }),
     extractItems: (r) => (Array.isArray(r?.data?.alerts) ? r.data.alerts.slice(0, 50) : []),

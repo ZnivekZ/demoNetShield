@@ -71,6 +71,7 @@ export function AssetHealthTable({ assets, isLoading }: Props) {
           <tr>
             <th>Equipo</th>
             <th>Tipo</th>
+            <th title="IP cargada en GLPI (pestaña Red → NetworkPort)">IP</th>
             <th>Ubicación</th>
             <th>Asignado a</th>
             <th>Estado</th>
@@ -83,6 +84,10 @@ export function AssetHealthTable({ assets, isLoading }: Props) {
               <td style={{ fontWeight: 500, color: 'var(--color-surface-100)' }}>{asset.name}</td>
               <td style={{ fontSize: '0.78rem', color: 'var(--color-surface-400)' }}>
                 {TYPE_LABELS[asset.type] ?? asset.type ?? '—'}
+              </td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--color-surface-300)' }}
+                  title={asset.ip ? `IP de ${asset.name} (GLPI)` : 'El activo no tiene IP en GLPI'}>
+                {asset.ip || '—'}
               </td>
               <td>{asset.location || '—'}</td>
               <td>{asset.assigned_user || '—'}</td>

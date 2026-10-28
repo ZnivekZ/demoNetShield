@@ -2,9 +2,16 @@
  * HealthView — Inventory status dashboard (GLPI only).
  *
  * No cross-tool correlation: an asset is "Activo" when its GLPI status is
- * `activo`. Wazuh/MikroTik are deliberately NOT used here.
+ * `activo`. Wazuh/MikroTik are deliberately NOT used for the status logic.
+ * The IP column, when available, is resolved from the network layer
+ * (DHCP leases / DNS cache) because the GLPI HLAPI v3.0 does not expose it.
+ *
+ * Filter: chips by asset type. Default = only Computers; more types can be
+ * added to widen the selection.
+ *
  * Shows: stat cards, status pie, type breakdown and the per-asset table.
  */
+import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle, AlertTriangle, XCircle, Monitor } from 'lucide-react';
 import { useGlpiHealth } from '../../hooks/useGlpiHealth';
 import { useGlpiStatus } from '../../hooks/useGlpiAssets';
@@ -31,6 +38,18 @@ const TYPE_LABELS: Record<string, string> = {
   Monitor: 'Monitor',
 };
 
+const TYPE_LABELS_PLURAL: Record<string, string> = {
+  Computer: 'Computadoras',
+  Printer: 'Impresoras',
+  Peripheral: 'Periféricos',
+  Phone: 'Teléfonos',
+  NetworkEquipment: 'Equipos de Red',
+  Monitor: 'Monitores',
+};
+
+/** Filtro por defecto: solo computadoras. */
+const DEFAULT_TYPES = ['Computer'];
+
 const TOOLTIP_STYLE = {
   background: 'rgba(15,23,42,0.95)',
   border: '1px solid rgba(148,163,184,0.1)',
@@ -40,11 +59,44 @@ const TOOLTIP_STYLE = {
 };
 
 export function HealthView() {
-  const { data: health, isLoading: healthLoading } = useGlpiHealth();
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(DEFAULT_TYPES);
+  const { data: health, isLoading: healthLoading } = useGlpiHealth(selectedTypes);
   const { data: glpiStatus } = useGlpiStatus();
 
   const summary = health?.summary;
   const glpiOffline = glpiStatus?.available === false;
+
+  const availableTypes = health?.availableTypes ?? [];
+  const typeCounts = health?.typeCounts ?? {};
+
+  // Chips: computadoras primero, después por cantidad
+  const chipTypes = useMemo(() => {
+    const types = availableTypes.length ? [...availableTypes] : [...DEFAULT_TYPES];
+    return types.sort((a, b) => {
+      if (a === 'Computer') return -1;
+      if (b === 'Computer') return 1;
+      return (typeCounts[b] ?? 0) - (typeCounts[a] ?? 0) || a.localeCompare(b);
+    });
+  }, [availableTypes, typeCounts]);
+
+  // Si el inventario no tiene computadoras, el default no debe dejar la vista vacía.
+  useEffect(() => {
+    if (!health) return;
+    if (
+      selectedTypes.length === 1 &&
+      selectedTypes[0] === 'Computer' &&
+      availableTypes.length > 0 &&
+      !availableTypes.includes('Computer')
+    ) {
+      setSelectedTypes([]);
+    }
+  }, [health, availableTypes, selectedTypes]);
+
+  const toggleType = (type: string) => {
+    setSelectedTypes((prev) =>
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type],
+    );
+  };
 
   const statusChartData = [
     { name: 'Activo', value: summary?.ok ?? 0, color: HEALTH_COLORS.ok },
@@ -64,6 +116,35 @@ export function HealthView() {
 
   return (
     <div className="health-view">
+      {/* Filtro por tipo de activo */}
+      <div className="health-filter">
+        <span className="health-filter__label">Tipo de activo</span>
+        <div className="health-filter__chips" role="group" aria-label="Filtrar por tipo de activo">
+          <button
+            type="button"
+            className={`health-filter__chip ${selectedTypes.length === 0 ? 'is-active' : ''}`}
+            onClick={() => setSelectedTypes([])}
+            aria-pressed={selectedTypes.length === 0}
+          >
+            Todos
+          </button>
+          {chipTypes.map((type) => (
+            <button
+              key={type}
+              type="button"
+              className={`health-filter__chip ${selectedTypes.includes(type) ? 'is-active' : ''}`}
+              onClick={() => toggleType(type)}
+              aria-pressed={selectedTypes.includes(type)}
+            >
+              {TYPE_LABELS_PLURAL[type] ?? type}
+              {typeCounts[type] != null && (
+                <span className="health-filter__count">{typeCounts[type]}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Stat Cards Row */}
       <div className="health-stat-row">
         <div className="stat-card animate-fade-in-up stagger-1">
@@ -171,9 +252,14 @@ export function HealthView() {
 
       {/* Per-asset table */}
       <div className="glass-card animate-fade-in-up">
-        <div style={{ padding: '1rem 1.25rem 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ padding: '1rem 1.25rem 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-surface-200)' }}>
             Detalle por Equipo
+          </span>
+          <span style={{ fontSize: '0.7rem', color: 'var(--color-surface-500)' }}>
+            {selectedTypes.length === 0
+              ? 'Todos los tipos'
+              : selectedTypes.map((t) => TYPE_LABELS_PLURAL[t] ?? t).join(' · ')}
           </span>
         </div>
         <AssetHealthTable assets={health?.assets ?? []} isLoading={healthLoading} />

@@ -819,8 +819,13 @@ export const glpiApi = {
   getAssetStats: () =>
     api.get<APIResponse<GlpiAssetStats>>('/glpi/assets/stats').then(r => r.data),
 
-  getAssetHealth: () =>
-    api.get<APIResponse<GlpiHealthReport>>('/glpi/assets/health').then(r => r.data),
+  getAssetHealth: (itemtypes?: string[]) =>
+    api
+      .get<APIResponse<GlpiHealthReport>>('/glpi/assets/health', {
+        // Sin tipos seleccionados = todos (el backend interpreta igual).
+        params: itemtypes && itemtypes.length ? { itemtypes: itemtypes.join(',') } : {},
+      })
+      .then(r => r.data),
 
   getAssetsByLocation: (locationId: number) =>
     api.get<APIResponse<{ assets: GlpiAsset[]; location_id: number }>>(

@@ -852,6 +852,8 @@ export interface GlpiAssetHealth {
   asset_id: number;
   name: string;
   type: string;
+  /** IP de GLPI (pestaña Red → NetworkPort). "" si el activo no tiene IP. */
+  ip?: string;
   location: string;
   assigned_user: string;
   glpi_status: GlpiAssetStatus;
@@ -874,6 +876,12 @@ export interface GlpiHealthReport {
   summary: GlpiHealthSummary;
   by_type?: Record<string, number>;
   by_status?: Record<string, number>;
+  /** Todos los itemtypes presentes en el inventario (sin aplicar filtro). */
+  available_types?: string[];
+  /** Conteo por itemtype sobre el total (para los chips del filtro). */
+  type_counts?: Record<string, number>;
+  /** Itemtypes efectivamente filtrados en esta respuesta. */
+  selected_types?: string[];
 }
 
 export interface GlpiNetworkContext {

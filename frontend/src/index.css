@@ -1462,6 +1462,68 @@ select.input {
   height: 200px;
 }
 
+/* ── Filtro por tipo de activo (SALUD) ─────────────────────────── */
+
+.health-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 0.75rem;
+  background: var(--color-surface-900, #0f172a);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 10px;
+}
+
+.health-filter__label {
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-surface-500, #64748b);
+}
+
+.health-filter__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.health-filter__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.62rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: var(--color-surface-300, #cbd5e1);
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.health-filter__chip:hover {
+  border-color: rgba(99, 102, 241, 0.45);
+  color: #e2e8f0;
+}
+
+.health-filter__chip.is-active {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.55);
+  color: #c7d2fe;
+}
+
+.health-filter__count {
+  font-size: 0.62rem;
+  padding: 0.02rem 0.3rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+  color: inherit;
+  opacity: 0.9;
+}
+
 /* ── Assets View ─────────────────────────────────────────────── */
 .assets-view {
   display: flex;

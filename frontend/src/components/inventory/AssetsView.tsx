@@ -196,13 +196,13 @@ export function AssetsView() {
                   <tbody>
                     {isLoading ? (
                       <tr>
-                        <td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>
+                        <td colSpan={8} style={{ textAlign: 'center', padding: '2rem' }}>
                           <span className="loading-spinner" />
                         </td>
                       </tr>
                     ) : assets.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={{ textAlign: 'center', color: 'var(--color-surface-500)', padding: '2rem', fontSize: '0.85rem' }}>
+                        <td colSpan={8} style={{ textAlign: 'center', color: 'var(--color-surface-500)', padding: '2rem', fontSize: '0.85rem' }}>
                           {search ? `Sin resultados para "${search}"` : typeFilter ? `Sin activos del tipo seleccionado` : 'No hay activos en el inventario.'}
                         </td>
                       </tr>

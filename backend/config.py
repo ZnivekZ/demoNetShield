@@ -175,6 +175,11 @@ class Settings(BaseSettings):
         return f"{self.glpi_api_url.rstrip('/')}/{self.glpi_api_version}"
 
     @property
+    def glpi_legacy_base(self) -> str:
+        """Legacy API base (NetworkPort/IPAddress), e.g. http://host/api.php/v1."""
+        return f"{self.glpi_api_url.rstrip('/')}/v1"
+
+    @property
     def glpi_configured(self) -> bool:
         """True when OAuth2 credentials are present."""
         return bool(

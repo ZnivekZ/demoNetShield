@@ -27,6 +27,7 @@ import routeros_api
 import structlog
 
 from config import get_settings
+from services import routeros_compat  # noqa: F401  # parchea la decodificación latin-1/cp1252
 from services.resilience import make_resilience
 
 logger = structlog.get_logger(__name__)

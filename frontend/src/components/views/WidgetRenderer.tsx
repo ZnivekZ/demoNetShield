@@ -28,7 +28,6 @@ import {
   wazuhApi,
   mikrotikApi,
   glpiApi,
-  phishingApi,
   geoipApi,
   actionsApi,
 } from '../../services/api';
@@ -63,10 +62,8 @@ const TelegramActivity = lazy(() => import('../widgets/hybrid/TelegramActivity')
 const MitreMatrix = lazy(() => import('../widgets/hybrid/MitreMatrix').then(m => ({ default: m.MitreMatrix })));
 const VlanHealth = lazy(() => import('../widgets/hybrid/VlanHealth').then(m => ({ default: m.VlanHealth })));
 const QuarantineTracker = lazy(() => import('../widgets/hybrid/QuarantineTracker').then(m => ({ default: m.QuarantineTracker })));
-const SinkholeEffectiveness = lazy(() => import('../widgets/hybrid/SinkholeEffectiveness').then(m => ({ default: m.SinkholeEffectiveness })));
 
 // ── Lazy imports nuevos (visual) ──────────────────────────────────────
-const PhishingStats = lazy(() => import('../widgets/visual/PhishingStats').then(m => ({ default: m.PhishingStats })));
 const AgentAlertHeatmap = lazy(() => import('../widgets/visual/AgentAlertHeatmap').then(m => ({ default: m.AgentAlertHeatmap })));
 const DhcpSubnetUsage = lazy(() => import('../widgets/visual/DhcpSubnetUsage').then(m => ({ default: m.DhcpSubnetUsage })));
 const TrafficChartWidget = lazy(() => import('../widgets/visual/TrafficChartWidget').then(m => ({ default: m.TrafficChartWidget })));
@@ -173,11 +170,6 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
           const td = r.data;
           const tickets = Array.isArray(td) ? td : (td?.tickets ?? []);
           return { kind: 'table' as const, data: tickets.slice(0, limit), columns: ['id', 'name', 'priority', 'status'] };
-        }
-        case 'phishing_detections': {
-          const r = await phishingApi.getAlerts(limit);
-          const alerts = (r.data ?? []).slice(0, limit);
-          return { kind: 'table' as const, data: alerts, columns: ['domain', 'detected_by', 'risk_level', 'timestamp'] };
         }
         case 'action_log': {
           const r = await actionsApi.getHistory(limit);
@@ -342,7 +334,6 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
       visual_protocol_donut: <ProtocolDonut config={cfg} />,
       visual_agents_thermometer: <AgentsThermometer config={cfg} />,
       visual_blocks_timeline: <BlocksTimeline config={cfg} />,
-      visual_phishing_stats: <PhishingStats config={cfg} />,
       visual_agent_alert_heatmap: <AgentAlertHeatmap config={cfg as { hours?: number }} />,
       visual_subnet_usage: <DhcpSubnetUsage config={cfg} />,
       technical_action_log: <ActionLogWidget config={cfg as { limit?: number }} />,
@@ -370,7 +361,6 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
       hybrid_mitre_matrix: <MitreMatrix config={cfg} />,
       hybrid_vlan_health: <VlanHealth config={cfg} />,
       hybrid_quarantine_tracker: <QuarantineTracker config={cfg} />,
-      hybrid_sinkhole_effectiveness: <SinkholeEffectiveness config={cfg} />,
       hybrid_dhcp_discovery: <DhcpDiscovery config={cfg as { limit?: number }} />,
     };
     const node = customMap[widget.type];

@@ -2007,3 +2007,70 @@ export interface BlocklistPushResult {
   list?: string;
   error?: string;
 }
+
+
+/* ── Reputación IP ───────────────────────────────────────────── */
+export type ReputationVerdict = 'malicious' | 'suspicious' | 'clean' | 'unknown';
+
+export interface ReputationSource {
+  configured: boolean;
+  ok: boolean;
+  error?: string | null;
+  // AbuseIPDB
+  abuse_confidence_score?: number;
+  total_reports?: number;
+  num_distinct_users?: number;
+  last_reported_at?: string | null;
+  country_code?: string | null;
+  isp?: string | null;
+  domain?: string | null;
+  usage_type?: string | null;
+  is_whitelisted?: boolean | null;
+  is_tor?: boolean | null;
+  // VirusTotal
+  malicious?: number;
+  suspicious?: number;
+  harmless?: number;
+  undetected?: number;
+  timeout?: number;
+  reputation?: number | null;
+  country?: string | null;
+  as_owner?: string | null;
+  asn?: number | null;
+  network?: string | null;
+  last_analysis_date?: string | null;
+}
+
+export interface IpReputation {
+  ip: string;
+  is_private: boolean;
+  checked_at: string;
+  cached: boolean;
+  verdict: ReputationVerdict;
+  any_configured: boolean;
+  sources: { abuseipdb: ReputationSource; virustotal: ReputationSource };
+}
+
+export interface ReputationCapabilities {
+  abuseipdb: boolean;
+  virustotal: boolean;
+  report: {
+    available: boolean;
+    reason: string | null;
+    source: string;
+    categories?: AbuseCategory[];
+    limits?: { min_comment: number; max_comment: number; max_age_hours: number };
+  };
+}
+
+export interface AbuseCategory {
+  id: number;
+  label: string;
+  group: string;
+}
+
+export interface ReportPayload {
+  categories: number[];
+  comment: string;
+  timestamp?: string | null;
+}

@@ -38,11 +38,6 @@ import type {
   IPAddress,
   BridgePort,
   QueueEntry,
-  PhishingAlert,
-  SuspiciousDomain,
-  PhishingVictim,
-  PhishingStats,
-  SinkholeEntry,
   SecurityBlockIPRequest,
   QuarantineRequest,
   GeoBlockRequest,
@@ -721,42 +716,6 @@ export const securityApi = {
     api.post<APIResponse>('/security/geo-block', req).then(r => r.data),
 };
 
-/* ── Phishing ─────────────────────────────────────────────────── */
-
-export const phishingApi = {
-  getAlerts: (limit = 50, offset = 0) =>
-    api.get<APIResponse<PhishingAlert[]>>('/phishing/alerts', {
-      params: { limit, offset },
-    }).then(r => r.data),
-
-  getSuspiciousDomains: () =>
-    api.get<APIResponse<SuspiciousDomain[]>>('/phishing/domains/suspicious').then(r => r.data),
-
-  getTimeline: () =>
-    api.get<APIResponse<AlertTimelinePoint[]>>('/phishing/urls/timeline').then(r => r.data),
-
-  getVictims: () =>
-    api.get<APIResponse<PhishingVictim[]>>('/phishing/victims').then(r => r.data),
-
-  getStats: () =>
-    api.get<APIResponse<PhishingStats>>('/phishing/stats').then(r => r.data),
-
-  getSinkholes: () =>
-    api.get<APIResponse<SinkholeEntry[]>>('/phishing/domains/sinkhole').then(r => r.data),
-
-  sinkholeDomain: (domain: string, reason: string) =>
-    api.post<APIResponse>('/phishing/domains/sinkhole', { domain, reason }).then(r => r.data),
-
-  removeSinkhole: (domain: string) =>
-    api.delete<APIResponse>(`/phishing/domains/sinkhole/${encodeURIComponent(domain)}`).then(r => r.data),
-
-  blockIP: (ip: string, duration_hours = 24) =>
-    api.post<APIResponse>('/phishing/ip/block', { ip, duration_hours }).then(r => r.data),
-
-  simulate: (params: { target_agent_id?: string; malicious_url?: string; description?: string }) =>
-    api.post<APIResponse>('/phishing/simulate', params).then(r => r.data),
-};
-
 /* ── CLI ──────────────────────────────────────────────────────── */
 
 export const cliApi = {
@@ -1111,6 +1070,7 @@ import type {
   ThreatLevelData, ActivityHeatmapData, CorrelationTimelineData,
   ConfirmedThreatsData, IncidentLifecycleData, SuricataAssetCorrelationData,
   WorldThreatMapData, ViewReportResult,
+  IpReputation, ReputationCapabilities, AbuseCategory, ReportPayload,
 } from '../types';
 
 export const viewsApi = {
@@ -1384,4 +1344,27 @@ export const blocklistApi = {
 
   saveSettings: (settings: Partial<BlocklistSettings>) =>
     api.put<APIResponse<BlocklistSettings>>('/blocklist/settings', settings).then(r => r.data),
+};
+
+
+/* ── Reputación IP ────────────────────────────────────────────── */
+
+export const reputationApi = {
+  capabilities: () =>
+    api.get<APIResponse<ReputationCapabilities>>('/reputation/capabilities').then(r => r.data),
+
+  lookup: (ip: string, refresh = false) =>
+    api
+      .get<APIResponse<IpReputation>>(
+        `/reputation/${encodeURIComponent(ip)}${refresh ? '?refresh=true' : ''}`,
+      )
+      .then(r => r.data),
+
+  categories: () =>
+    api.get<APIResponse<AbuseCategory[]>>('/reputation/categories').then(r => r.data),
+
+  report: (ip: string, payload: ReportPayload) =>
+    api
+      .post<APIResponse<unknown>>(`/reputation/${encodeURIComponent(ip)}/report`, payload)
+      .then(r => r.data),
 };

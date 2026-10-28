@@ -31,13 +31,15 @@ from config import get_settings
 from services import blocklist_store
 from services.blocklist_push import push_blocklist
 from database import close_db, init_db
-from routers import cli, mikrotik, network, phishing, reports, security, vlans, wazuh
+from routers import cli, mikrotik, network, reports, security, vlans, wazuh
 from routers import glpi as glpi_router
 from routers import geoip as geoip_router
 from routers import views as views_router
 from routers import widgets as widgets_router
 from routers import public_tickets as public_tickets_router
 from routers import blocklist as blocklist_router
+
+from routers import reputation as reputation_router
 from routers import dhcp as dhcp_router
 from routers import auth as auth_router
 from services.mikrotik_service import get_mikrotik_service
@@ -383,7 +385,6 @@ app.include_router(wazuh.router)
 app.include_router(network.router)
 app.include_router(reports.router)
 app.include_router(vlans.router)
-app.include_router(phishing.router)
 app.include_router(security.router)
 app.include_router(cli.router)
 app.include_router(glpi_router.router)
@@ -395,6 +396,8 @@ app.include_router(auth_router.router)
 app.include_router(public_tickets_router.router)
 app.include_router(blocklist_router.router)
 app.include_router(blocklist_router.export_router)
+
+app.include_router(reputation_router.router)
 
 
 # ── Root & Health Check ───────────────────────────────────────────

@@ -12,7 +12,6 @@ import {
   telegramApi,
   vlansApi,
   actionsApi,
-  phishingApi,
   dhcpApi,
   glpiApi,
 } from '../../../services/api';
@@ -249,33 +248,6 @@ export function useQuarantineTracker() {
 }
 
 /* ── Sinkhole Effectiveness ────────────────────────────────────── */
-
-export function useSinkholeEffectiveness() {
-  return useQuery({
-    queryKey: ['widget', 'sinkhole-effectiveness'],
-    queryFn: async () => {
-      const [sinkholeRes, statsRes] = await Promise.allSettled([
-        phishingApi.getSinkholes(),
-        phishingApi.getStats(),
-      ]);
-      const sinkholes = sinkholeRes.status === 'fulfilled' && sinkholeRes.value.success
-        ? (sinkholeRes.value.data ?? []) : [];
-      const stats = statsRes.status === 'fulfilled' && statsRes.value.success
-        ? statsRes.value.data : null;
-      const totalBlocked = (stats as { blocked_by_sinkhole?: number } | null)?.blocked_by_sinkhole ?? 0;
-      return {
-        sinkholes,
-        total_blocked: totalBlocked,
-        effectiveness_pct: sinkholes.length > 0
-          ? Math.min(100, Math.round((totalBlocked / (sinkholes.length * 10)) * 100))
-          : 0,
-        partial: sinkholeRes.status === 'rejected' || statsRes.status === 'rejected',
-      };
-    },
-    staleTime: 5 * 60_000,
-    refetchInterval: 10 * 60_000,
-  });
-}
 
 /* ── DHCP Discovery ────────────────────────────────────────────── */
 

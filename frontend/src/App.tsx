@@ -10,7 +10,6 @@
  *   /security/config   → ConfigView
  *   /network           → NetworkPage
  *   /firewall          → FirewallPage
- *   /phishing          → PhishingPanel
  *   /                  → redirect a /system (vista inicial)
  *   /system            → SystemHealth
  *   /security          → QuickView (panel de seguridad)
@@ -29,6 +28,7 @@ import { ErrorBoundary } from './components/common/ErrorBoundary';
 import LoginPage from './components/auth/LoginPage';
 import PublicTicketPage from './components/public/PublicTicketPage';
 import { BlocklistView } from './components/blocklist/BlocklistView';
+import { IpReputationView } from './components/reputation/IpReputationView';
 import Layout from './components/Layout';
 // Existing pages
 import FirewallPage from './components/firewall/FirewallPage';
@@ -37,7 +37,6 @@ import ReportsPage from './components/reports/ReportsPage';
 // New pages
 import { QuickView } from './components/security/QuickView';
 import { ConfigView } from './components/security/ConfigView';
-import { PhishingPanel } from './components/phishing/PhishingPanel';
 import { SystemHealth } from './components/system/SystemHealth';
 import { InventoryPage } from './components/inventory/InventoryPage';
 // Custom Views
@@ -99,13 +98,13 @@ export default function App() {
               <Route path="/firewall" element={<FirewallPage />} />
 
               {/* Tools */}
-              <Route path="/phishing" element={<PhishingPanel />} />
               <Route path="/system" element={<SystemHealth />} />
               <Route path="/reports" element={<ReportsPage />} />
 
               {/* Inventory — GLPI */}
               <Route path="/inventory" element={<InventoryPage />} />
               <Route path="/blocklist" element={<BlocklistView />} />
+              <Route path="/reputation" element={<IpReputationView />} />
 
               {/* Legacy redirect — VLANs page merged into /network */}
               <Route path="/vlans" element={<Navigate to="/network" replace />} />

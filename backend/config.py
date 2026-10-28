@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     crowdsec_url: str = "http://localhost:8080"
     crowdsec_api_key: str = ""
 
+    # Reputación de IPs (sección "Reputación IP"). Sin claves, la sección
+    # muestra el estado "no configurado" en vez de fallar.
+    abuseipdb_api_key: str = ""
+    virustotal_api_key: str = ""
+
     # ── GeoIP (MaxMind GeoLite2) ──────────────────────────────────────────
     # Bases de datos locales .mmdb para geolocalización sin API externa.
     # Descargar con: python backend/scripts/download_geoip.py

@@ -18,7 +18,6 @@ import { useGlpiAssetStats } from '../../hooks/useGlpiAssets';
 import { glpiApi } from '../../services/api';
 import { getApiErrorMessage, requireApiSuccess } from '../../services/apiResponse';
 import { RemoteCLI } from './RemoteCLI';
-import { GeoIPStatus } from './GeoIPStatus';
 
 
 
@@ -378,8 +377,6 @@ export function SystemHealth() {
               <div className="empty-state">Sin datos de trafico</div>
             )}
           </div>
-          {/* GeoIP DB Status */}
-          <GeoIPStatus />
         </div>
       )}
 

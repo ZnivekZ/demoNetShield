@@ -25,7 +25,6 @@ import {
   Settings,
   Network,
   Flame,
-  Fish,
   Monitor,
   FileText,
   Shield,
@@ -41,6 +40,7 @@ import {
   Bell,
   Bug,
   Target,
+  ShieldQuestion,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GlobalSearch } from './common/GlobalSearch';
@@ -66,12 +66,12 @@ const navGroups = [
       { to: '/network', icon: Network, label: 'Red', end: false },
       { to: '/firewall', icon: Flame, label: 'Firewall', end: false },
       { to: '/blocklist', icon: Ban, label: 'Lista de bloqueo', end: false },
+      { to: '/reputation', icon: ShieldQuestion, label: 'Reputación IP', end: false },
     ],
   },
   {
     label: 'Herramientas',
     items: [
-      { to: '/phishing', icon: Fish, label: 'Phishing', end: false },
       { to: '/system', icon: Monitor, label: 'Sistema', end: false },
       { to: '/reports', icon: FileText, label: 'Reportes', end: false },
     ],

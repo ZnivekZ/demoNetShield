@@ -13,4 +13,3 @@ export { TelegramActivity } from './TelegramActivity';
 export { MitreMatrix } from './MitreMatrix';
 export { VlanHealth } from './VlanHealth';
 export { QuarantineTracker } from './QuarantineTracker';
-export { SinkholeEffectiveness } from './SinkholeEffectiveness';

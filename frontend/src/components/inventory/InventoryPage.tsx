@@ -3,7 +3,8 @@
  * Provides 5 tabs: Salud | Activos | Tickets | Usuarios | Asignaciones
  * Integrated in App.tsx as /inventory route.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Activity, Monitor, Ticket, Users, Package, Link2 } from 'lucide-react';
 import { HealthView } from './HealthView';
 import { AssetsView } from './AssetsView';
@@ -22,8 +23,23 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'assignments', label: 'Asignaciones', icon: Link2 },
 ];
 
+const isTab = (value: string | null): value is Tab =>
+  !!value && TABS.some((t) => t.id === value);
+
 export function InventoryPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('health');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<Tab>(isTab(urlTab) ? urlTab : 'health');
+
+  // Deep link desde la campanita: /inventory?tab=tickets
+  useEffect(() => {
+    if (isTab(urlTab)) setActiveTab(urlTab);
+  }, [urlTab]);
+
+  const selectTab = (id: Tab) => {
+    setActiveTab(id);
+    setSearchParams({ tab: id }, { replace: true });
+  };
 
   // GLPI status check
   const { data: glpiStatus } = useGlpiStatus();
@@ -69,7 +85,7 @@ export function InventoryPage() {
               key={tab.id}
               id={`inventory-tab-${tab.id}`}
               className={`inventory-tab ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => selectTab(tab.id)}
             >
               <Icon size={15} />
               {tab.label}

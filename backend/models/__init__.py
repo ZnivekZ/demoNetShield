@@ -8,6 +8,7 @@ from models.quarantine_log import QuarantineLog
 from models.telegram import TelegramReportConfig, TelegramMessageLog, TelegramPendingMessage
 from models.custom_view import CustomView
 from models.user import User
+from models.public_ticket import PublicTicket
 
 __all__ = [
     "IPLabel",
@@ -21,5 +22,6 @@ __all__ = [
     "TelegramPendingMessage",
     "CustomView",
     "User",
+    "PublicTicket",
 ]
 

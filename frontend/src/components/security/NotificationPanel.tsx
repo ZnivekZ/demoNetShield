@@ -1,11 +1,10 @@
 /**
- * NotificationPanel — Sliding panel showing real-time security notifications.
+ * NotificationPanel — campanita de ALERTAS de seguridad (Wazuh / MikroTik).
  *
- * Connected to /ws/security/alerts via useSecurityAlerts:
- *   - Wazuh + MikroTik alerts (existing)
+ * Los tickets nuevos tienen su propio ícono al lado (`TicketBell`).
  */
 import { useState } from 'react';
-import { Bell, BellOff, ShieldAlert, Fish, Wifi, X, ShieldOff } from 'lucide-react';
+import { Bell, BellOff, Fish, ShieldAlert, ShieldOff, Wifi, X } from 'lucide-react';
 import { useSecurityAlerts } from '../../hooks/useSecurityAlerts';
 import type { SecurityNotification } from '../../types';
 import { formatDistanceToNow } from '../utils/time';
@@ -17,13 +16,15 @@ interface NotificationPanelProps {
 
 export function NotificationPanel({ onBlockIP, onSinkhole }: NotificationPanelProps) {
   const {
-    notifications, isConnected,
-    dismiss, clearAll,
-    unreadCount, criticalCount,
+    notifications,
+    isConnected,
+    dismiss,
+    clearAll,
+    unreadCount,
+    criticalCount,
   } = useSecurityAlerts();
 
   const [open, setOpen] = useState(false);
-  const filtered = notifications;
 
   const getLevelColor = (level: string): string => {
     if (level === 'critical') return 'var(--color-danger)';
@@ -33,15 +34,15 @@ export function NotificationPanel({ onBlockIP, onSinkhole }: NotificationPanelPr
 
   const getIcon = (type: string) => {
     if (type === 'phishing_detected') return <Fish size={14} />;
-    if (type === 'interface_down')    return <Wifi size={14} />;
+    if (type === 'interface_down') return <Wifi size={14} />;
     return <ShieldAlert size={14} />;
   };
 
   // Indicator color: red if critical, amber if unread, grey otherwise
   const bellColor =
-    criticalCount > 0        ? 'var(--color-danger)'   :
-    unreadCount > 0          ? 'var(--color-warning)'   :
-    'var(--color-surface-400)';
+    criticalCount > 0 ? 'var(--color-danger)'
+      : unreadCount > 0 ? 'var(--color-warning)'
+        : 'var(--color-surface-400)';
 
   return (
     <>
@@ -61,7 +62,8 @@ export function NotificationPanel({ onBlockIP, onSinkhole }: NotificationPanelPr
           alignItems: 'center',
           transition: 'all 0.2s',
         }}
-        title={`${unreadCount} notificaciones`}
+        title={`${unreadCount} alertas de seguridad`}
+        aria-label={`Alertas: ${unreadCount}`}
       >
         {isConnected ? <Bell size={18} /> : <BellOff size={18} />}
         {unreadCount > 0 && (
@@ -71,8 +73,9 @@ export function NotificationPanel({ onBlockIP, onSinkhole }: NotificationPanelPr
             right: 0,
             background: criticalCount > 0 ? 'var(--color-danger)' : 'var(--color-warning)',
             borderRadius: '9999px',
-            width: 16,
+            minWidth: 16,
             height: 16,
+            padding: '0 4px',
             fontSize: '0.6rem',
             fontWeight: 700,
             display: 'flex',
@@ -90,9 +93,8 @@ export function NotificationPanel({ onBlockIP, onSinkhole }: NotificationPanelPr
         <div className="notification-panel">
           {/* Header */}
           <div className="notification-panel__header">
-            <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Alertas en Tiempo Real</span>
+            <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Alertas en tiempo real</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              {/* Connection dots */}
               <span
                 style={{ fontSize: '0.65rem', color: isConnected ? 'var(--color-success)' : 'var(--color-danger)' }}
                 title="Wazuh/MikroTik"
@@ -110,44 +112,21 @@ export function NotificationPanel({ onBlockIP, onSinkhole }: NotificationPanelPr
               <button
                 onClick={() => setOpen(false)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-surface-400)' }}
+                aria-label="Cerrar alertas"
               >
                 <X size={14} />
               </button>
             </div>
           </div>
 
-          {/* Filter tabs */}
-          <div style={{
-            display: 'flex',
-            gap: '0.25rem',
-            padding: '0.5rem 0.75rem',
-            borderBottom: '1px solid var(--color-surface-700)',
-            background: 'var(--color-surface-800)',
-          }}>
-            {(['all', 'security'] as const).map(f => (
-              <span
-                key={f}
-                style={{
-                  fontSize: '0.65rem',
-                  fontWeight: 600,
-                  padding: '0.15rem 0.5rem',
-                  borderRadius: 6,
-                  color: 'var(--color-surface-400)',
-                }}
-              >
-                {f === 'all' ? `Todo (${unreadCount})` : `Wazuh/MT (${unreadCount})`}
-              </span>
-            ))}
-          </div>
-
           {/* Notification list */}
           <div className="notification-panel__list">
-            {filtered.length === 0 ? (
+            {notifications.length === 0 ? (
               <div className="notification-panel__empty">
-                Sin notificaciones
+                Sin alertas de seguridad
               </div>
             ) : (
-              filtered.map(n => (
+              notifications.map((n) => (
                 <NotifItem
                   key={n.id}
                   notif={n}
@@ -181,7 +160,7 @@ function NotifItem({
   color: string;
   icon: React.ReactNode;
 }) {
-  const ip  = notif.data?.src_ip as string | undefined;
+  const ip = notif.data?.src_ip as string | undefined;
   const url = notif.data?.dst_url as string | undefined;
   // Defensive fallback: ensure actions is always an array to prevent crashes
   // if a malformed notification arrives without the actions field.
@@ -201,30 +180,30 @@ function NotifItem({
 
       {/* Actions */}
       {(
-        (actions.includes('block_ip')         && ip  && onBlockIP) ||
-        (actions.includes('sinkhole_domain')  && url && onSinkhole)
+        (actions.includes('block_ip') && ip && onBlockIP) ||
+        (actions.includes('sinkhole_domain') && url && onSinkhole)
       ) && (
-        <div className="notification-item__actions">
-          {actions.includes('block_ip') && ip && onBlockIP && (
-            <button
-              className="btn btn-danger"
-              style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
-              onClick={() => { onBlockIP(ip); onDismiss(); }}
-            >
-              <ShieldOff size={11} /> Bloquear IP
-            </button>
-          )}
-          {actions.includes('sinkhole_domain') && url && onSinkhole && (
-            <button
-              className="btn btn-ghost"
-              style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
-              onClick={() => { onSinkhole(url); onDismiss(); }}
-            >
-              Sinkhole
-            </button>
-          )}
-        </div>
-      )}
+          <div className="notification-item__actions">
+            {actions.includes('block_ip') && ip && onBlockIP && (
+              <button
+                className="btn btn-danger"
+                style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
+                onClick={() => { onBlockIP(ip); onDismiss(); }}
+              >
+                <ShieldOff size={11} /> Bloquear IP
+              </button>
+            )}
+            {actions.includes('sinkhole_domain') && url && onSinkhole && (
+              <button
+                className="btn btn-ghost"
+                style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}
+                onClick={() => { onSinkhole(url); onDismiss(); }}
+              >
+                Sinkhole
+              </button>
+            )}
+          </div>
+        )}
     </div>
   );
 }

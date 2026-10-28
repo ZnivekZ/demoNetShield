@@ -33,6 +33,7 @@ from routers import glpi as glpi_router
 from routers import geoip as geoip_router
 from routers import views as views_router
 from routers import widgets as widgets_router
+from routers import public_tickets as public_tickets_router
 from routers import dhcp as dhcp_router
 from routers import auth as auth_router
 from services.mikrotik_service import get_mikrotik_service
@@ -271,7 +272,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # Allow public paths and WebSocket upgrades through
-        if path in _PUBLIC_PATHS or path.startswith("/ws"):
+        if path in _PUBLIC_PATHS or path.startswith("/ws") or path.startswith("/api/public/"):
             return await call_next(request)
 
         # Validate Bearer token
@@ -316,6 +317,7 @@ app.include_router(views_router.router)
 app.include_router(widgets_router.router)
 app.include_router(dhcp_router.router)
 app.include_router(auth_router.router)
+app.include_router(public_tickets_router.router)
 
 
 # ── Root & Health Check ───────────────────────────────────────────

@@ -44,6 +44,7 @@ import {
 import { useState } from 'react';
 import { GlobalSearch } from './common/GlobalSearch';
 import { NotificationPanel } from './security/NotificationPanel';
+import { TicketBell } from './tickets/TicketBell';
 import { ConfirmModal } from './common/ConfirmModal';
 import { useBlockIP } from '../hooks/useSecurityActions';
 import { SettingsDrawer } from './common/SettingsDrawer';
@@ -248,8 +249,9 @@ export default function Layout() {
             />
           </div>
 
-          {/* Notification Bell */}
+          {/* Tickets nuevos + Notification Bell */}
           <div className="flex items-center gap-3 text-xs text-surface-400">
+            <TicketBell />
             <NotificationPanel
               onBlockIP={ip => setBlockIPTarget(ip)}
             />

@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     glpi_app_token: str = ""
     glpi_user_token: str = ""
 
+    # ── Portal público de tickets (/soporte, sin autenticación) ───────────
+    public_tickets_enabled: bool = False
+    public_tickets_rate_limit: int = 5      # tickets por IP por hora
+    public_tickets_max_mb: int = 5          # tamaño máximo de adjunto
+
     # ── CrowdSec IPS ──────────────────────────────────────────────────────
     # Local API (LAPI) del agente CrowdSec. Puerto 8080 por defecto.
     # Requiere CROWDSEC_API_KEY con las credenciales del bouncer.

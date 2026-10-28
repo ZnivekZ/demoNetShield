@@ -27,6 +27,7 @@ import { AuthProvider } from './components/auth/AuthContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import LoginPage from './components/auth/LoginPage';
+import PublicTicketPage from './components/public/PublicTicketPage';
 import Layout from './components/Layout';
 // Existing pages
 import FirewallPage from './components/firewall/FirewallPage';
@@ -74,6 +75,9 @@ export default function App() {
           <Routes>
             {/* Login — outside Layout, no auth required */}
             <Route path="/login" element={<LoginPage />} />
+
+            {/* Portal público — sin autenticación */}
+            <Route path="/soporte" element={<PublicTicketPage />} />
 
             {/* Protected routes — require valid JWT */}
             <Route

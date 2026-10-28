@@ -538,6 +538,19 @@ class GLPIService:
             logger.error("glpi_create_ticket_failed", title=data.get("title"), error=str(e))
             raise
 
+    async def get_ticket_status(self, ticket_id: int) -> dict:
+        """[GLPI API] Estado de un ticket, sin datos internos (portal público)."""
+        raw = await self._api_request("GET", f"/Assistance/Ticket/{ticket_id}")
+        status = raw.get("status")
+        code = status.get("id") if isinstance(status, dict) else status
+        return {
+            "ticket_id": int(raw.get("id") or ticket_id),
+            "title": raw.get("name") or "",
+            "status": int(code) if code is not None else 1,
+            "created_at": raw.get("date_creation"),
+            "updated_at": raw.get("date_mod"),
+        }
+
     async def update_ticket_status(self, ticket_id: int, status: int) -> dict:
         """[GLPI API] Update ticket status. PATCH /Assistance/Ticket/{id}."""
         try:

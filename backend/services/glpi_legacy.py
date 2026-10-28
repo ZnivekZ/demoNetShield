@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import time
 from typing import Any
 
@@ -219,6 +220,60 @@ async def get_asset_ip_map(force: bool = False) -> dict[str, str]:
         if mapping:
             logger.debug("glpi_legacy_ip_map_built", assets=len(mapping))
         return _ip_map
+
+
+async def upload_document(filename: str, content: bytes, mime: str) -> int:
+    """
+    Sube un archivo por multipart (v1) y devuelve el id del `Document`.
+
+    La v3.0 no acepta bytes (espera `filepath` del lado del servidor GLPI),
+    por eso los adjuntos van por la API legacy.
+    """
+    import httpx
+
+    settings = get_settings()
+    session = await _open_session()
+    if not session:
+        raise GlpiLegacyError("sin sesión legacy (GLPI_APP_TOKEN / GLPI_USER_TOKEN)")
+
+    manifest = {"input": {"name": filename, "_filename": [filename]}}
+    async with httpx.AsyncClient(timeout=60, verify=settings.glpi_verify_ssl) as client:
+        resp = await client.post(
+            f"{settings.glpi_legacy_base}/Document",
+            headers=_client_headers({"Session-Token": session}),
+            data={"uploadManifest": json.dumps(manifest)},
+            files={"filename[0]": (filename, content, mime)},
+        )
+    if resp.status_code not in (200, 201):
+        raise GlpiLegacyError(f"upload Document {resp.status_code}: {resp.text[:120]}")
+    doc_id = (resp.json() or {}).get("id")
+    if not doc_id:
+        raise GlpiLegacyError("upload Document sin id")
+    return int(doc_id)
+
+
+async def link_document_to_ticket(document_id: int, ticket_id: int) -> None:
+    """
+    Vincula un documento a un ticket.
+
+    El vínculo vive en `glpi_documents_items`, por eso se crea con
+    `POST /Document_Item` (el `PUT /Document/{id}` no lo arma).
+    """
+    import httpx
+
+    settings = get_settings()
+    session = await _open_session()
+    if not session:
+        raise GlpiLegacyError("sin sesión legacy (GLPI_APP_TOKEN / GLPI_USER_TOKEN)")
+
+    async with httpx.AsyncClient(timeout=30, verify=settings.glpi_verify_ssl) as client:
+        resp = await client.post(
+            f"{settings.glpi_legacy_base}/Document_Item",
+            headers=_client_headers({"Session-Token": session}),
+            json={"input": {"documents_id": document_id, "itemtype": "Ticket", "items_id": ticket_id}},
+        )
+    if resp.status_code not in (200, 201):
+        raise GlpiLegacyError(f"link Document_Item {resp.status_code}: {resp.text[:120]}")
 
 
 def resolve_ip(itemtype: str | None, asset_id: Any, ip_map: dict[str, str] | None = None) -> str:

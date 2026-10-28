@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     mikrotik_port: int = 8728
     mikrotik_user: str = "admin"
     mikrotik_password: str = ""
+    # ¿La cuenta de API puede ESCRIBIR en el router? Si es False (default),
+    # NetShield no empuja nada: los bloqueos quedan en el archivo
+    # /blocklist.txt para que el propio MikroTik (o un script) haga pull.
+    mikrotik_api_write_enabled: bool = False
 
     # ── Wazuh SIEM ───────────────────────────────────────────────
     wazuh_host: str = "100.90.106.121"

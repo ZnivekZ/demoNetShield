@@ -1,6 +1,9 @@
 import axios from 'axios';
 import type {
   APIResponse,
+  BlocklistData,
+  BlocklistPushResult,
+  BlocklistSettings,
   // Auth
   LoginRequest,
   TokenResponse,
@@ -35,8 +38,6 @@ import type {
   IPAddress,
   BridgePort,
   QueueEntry,
-  QueueCreate,
-  QueueUpdate,
   PhishingAlert,
   SuspiciousDomain,
   PhishingVictim,
@@ -225,15 +226,6 @@ export const mikrotikApi = {
   // ── QoS / Simple Queues ─────────────────────────────────────
   getQueues: () =>
     api.get<APIResponse<QueueEntry[]>>('/mikrotik/queues').then(r => r.data),
-
-  createQueue: (data: QueueCreate) =>
-    api.post<APIResponse<QueueEntry>>('/mikrotik/queues', data).then(r => r.data),
-
-  updateQueue: (queueId: string, data: QueueUpdate) =>
-    api.put<APIResponse>(`/mikrotik/queues/${encodeURIComponent(queueId)}`, data).then(r => r.data),
-
-  deleteQueue: (queueId: string) =>
-    api.delete<APIResponse>(`/mikrotik/queues/${encodeURIComponent(queueId)}`).then(r => r.data),
 };
 
 /* ── Wazuh ────────────────────────────────────────────────────── */
@@ -702,15 +694,6 @@ export const healthApi = {
 export const vlansApi = {
   getVlans: () =>
     api.get<APIResponse<VlanInfo[]>>('/mikrotik/vlans/').then(r => r.data),
-
-  createVlan: (data: { vlan_id: number; name: string; interface: string; comment?: string }) =>
-    api.post<APIResponse<VlanInfo>>('/mikrotik/vlans/', data).then(r => r.data),
-
-  updateVlan: (vlanId: string, data: { name?: string; comment?: string }) =>
-    api.put<APIResponse>(`/mikrotik/vlans/${vlanId}`, data).then(r => r.data),
-
-  deleteVlan: (vlanId: string) =>
-    api.delete<APIResponse>(`/mikrotik/vlans/${vlanId}`).then(r => r.data),
 
   getVlanTraffic: (vlanId: number) =>
     api.get<APIResponse<VlanTrafficData>>(`/mikrotik/vlans/${vlanId}/traffic`).then(r => r.data),
@@ -1374,4 +1357,31 @@ export const auditApi = {
     api
       .get<APIResponse<{ min_severity: string; disabled_actions: string[] }>>('/audit/config')
       .then(r => r.data),
+};
+
+
+/* ── Lista de bloqueo ───────────────────────────────────────── */
+// Revisión humana + push MANUAL al MikroTik (única escritura permitida).
+
+export const blocklistApi = {
+  list: () =>
+    api.get<APIResponse<BlocklistData>>('/blocklist').then(r => r.data),
+
+  add: (ip: string, comment = '', duration = '') =>
+    api.post<APIResponse<unknown>>('/blocklist', { ip, comment, duration }).then(r => r.data),
+
+  remove: (ip: string) =>
+    api.delete<APIResponse<unknown>>(`/blocklist/${encodeURIComponent(ip)}`).then(r => r.data),
+
+  update: (ip: string, patch: { enabled?: boolean; duration?: string; comment?: string }) =>
+    api.patch<APIResponse<unknown>>(`/blocklist/${encodeURIComponent(ip)}`, patch).then(r => r.data),
+
+  toggle: (ip: string, enabled: boolean) =>
+    api.patch<APIResponse<unknown>>(`/blocklist/${encodeURIComponent(ip)}`, { enabled }).then(r => r.data),
+
+  push: () =>
+    api.post<APIResponse<BlocklistPushResult>>('/blocklist/push').then(r => r.data),
+
+  saveSettings: (settings: Partial<BlocklistSettings>) =>
+    api.put<APIResponse<BlocklistSettings>>('/blocklist/settings', settings).then(r => r.data),
 };

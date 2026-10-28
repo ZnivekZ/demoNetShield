@@ -26,6 +26,7 @@ from schemas.crowdsec import (
     ManualDecisionRequest,
     SyncApplyRequest,
 )
+from services import blocklist_store
 from services.crowdsec_service import CrowdSecService, get_crowdsec_service
 from services.mikrotik_service import MikroTikService, get_mikrotik_service
 from services.wazuh_service import WazuhService, get_wazuh_service
@@ -372,18 +373,18 @@ async def full_remediation(
             logger.warning("full_remediation_crowdsec_failed", ip=request.ip, error=str(e))
             results["crowdsec"] = {"blocked": False, "error": str(e)}
 
-        # Block in MikroTik
+        # Encolar en la Lista de bloqueo (NO se escribe en el router)
         try:
-            mt_result = await mikrotik.add_to_address_list(
-                ip=request.ip,
-                list_name="Blacklist_Automatica",
-                timeout=request.duration,
-                comment=f"CrowdSec: {request.reason}",
+            entry = blocklist_store.add(
+                request.ip,
+                f"CrowdSec: {request.reason}",
+                source="crowdsec",
+                duration=request.duration,
             )
-            results["mikrotik"] = {"blocked": True, "result": mt_result}
+            results["blocklist"] = {"queued": True, "entry": entry}
         except Exception as e:
-            logger.warning("full_remediation_mikrotik_failed", ip=request.ip, error=str(e))
-            results["mikrotik"] = {"blocked": False, "error": str(e)}
+            logger.warning("full_remediation_blocklist_failed", ip=request.ip, error=str(e))
+            results["blocklist"] = {"queued": False, "error": str(e)}
 
         await log_action(
             db,
@@ -458,23 +459,15 @@ async def apply_sync(
 
         for ip in request.add_to_mikrotik:
             try:
-                await mikrotik.add_to_address_list(
-                    ip=ip,
-                    list_name="Blacklist_Automatica",
-                    timeout="24h",
-                    comment="CrowdSec sync",
-                )
+                blocklist_store.add(ip, "CrowdSec sync", source="crowdsec", duration="24h")
                 added.append({"ip": ip, "success": True})
             except Exception as e:
                 added.append({"ip": ip, "success": False, "error": str(e)})
 
         for ip in request.remove_from_mikrotik:
             try:
-                await mikrotik.remove_from_address_list(
-                    ip=ip,
-                    list_name="Blacklist_Automatica",
-                )
-                removed.append({"ip": ip, "success": True})
+                gone = blocklist_store.remove(ip)
+                removed.append({"ip": ip, "success": gone})
             except Exception as e:
                 removed.append({"ip": ip, "success": False, "error": str(e)})
 

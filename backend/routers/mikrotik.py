@@ -16,6 +16,7 @@ from database import get_db
 from services.audit_service import log_action
 from schemas.common import APIResponse
 from schemas.mikrotik import BlockIPRequest, UnblockIPRequest
+from services import blocklist_store
 from services.mikrotik_service import MikroTikService, get_mikrotik_service
 
 logger = structlog.get_logger(__name__)
@@ -99,30 +100,32 @@ async def block_ip(
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """
-    Block an IP address by adding a drop rule in chain=forward.
-    Logs the action in the audit trail.
+    Encola la IP en la Lista de bloqueo (NO escribe en MikroTik).
+    El push al firewall es manual y pasa por revisión humana.
     """
     try:
-        result = await service.block_ip(request.ip, request.comment)
+        entry = blocklist_store.add(
+            request.ip,
+            request.comment or "Bloqueo desde firewall",
+            source="firewall",
+            duration=f"{request.duration}m" if request.duration else "",
+        )
 
         await log_action(
             db,
-            action_type="block",
-            severity="critical",
+            action_type="blocklist_queued",
+            severity="high",
             target_ip=request.ip,
-            details={
-                "comment": request.comment,
-                "duration": request.duration,
-                "rule_id": result.get("rule_id"),
-            },
-            comment=request.comment,
+            details={"comment": request.comment, "duration": request.duration, "source": "firewall"},
+            comment=f"IP encolada en la lista: {request.comment or request.ip}",
         )
 
-        logger.info("api_ip_blocked", ip=request.ip, comment=request.comment)
-        return APIResponse.ok(result)
+        logger.info("api_ip_queued_for_blocklist", ip=request.ip)
+        return APIResponse.ok({**entry, "queued": True,
+                               "message": "Agregada a la lista. Se aplicará al hacer push."})
     except Exception as e:
-        logger.error("api_block_ip_failed", ip=request.ip, error=str(e))
-        return APIResponse.fail(f"Failed to block IP {request.ip}: {str(e)}")
+        logger.error("api_queue_ip_failed", ip=request.ip, error=str(e))
+        return APIResponse.fail(f"No se pudo agregar {request.ip} a la lista: {str(e)}")
 
 
 @router.delete("/firewall/block")
@@ -132,18 +135,19 @@ async def unblock_ip(
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """
-    Unblock an IP address by removing matching drop rules.
-    Logs the action in the audit trail.
+    Saca la IP de la Lista de bloqueo (no toca el router: el firewall se
+    actualiza en el próximo push, con `remove_missing` activo).
     """
     try:
-        result = await service.unblock_ip(request.ip)
+        removed = blocklist_store.remove(request.ip)
+        result = {"ip": request.ip, "removed_from_list": removed}
 
         await log_action(
             db,
             action_type="unblock",
             severity="high",
             target_ip=request.ip,
-            details={"rules_removed": result.get("rules_removed", [])},
+            details={"removed_from_list": removed},
             comment="Unblocked via dashboard",
         )
 
@@ -326,74 +330,4 @@ async def get_queues(
         logger.error("api_get_queues_failed", error=str(e))
         return APIResponse.fail(f"Failed to fetch queues: {str(e)}")
 
-
-@router.post("/queues")
-async def create_queue(
-    request: dict,
-    service: MikroTikService = Depends(get_service),
-) -> APIResponse:
-    """
-    [MikroTik API] Create a simple queue (bandwidth limiter).
-    Body: {name, target, max_limit, burst_limit?, burst_threshold?, burst_time?, comment?}
-    max_limit format: 'upload/download' e.g. '5M/10M' or '0/0' for unlimited
-    """
-    try:
-        name = request.get("name", "")
-        target = request.get("target", "")
-        if not name or not target:
-            return APIResponse.fail("Fields 'name' and 'target' are required")
-        data = await service.create_queue(
-            name=name,
-            target=target,
-            max_limit=request.get("max_limit", "0/0"),
-            burst_limit=request.get("burst_limit", "0/0"),
-            burst_threshold=request.get("burst_threshold", "0/0"),
-            burst_time=request.get("burst_time", "0s/0s"),
-            comment=request.get("comment", ""),
-        )
-        return APIResponse.ok(data)
-    except Exception as e:
-        logger.error("api_create_queue_failed", error=str(e))
-        return APIResponse.fail(f"Failed to create queue: {str(e)}")
-
-
-@router.put("/queues/{queue_id}")
-async def update_queue(
-    queue_id: str,
-    request: dict,
-    service: MikroTikService = Depends(get_service),
-) -> APIResponse:
-    """
-    [MikroTik API] Update a simple queue.
-    Body: {name?, max_limit?, comment?, disabled?}
-    """
-    try:
-        data = await service.update_queue(
-            queue_id=queue_id,
-            name=request.get("name"),
-            max_limit=request.get("max_limit"),
-            comment=request.get("comment"),
-            disabled=request.get("disabled"),
-        )
-        return APIResponse.ok(data)
-    except Exception as e:
-        logger.error("api_update_queue_failed", queue_id=queue_id, error=str(e))
-        return APIResponse.fail(f"Failed to update queue {queue_id}: {str(e)}")
-
-
-@router.delete("/queues/{queue_id}")
-async def delete_queue(
-    queue_id: str,
-    service: MikroTikService = Depends(get_service),
-) -> APIResponse:
-    """
-    [MikroTik API] Delete a simple queue by ID.
-    Resource: /queue/simple remove
-    """
-    try:
-        data = await service.delete_queue(queue_id)
-        return APIResponse.ok(data)
-    except Exception as e:
-        logger.error("api_delete_queue_failed", queue_id=queue_id, error=str(e))
-        return APIResponse.fail(f"Failed to delete queue {queue_id}: {str(e)}")
 

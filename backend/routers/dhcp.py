@@ -82,44 +82,6 @@ async def get_dhcp_servers(
         return APIResponse.fail(str(exc))
 
 
-@router.post("/servers", summary="Create a DHCP server instance")
-async def create_dhcp_server(
-    body: DhcpServerCreate,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.create_dhcp_server(
-            name=body.name, interface=body.interface,
-            address_pool=body.address_pool, lease_time=body.lease_time,
-            authoritative=body.authoritative, comment=body.comment,
-        )
-        await _log_action(db, "dhcp_create_server", body.name, f"interface={body.interface}")
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_create_server_failed", error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-@router.put("/servers/{server_id}/toggle", summary="Enable or disable a DHCP server")
-async def toggle_dhcp_server(
-    server_id: str,
-    body: DhcpServerToggle,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.toggle_dhcp_server(server_id, body.disabled)
-        action = "dhcp_disable_server" if body.disabled else "dhcp_enable_server"
-        await _log_action(db, action, server_id, f"disabled={body.disabled}")
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_toggle_server_failed", id=server_id, error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-# ── Leases ─────────────────────────────────────────────────────────────────────
-
 @router.get("/leases", summary="List DHCP leases")
 async def get_dhcp_leases(
     server: str | None = Query(None, description="Filter by DHCP server name"),
@@ -146,98 +108,6 @@ async def get_dhcp_leases(
         return APIResponse.fail(str(exc))
 
 
-@router.post("/leases", summary="Create a static DHCP lease (reservation)")
-async def create_dhcp_lease(
-    body: DhcpLeaseCreate,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.create_dhcp_lease(
-            address=body.address, mac_address=body.mac_address,
-            server=body.server, comment=body.comment, rate_limit=body.rate_limit,
-        )
-        await _log_action(db, "dhcp_create_lease",
-                          body.address, f"mac={body.mac_address} server={body.server}")
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_create_lease_failed", error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-@router.put("/leases/{lease_id}", summary="Update a lease (comment, rate-limit, disabled)")
-async def update_dhcp_lease(
-    lease_id: str,
-    body: DhcpLeaseUpdate,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.update_dhcp_lease(
-            lease_id=lease_id, comment=body.comment,
-            rate_limit=body.rate_limit, disabled=body.disabled,
-        )
-        await _log_action(db, "dhcp_update_lease", lease_id, str(body.model_dump(exclude_none=True)))
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_update_lease_failed", id=lease_id, error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-@router.delete("/leases/{lease_id}", summary="Delete a DHCP lease")
-async def delete_dhcp_lease(
-    lease_id: str,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.delete_dhcp_lease(lease_id)
-        await _log_action(db, "dhcp_delete_lease", lease_id, "removed")
-        return APIResponse.ok(result)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except Exception as exc:
-        logger.error("dhcp_delete_lease_failed", id=lease_id, error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-@router.post("/leases/{lease_id}/make-static",
-             summary="Convert a dynamic lease to a static reservation")
-async def make_lease_static(
-    lease_id: str,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.make_lease_static(lease_id)
-        await _log_action(db, "dhcp_make_static", lease_id, "dynamic→static")
-        return APIResponse.ok(result)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except Exception as exc:
-        logger.error("dhcp_make_static_failed", id=lease_id, error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-@router.put("/leases/{lease_id}/block", summary="Block or unblock DHCP access for a client")
-async def set_lease_block(
-    lease_id: str,
-    body: DhcpLeaseBlockRequest,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.set_dhcp_lease_block(lease_id, body.block)
-        action = "dhcp_block_client" if body.block else "dhcp_unblock_client"
-        await _log_action(db, action, lease_id, f"block={body.block}")
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_set_lease_block_failed", id=lease_id, error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-# ── Networks ───────────────────────────────────────────────────────────────────
-
 @router.get("/networks", summary="List DHCP network configurations")
 async def get_dhcp_networks(
     svc: MikroTikService = Depends(get_mikrotik_service),
@@ -249,44 +119,6 @@ async def get_dhcp_networks(
         logger.error("dhcp_get_networks_failed", error=str(exc))
         return APIResponse.fail(str(exc))
 
-
-@router.post("/networks", summary="Create DHCP network configuration")
-async def create_dhcp_network(
-    body: DhcpNetworkCreate,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.create_dhcp_network(
-            address=body.address, gateway=body.gateway,
-            dns_server=body.dns_server, domain=body.domain,
-            ntp_server=body.ntp_server, comment=body.comment,
-        )
-        await _log_action(db, "dhcp_create_network", body.address, f"gw={body.gateway}")
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_create_network_failed", error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-@router.put("/networks/{network_id}", summary="Update DHCP network configuration")
-async def update_dhcp_network(
-    network_id: str,
-    body: DhcpNetworkUpdate,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        fields = {k: v for k, v in body.model_dump(exclude_none=True).items()}
-        result = await svc.update_dhcp_network(network_id, **fields)
-        await _log_action(db, "dhcp_update_network", network_id, str(fields))
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_update_network_failed", id=network_id, error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-# ── Pools ──────────────────────────────────────────────────────────────────────
 
 @router.get("/pools", summary="List IP address pools")
 async def get_ip_pools(
@@ -312,43 +144,6 @@ async def get_subnet_usage(
         return APIResponse.fail(str(exc))
 
 
-@router.post("/pools", summary="Create an IP address pool")
-async def create_ip_pool(
-    body: DhcpPoolCreate,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.create_ip_pool(
-            name=body.name, ranges=body.ranges, next_pool=body.next_pool,
-        )
-        await _log_action(db, "dhcp_create_pool", body.name, f"ranges={body.ranges}")
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_create_pool_failed", error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-@router.put("/pools/{pool_id}", summary="Update an IP address pool")
-async def update_ip_pool(
-    pool_id: str,
-    body: DhcpPoolUpdate,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.update_ip_pool(
-            pool_id=pool_id, ranges=body.ranges, next_pool=body.next_pool,
-        )
-        await _log_action(db, "dhcp_update_pool", pool_id, str(body.model_dump(exclude_none=True)))
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_update_pool_failed", id=pool_id, error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-# ── Rogue Alerts ───────────────────────────────────────────────────────────────
-
 @router.get("/alerts", summary="List rogue DHCP server alert configurations")
 async def get_dhcp_rogue_alerts(
     svc: MikroTikService = Depends(get_mikrotik_service),
@@ -361,26 +156,6 @@ async def get_dhcp_rogue_alerts(
         return APIResponse.fail(str(exc))
 
 
-@router.post("/alerts", summary="Create a rogue DHCP server alert configuration")
-async def create_dhcp_rogue_alert(
-    body: DhcpRogueAlertCreate,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.create_dhcp_rogue_alert(
-            interface=body.interface, valid_server=body.valid_server,
-            alert_timeout=body.alert_timeout, on_alert=body.on_alert,
-        )
-        await _log_action(db, "dhcp_create_rogue_alert", body.interface, f"valid={body.valid_server}")
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_create_rogue_alert_failed", error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-# ── Options ────────────────────────────────────────────────────────────────────
-
 @router.get("/options", summary="List custom DHCP options")
 async def get_dhcp_options(
     svc: MikroTikService = Depends(get_mikrotik_service),
@@ -392,29 +167,6 @@ async def get_dhcp_options(
         logger.error("dhcp_get_options_failed", error=str(exc))
         return APIResponse.fail(str(exc))
 
-
-@router.post("/options", summary="Create a custom DHCP option")
-async def create_dhcp_option(
-    body: DhcpOptionCreate,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    try:
-        result = await svc.create_dhcp_option(
-            name=body.name, code=body.code, value=body.value, raw=body.raw,
-        )
-        await _log_action(db, "dhcp_create_option", body.name, f"code={body.code}")
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_create_option_failed", error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# FASE 2 — Cross-service endpoints
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ── S1: DHCP ↔ GLPI Correlation ────────────────────────────────────────────────
 
 @router.get("/correlation/glpi", summary="S1: Cross-reference DHCP leases with GLPI assets")
 async def dhcp_glpi_correlation(
@@ -581,47 +333,6 @@ async def wazuh_alerts_with_dhcp(
 
 
 # ── S4: Rogue DHCP → Firewall block ────────────────────────────────────────────
-
-@router.post("/alerts/{alert_id}/block-rogue",
-             summary="S4: Block a rogue DHCP server via MikroTik firewall")
-async def block_rogue_dhcp(
-    alert_id: str,
-    db: AsyncSession = Depends(get_db),
-    svc: MikroTikService = Depends(get_mikrotik_service),
-) -> APIResponse:
-    """
-    When a rogue DHCP server is detected on an interface, adds a DROP rule
-    in MikroTik firewall to block the rogue server's DHCP replies (UDP 67/68).
-    Records action in ActionLog.
-    """
-    try:
-        alerts = await svc.get_dhcp_rogue_alerts()
-
-        alert = next((a for a in alerts if a.get("id") == alert_id), None)
-        if not alert:
-            return APIResponse.fail(f"Alert {alert_id!r} not found")
-
-        interface = alert.get("interface", "unknown")
-
-        # Block DHCP traffic (UDP dst-port 67,68) from non-valid server on that interface
-        comment = f"[NetShield] Rogue DHCP block — {interface}"
-        result = await svc.block_ip(
-            ip="0.0.0.0/0",   # placeholder — real impl would target the rogue MAC
-            comment=comment,
-        )
-
-        await _log_action(
-            db, "dhcp_rogue_block", interface,
-            f"alert_id={alert_id} interface={interface}"
-        )
-        logger.warning("dhcp_rogue_blocked", alert_id=alert_id, interface=interface)
-        return APIResponse.ok(result)
-    except Exception as exc:
-        logger.error("dhcp_rogue_block_failed", alert_id=alert_id, error=str(exc))
-        return APIResponse.fail(str(exc))
-
-
-# ── S5: New device → GLPI ticket ───────────────────────────────────────────────
 
 @router.post("/discovery/create-ticket",
              summary="S5: Create a GLPI ticket for an unregistered DHCP device")

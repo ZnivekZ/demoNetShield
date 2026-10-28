@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 from contextlib import asynccontextmanager
 
 import structlog
@@ -27,6 +28,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from config import get_settings
+from services import blocklist_store
+from services.blocklist_push import push_blocklist
 from database import close_db, init_db
 from routers import cli, mikrotik, network, phishing, reports, security, vlans, wazuh
 from routers import glpi as glpi_router
@@ -34,6 +37,7 @@ from routers import geoip as geoip_router
 from routers import views as views_router
 from routers import widgets as widgets_router
 from routers import public_tickets as public_tickets_router
+from routers import blocklist as blocklist_router
 from routers import dhcp as dhcp_router
 from routers import auth as auth_router
 from services.mikrotik_service import get_mikrotik_service
@@ -120,6 +124,68 @@ async def _event_loop_lag_monitor(threshold_s: float = 1.0, interval_s: float = 
             )
 
 
+async def _blocklist_scheduler() -> None:
+    """
+    Empuja la blocklist al router cada N minutos (0 = nunca).
+
+    Por defecto el intervalo es 0: el push es SIEMPRE manual. Cuando se
+    configura un intervalo, se revisa cada 30 s si toca.
+    """
+    last_push = 0.0
+    while True:
+        await asyncio.sleep(30)
+        try:
+            pruned = blocklist_store.prune()
+            if pruned:
+                logger.info("blocklist_pruned_expired", removed=pruned)
+
+            interval = blocklist_store.settings().get("push_interval_minutes", 0)
+            if interval <= 0:
+                continue
+            if time.time() - last_push < interval * 60:
+                continue
+            last_push = time.time()
+            result = await push_blocklist()
+            logger.info("blocklist_scheduled_push", ok=result.get("ok"), total=result.get("total"))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning("blocklist_scheduler_error", error=str(e)[:200])
+
+
+# MikroTik es de SÓLO LECTURA. Estas rutas antes escribían en el router y
+# quedan bloqueadas; la única escritura permitida es la blocklist
+# (`POST /api/blocklist/push`) y el alta/baja de IPs en su lista.
+# Red de seguridad: aunque los endpoints de escritura ya no existen, cualquier
+# POST/PUT/PATCH/DELETE a estas rutas se rechaza igual.
+_READ_ONLY_PREFIXES: tuple[str, ...] = (
+    "/api/dhcp",
+    "/api/vlans",
+    "/api/mikrotik/queues",
+    "/api/security/quarantine",
+)
+
+
+class MikroTikReadOnlyMiddleware(BaseHTTPMiddleware):
+    """Rechaza escrituras a MikroTik fuera de la lista de bloqueo."""
+
+    async def dispatch(self, request: Request, call_next):
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            path = request.url.path
+            if any(path.startswith(p) for p in _READ_ONLY_PREFIXES):
+                logger.warning("mikrotik_write_blocked", path=path, method=request.method)
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "success": False,
+                        "data": None,
+                        "error": "MikroTik es de sólo lectura. Usá la Lista de bloqueo (/blocklist) "
+                                 "y su push manual.",
+                    },
+                )
+        return await call_next(request)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application startup and shutdown."""
@@ -167,6 +233,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("glpi_collector_start_failed", error=str(e))
 
+    # Scheduler del push de la blocklist (única escritura permitida a MikroTik)
+    app.state.blocklist_task = asyncio.create_task(_blocklist_scheduler())
+
     # Start Report Scheduler (automated AI report generation)
     try:
         report_scheduler = get_report_scheduler()
@@ -185,6 +254,9 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("netshield_shutting_down")
+    task = getattr(app.state, "blocklist_task", None)
+    if task:
+        task.cancel()
     try:
         mt_service = get_mikrotik_service()
         await mt_service.disconnect()
@@ -255,6 +327,8 @@ _PUBLIC_PATHS: frozenset[str] = frozenset({
     "/docs",
     "/redoc",
     "/openapi.json",
+    "/blocklist.txt",
+    "/blocklist.json",
 })
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
@@ -299,6 +373,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(JWTAuthMiddleware)
+app.add_middleware(MikroTikReadOnlyMiddleware)
 
 
 # ── Routers ───────────────────────────────────────────────────────
@@ -318,6 +393,8 @@ app.include_router(widgets_router.router)
 app.include_router(dhcp_router.router)
 app.include_router(auth_router.router)
 app.include_router(public_tickets_router.router)
+app.include_router(blocklist_router.router)
+app.include_router(blocklist_router.export_router)
 
 
 # ── Root & Health Check ───────────────────────────────────────────

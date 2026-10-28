@@ -37,6 +37,7 @@ import {
   LayoutDashboard,
   Server,
   LogOut,
+  Ban,
   Bell,
   Bug,
   Target,
@@ -64,7 +65,7 @@ const navGroups = [
     items: [
       { to: '/network', icon: Network, label: 'Red', end: false },
       { to: '/firewall', icon: Flame, label: 'Firewall', end: false },
-      { to: '/dhcp', icon: Server, label: 'DHCP', end: false },
+      { to: '/blocklist', icon: Ban, label: 'Lista de bloqueo', end: false },
     ],
   },
   {
@@ -278,7 +279,7 @@ export default function Layout() {
       {blockIPTarget && (
         <ConfirmModal
           title="Bloquear IP"
-          description="Esta IP será añadida a Blacklist_Automatica en MikroTik por 24 horas."
+          description="La IP se agrega a la Lista de bloqueo. No se aplica al firewall hasta que hagas el push manual desde esa sección."
           data={{ IP: blockIPTarget, Duración: '24h', Lista: 'Blacklist_Automatica' }}
           confirmLabel="Bloquear"
           onConfirm={handleBlockIPConfirm}

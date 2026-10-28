@@ -28,6 +28,7 @@ import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import LoginPage from './components/auth/LoginPage';
 import PublicTicketPage from './components/public/PublicTicketPage';
+import { BlocklistView } from './components/blocklist/BlocklistView';
 import Layout from './components/Layout';
 // Existing pages
 import FirewallPage from './components/firewall/FirewallPage';
@@ -51,7 +52,6 @@ import { WazuhVulnerabilitiesPage } from './components/wazuh/VulnerabilitiesPage
 import { WazuhMitrePage } from './components/wazuh/MitrePage';
 import { AgentDetailPage as WazuhAgentDetailPage } from './components/wazuh/AgentDetailPanel';
 // DHCP
-import DhcpPage from './components/dhcp/DhcpPage';
 // Admin
 import UsersManagementPage from './components/admin/UsersManagementPage';
 import AuditHistoryPage from './components/admin/AuditHistoryPage';
@@ -97,7 +97,6 @@ export default function App() {
               {/* Infrastructure */}
               <Route path="/network" element={<NetworkPage />} />
               <Route path="/firewall" element={<FirewallPage />} />
-              <Route path="/dhcp" element={<DhcpPage />} />
 
               {/* Tools */}
               <Route path="/phishing" element={<PhishingPanel />} />
@@ -106,6 +105,7 @@ export default function App() {
 
               {/* Inventory — GLPI */}
               <Route path="/inventory" element={<InventoryPage />} />
+              <Route path="/blocklist" element={<BlocklistView />} />
 
               {/* Legacy redirect — VLANs page merged into /network */}
               <Route path="/vlans" element={<Navigate to="/network" replace />} />

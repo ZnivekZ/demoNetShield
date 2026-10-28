@@ -20,6 +20,7 @@ from schemas.security import (
     QuarantineRequest,
     SecurityBlockIPRequest,
 )
+from services import blocklist_store
 from services.mikrotik_service import MikroTikService, get_mikrotik_service
 from services.wazuh_service import WazuhService, get_wazuh_service
 
@@ -43,16 +44,15 @@ async def block_ip(
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """
-    [MikroTik API] + [DB] Block an IP via address list "Blacklist_Automatica".
-    Requires user confirmation via ConfirmModal on frontend.
+    [DB] Encola la IP en la Lista de bloqueo (NO escribe en MikroTik).
+    El push al firewall es manual, tras revisión humana.
     """
     try:
-        timeout = f"{request.duration_hours}h"
-        result = await mikrotik.add_to_address_list(
-            ip=request.ip,
-            list_name="Blacklist_Automatica",
-            timeout=timeout,
-            comment=f"NetShield: {request.reason}",
+        result = blocklist_store.add(
+            request.ip,
+            f"{request.reason} ({request.source})",
+            source="security",
+            duration=f"{request.duration_hours}h" if request.duration_hours else "",
         )
 
         await log_action(
@@ -93,11 +93,8 @@ async def auto_block(
         # internally by the WebSocket alert monitor. Here it's exposed
         # as an endpoint that the frontend calls after ConfirmModal.
 
-        result = await mikrotik.add_to_address_list(
-            ip=request.ip,
-            list_name="Blacklist_Automatica",
-            timeout="24h",
-            comment=f"Auto-block: {request.reason}",
+        result = blocklist_store.add(
+            request.ip, f"Auto-block: {request.reason}", source="security"
         )
 
         await log_action(
@@ -119,72 +116,6 @@ async def auto_block(
     except Exception as e:
         logger.error("api_auto_block_failed", ip=request.ip, error=str(e))
         return APIResponse.fail(f"Failed to auto-block IP: {str(e)}")
-
-
-@router.post("/quarantine")
-async def quarantine_agent(
-    request: QuarantineRequest,
-    mikrotik: MikroTikService = Depends(get_mt_service),
-    wazuh: WazuhService = Depends(get_wz_service),
-    db: AsyncSession = Depends(get_db),
-) -> APIResponse:
-    """
-    [Ambas] Quarantine an agent by moving its port to a quarantine VLAN.
-    1. Verifies agent exists and is active in Wazuh
-    2. Attempts to move bridge port to quarantine VLAN in MikroTik
-    
-    PLACEHOLDER: Requires physical MikroTik bridge with per-port VLANs.
-    Lab topology uses VirtualBox — returns descriptive message.
-    Requires user confirmation via ConfirmModal on frontend.
-    """
-    try:
-        # Step 1: Verify agent in Wazuh
-        agents = await wazuh.get_agents()
-        target_agent = None
-        for agent in agents:
-            if agent.get("id") == request.agent_id:
-                target_agent = agent
-                break
-
-        if not target_agent:
-            return APIResponse.fail(f"Agent {request.agent_id} not found in Wazuh")
-
-        if target_agent.get("status") != "active":
-            return APIResponse.fail(
-                f"Agent {request.agent_id} is not active "
-                f"(status: {target_agent.get('status')})"
-            )
-
-        # Step 2: Move port to quarantine VLAN (placeholder)
-        agent_ip = target_agent.get("ip", "")
-        result = await mikrotik.quarantine_agent_port(
-            port_name=f"agent-{request.agent_id}",
-            vlan_id=request.vlan_quarantine_id,
-        )
-
-        await log_action(
-            db,
-            action_type="quarantine",
-            severity="critical",
-            target_ip=agent_ip,
-            details={
-                "agent_id": request.agent_id,
-                "agent_name": target_agent.get("name", ""),
-                "vlan_id": request.vlan_quarantine_id,
-                "executed": result.get("executed", False),
-            },
-            comment=f"Quarantine requested for agent {request.agent_id}",
-        )
-
-        logger.info(
-            "api_quarantine_requested",
-            agent_id=request.agent_id,
-            executed=result.get("executed", False),
-        )
-        return APIResponse.ok(result)
-    except Exception as e:
-        logger.error("api_quarantine_failed", agent_id=request.agent_id, error=str(e))
-        return APIResponse.fail(f"Failed to quarantine agent: {str(e)}")
 
 
 @router.post("/geo-block")
@@ -221,11 +152,8 @@ async def geo_block(
 
         for ip_range in request.ip_ranges:
             try:
-                result = await mikrotik.add_to_address_list(
-                    ip=ip_range,
-                    list_name="Geo_Block",
-                    timeout=timeout,
-                    comment=f"Geo-block: {request.country_code}",
+                result = blocklist_store.add(
+                    ip_range, f"Geo-block {request.country_code}", source="security"
                 )
                 added.append({"range": ip_range, "result": result})
             except Exception as range_err:

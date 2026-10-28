@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import contextmanager
 from typing import Any
 
 import routeros_api
@@ -31,6 +32,44 @@ from services import routeros_compat  # noqa: F401  # parchea la decodificación
 from services.resilience import make_resilience
 
 logger = structlog.get_logger(__name__)
+
+
+class MikroTikReadOnlyError(Exception):
+    """MikroTik está en modo sólo lectura: la única escritura permitida es el
+    push de la blocklist (services/blocklist_store.py → sync_blocklist)."""
+    pass
+
+
+class _ReadOnlyResource:
+    """Proxy de un recurso RouterOS que bloquea add/set/remove salvo que el
+    servicio habilite la escritura explícitamente (push de la blocklist)."""
+
+    _WRITE_METHODS = frozenset({"add", "set", "remove", "unset"})
+
+    def __init__(self, resource: Any, service: "MikroTikService") -> None:
+        self._resource = resource
+        self._service = service
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self._WRITE_METHODS and not self._service._write_enabled:
+            raise MikroTikReadOnlyError(
+                f"escritura bloqueada en RouterOS ({name}); sólo se permite el push de la blocklist"
+            )
+        return getattr(self._resource, name)
+
+
+class _ReadOnlyApi:
+    """Envuelve la API de routeros_api para que get_resource() devuelva el proxy."""
+
+    def __init__(self, api: Any, service: "MikroTikService") -> None:
+        self._api = api
+        self._service = service
+
+    def get_resource(self, path: str) -> _ReadOnlyResource:
+        return _ReadOnlyResource(self._api.get_resource(path), self._service)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._api, name)
 
 
 class MikroTikUnavailable(Exception):
@@ -63,6 +102,7 @@ class MikroTikService:
         self._connection: routeros_api.RouterOsApiPool | None = None
         self._api: Any = None
         self._connected = False
+        self._write_enabled = False  # sólo lo habilita allow_writes() (push blocklist)
         self._connect_lock = asyncio.Lock()
         self._api_lock = asyncio.Lock()
         self._settings = get_settings()
@@ -114,7 +154,7 @@ class MikroTikService:
                     self._executor.run(self._create_connection),
                     timeout=3.0,
                 )
-                self._api = self._connection.get_api()
+                self._api = _ReadOnlyApi(self._connection.get_api(), self)
                 self._connected = True
                 self._breaker.record_success()
                 logger.info(
@@ -391,63 +431,6 @@ class MikroTikService:
             logger.error("mikrotik_get_firewall_rules_failed", error=str(e))
             raise
 
-    async def block_ip(self, ip: str, comment: str = "Blocked via NetShield") -> dict:
-        """
-        Add a drop rule in chain=forward with src-address=ip.
-        Returns the created rule info.
-        """
-        try:
-            loop = asyncio.get_event_loop()
-            await self._ensure_connected()
-
-            def _add_rule():
-                resource = self._api.get_resource("/ip/firewall/filter")
-                rule_id = resource.add(
-                    chain="forward",
-                    action="drop",
-                    src_address=ip,
-                    comment=comment,
-                )
-                return rule_id
-
-            rule_id = await self._executor.run(_add_rule)
-            logger.info("mikrotik_ip_blocked", ip=ip, rule_id=rule_id, comment=comment)
-            return {"rule_id": rule_id, "ip": ip, "action": "blocked", "comment": comment}
-        except Exception as e:
-            logger.error("mikrotik_block_ip_failed", ip=ip, error=str(e))
-            raise
-
-    async def unblock_ip(self, ip: str) -> dict:
-        """
-        Remove all drop rules matching src-address=ip in chain=forward.
-        """
-        try:
-            rules = await self._api_call("/ip/firewall/filter")
-            removed = []
-            loop = asyncio.get_event_loop()
-
-            for rule in rules:
-                if (
-                    rule.get("chain") == "forward"
-                    and rule.get("action") == "drop"
-                    and rule.get("src-address") == ip
-                ):
-                    rule_id = rule.get(".id")
-                    if rule_id:
-
-                        def _remove(rid=rule_id):
-                            resource = self._api.get_resource("/ip/firewall/filter")
-                            resource.remove(id=rid)
-
-                        await self._executor.run(_remove)
-                        removed.append(rule_id)
-
-            logger.info("mikrotik_ip_unblocked", ip=ip, rules_removed=len(removed))
-            return {"ip": ip, "action": "unblocked", "rules_removed": removed}
-        except Exception as e:
-            logger.error("mikrotik_unblock_ip_failed", ip=ip, error=str(e))
-            raise
-
     async def get_logs(self, limit: int = 50) -> list[dict]:
         """Get recent system logs from RouterOS."""
         try:
@@ -489,74 +472,6 @@ class MikroTikService:
             return result
         except Exception as e:
             logger.error("mikrotik_get_vlans_failed", error=str(e))
-            raise
-
-    async def create_vlan(
-        self, vlan_id: int, name: str, interface: str, comment: str = ""
-    ) -> dict:
-        """Create a new VLAN interface on RouterOS."""
-        try:
-            kwargs = {
-                "vlan_id": str(vlan_id),
-                "name": name,
-                "interface": interface,
-            }
-            if comment:
-                kwargs["comment"] = comment
-            
-            result_id = await self._api_call("/interface/vlan", command="add", **kwargs)
-            logger.info(
-                "mikrotik_vlan_created",
-                vlan_id=vlan_id,
-                name=name,
-                interface=interface,
-            )
-            return {
-                "id": result_id,
-                "vlan_id": vlan_id,
-                "name": name,
-                "interface": interface,
-                "comment": comment,
-            }
-        except Exception as e:
-            logger.error("mikrotik_create_vlan_failed", vlan_id=vlan_id, error=str(e))
-            raise
-
-    async def update_vlan(
-        self, vlan_ros_id: str, name: str | None = None, comment: str | None = None
-    ) -> dict:
-        """Update an existing VLAN interface (name and/or comment)."""
-        try:
-            kwargs: dict[str, Any] = {"id": vlan_ros_id}
-            if name is not None:
-                kwargs["name"] = name
-            if comment is not None:
-                kwargs["comment"] = comment
-                
-            await self._api_call("/interface/vlan", command="set", **kwargs)
-            logger.info(
-                "mikrotik_vlan_updated",
-                ros_id=vlan_ros_id,
-                name=name,
-                comment=comment,
-            )
-            return {"id": vlan_ros_id, "name": name, "comment": comment, "action": "updated"}
-        except Exception as e:
-            logger.error(
-                "mikrotik_update_vlan_failed", ros_id=vlan_ros_id, error=str(e)
-            )
-            raise
-
-    async def delete_vlan(self, vlan_ros_id: str) -> dict:
-        """Delete a VLAN interface from RouterOS."""
-        try:
-            await self._api_call("/interface/vlan", command="remove", id=vlan_ros_id)
-            logger.info("mikrotik_vlan_deleted", ros_id=vlan_ros_id)
-            return {"id": vlan_ros_id, "action": "deleted"}
-        except Exception as e:
-            logger.error(
-                "mikrotik_delete_vlan_failed", ros_id=vlan_ros_id, error=str(e)
-            )
             raise
 
     async def get_vlan_traffic(self) -> list[dict]:
@@ -696,34 +611,66 @@ class MikroTikService:
             logger.error("mikrotik_search_arp_failed", error=str(e))
             raise
 
-    async def add_to_address_list(
-        self, ip: str, list_name: str, timeout: str = "24h", comment: str = ""
+    @contextmanager
+    def allow_writes(self):
+        """Habilita escritura en RouterOS durante el bloque (uso exclusivo del
+        push de la blocklist)."""
+        previous, self._write_enabled = self._write_enabled, True
+        try:
+            yield
+        finally:
+            self._write_enabled = previous
+
+    async def sync_blocklist(
+        self,
+        ips: list[tuple[str, str, str]],
+        list_name: str,
+        remove_missing: bool = False,
     ) -> dict:
         """
-        [MikroTik API] Add IP to an address list with optional expiration.
-        Resource: /ip/firewall/address-list
+        [MikroTik API] Sincroniza una address-list con la lista local.
+
+        ÚNICA escritura permitida hacia el router. Sólo agrega las que faltan
+        y, si `remove_missing`, quita las que ya no están en la lista.
         """
+        current = await self.get_address_list(list_name)
+        existing: dict[str, str] = {
+            str(e.get("address")): str(e.get("id"))
+            for e in current
+            if e.get("address") and e.get("id")
+        }
+        wanted = {ip for ip, _comment, _duration in ips}
+        added = removed = 0
 
-        try:
-            kwargs = {
-                "address": ip,
-                "list": list_name,
-                "timeout": timeout,
-            }
-            if comment:
-                kwargs["comment"] = comment
+        with self.allow_writes():
+            for ip, comment, duration in ips:
+                if ip in existing:
+                    continue
+                kwargs = {
+                    "address": ip,
+                    "list": list_name,
+                    "comment": (comment or "NetShield")[:200],
+                }
+                if duration:
+                    kwargs["timeout"] = duration
+                await self._api_call("/ip/firewall/address-list", command="add", **kwargs)
+                added += 1
 
-            result_id = await self._api_call("/ip/firewall/address-list", command="add", **kwargs)
-            logger.info(
-                "mikrotik_address_list_added",
-                ip=ip,
-                list=list_name,
-                timeout=timeout,
-            )
-            return {"id": result_id, "ip": ip, "list": list_name, "timeout": timeout}
-        except Exception as e:
-            logger.error("mikrotik_add_to_address_list_failed", ip=ip, list=list_name, error=str(e))
-            raise
+            if remove_missing:
+                for ip, rid in existing.items():
+                    if ip in wanted:
+                        continue
+                    await self._api_call("/ip/firewall/address-list", command="remove", id=rid)
+                    removed += 1
+
+        logger.info(
+            "mikrotik_blocklist_synced",
+            list=list_name,
+            total=len(ips),
+            added=added,
+            removed=removed,
+        )
+        return {"added": added, "removed": removed, "total": len(ips)}
 
     async def remove_from_address_list(self, ip: str, list_name: str) -> dict:
         """
@@ -738,7 +685,7 @@ class MikroTikService:
 
             for entry in entries:
                 if entry.get("address") == ip and entry.get("list") == list_name:
-                    entry_id = entry.get(".id")
+                    entry_id = entry.get(".id") or entry.get("id")
                     if entry_id:
                         def _remove(rid=entry_id):
                             resource = self._api.get_resource("/ip/firewall/address-list")
@@ -767,7 +714,7 @@ class MikroTikService:
                 if list_name and entry.get("list") != list_name:
                     continue
                 result.append({
-                    "id": entry.get(".id", ""),
+                    "id": entry.get(".id") or entry.get("id", ""),
                     "address": entry.get("address", ""),
                     "list": entry.get("list", ""),
                     "timeout": entry.get("timeout", ""),
@@ -782,58 +729,6 @@ class MikroTikService:
             logger.error("mikrotik_get_address_list_failed", error=str(e))
             raise
 
-    async def add_dns_static(
-        self, domain: str, address: str = "127.0.0.1", comment: str = ""
-    ) -> dict:
-        """
-        [MikroTik API] Add a static DNS entry (sinkhole).
-        Resource: /ip/dns/static
-        """
-
-        try:
-            kwargs = {
-                "name": domain,
-                "address": address,
-            }
-            if comment:
-                kwargs["comment"] = comment
-
-            result_id = await self._api_call("/ip/dns/static", command="add", **kwargs)
-            logger.info("mikrotik_dns_sinkhole_added", domain=domain, address=address)
-            return {"id": result_id, "domain": domain, "address": address}
-        except Exception as e:
-            logger.error("mikrotik_add_dns_static_failed", domain=domain, error=str(e))
-            raise
-
-    async def remove_dns_static(self, domain: str) -> dict:
-        """
-        [MikroTik API] Remove a static DNS entry by domain name.
-        Resource: /ip/dns/static
-        """
-
-        try:
-            entries = await self._api_call("/ip/dns/static")
-            removed = []
-            loop = asyncio.get_event_loop()
-
-            for entry in entries:
-                if entry.get("name") == domain:
-                    entry_id = entry.get(".id")
-                    if entry_id:
-                        def _remove(rid=entry_id):
-                            resource = self._api.get_resource("/ip/dns/static")
-                            resource.remove(id=rid)
-
-                        async with self._api_lock:
-                            await self._executor.run(_remove)
-                        removed.append(entry_id)
-
-            logger.info("mikrotik_dns_sinkhole_removed", domain=domain, removed=len(removed))
-            return {"domain": domain, "entries_removed": removed}
-        except Exception as e:
-            logger.error("mikrotik_remove_dns_static_failed", domain=domain, error=str(e))
-            raise
-
     async def get_dns_static(self) -> list[dict]:
         """
         [MikroTik API] Get all static DNS entries (sinkhole list).
@@ -845,7 +740,7 @@ class MikroTikService:
             result = []
             for entry in entries:
                 result.append({
-                    "id": entry.get(".id", ""),
+                    "id": entry.get(".id") or entry.get("id", ""),
                     "domain": entry.get("name", ""),
                     "address": entry.get("address", ""),
                     "comment": entry.get("comment", ""),
@@ -883,36 +778,6 @@ class MikroTikService:
             logger.error("mikrotik_get_dhcp_servers_failed", error=str(e))
             raise
 
-    async def create_dhcp_server(
-        self, name: str, interface: str, address_pool: str,
-        lease_time: str = "1d", authoritative: str = "after-2sec", comment: str = ""
-    ) -> dict:
-        """[DHCP] Create a DHCP server instance. Resource: /ip/dhcp-server add"""
-
-        try:
-            kwargs = {"name": name, "interface": interface, "address_pool": address_pool,
-                      "lease_time": lease_time, "authoritative": authoritative}
-            if comment:
-                kwargs["comment"] = comment
-            rid = await self._api_call("/ip/dhcp-server", command="add", **kwargs)
-            logger.info("mikrotik_dhcp_server_created", name=name, interface=interface)
-            return {"id": rid, "name": name, "interface": interface}
-        except Exception as e:
-            logger.error("mikrotik_create_dhcp_server_failed", name=name, error=str(e))
-            raise
-
-    async def toggle_dhcp_server(self, server_id: str, disabled: bool) -> dict:
-        """[DHCP] Enable or disable a DHCP server. Resource: /ip/dhcp-server set"""
-
-        try:
-            await self._api_call("/ip/dhcp-server", command="set", id=server_id,
-                                 disabled="yes" if disabled else "no")
-            logger.info("mikrotik_dhcp_server_toggled", id=server_id, disabled=disabled)
-            return {"id": server_id, "disabled": disabled, "action": "toggled"}
-        except Exception as e:
-            logger.error("mikrotik_toggle_dhcp_server_failed", id=server_id, error=str(e))
-            raise
-
     async def get_dhcp_leases(self, server: str | None = None) -> list[dict]:
         """[DHCP] Get all DHCP leases (dynamic + static). Resource: /ip/dhcp-server/lease"""
 
@@ -945,57 +810,6 @@ class MikroTikService:
             logger.error("mikrotik_get_dhcp_leases_failed", error=str(e))
             raise
 
-    async def create_dhcp_lease(
-        self, address: str, mac_address: str, server: str,
-        comment: str = "", rate_limit: str = ""
-    ) -> dict:
-        """[DHCP] Create a static DHCP lease (reservation). Resource: /ip/dhcp-server/lease add"""
-
-        try:
-            kwargs = {"address": address, "mac_address": mac_address, "server": server}
-            if comment:
-                kwargs["comment"] = comment
-            if rate_limit:
-                kwargs["rate_limit"] = rate_limit
-            rid = await self._api_call("/ip/dhcp-server/lease", command="add", **kwargs)
-            logger.info("mikrotik_dhcp_lease_created", address=address, mac=mac_address)
-            return {"id": rid, "address": address, "mac_address": mac_address, "server": server}
-        except Exception as e:
-            logger.error("mikrotik_create_dhcp_lease_failed", address=address, error=str(e))
-            raise
-
-    async def update_dhcp_lease(
-        self, lease_id: str, comment: str | None = None,
-        rate_limit: str | None = None, disabled: bool | None = None
-    ) -> dict:
-        """[DHCP] Update lease comment, rate-limit, or disabled state."""
-
-        try:
-            kwargs: dict = {"id": lease_id}
-            if comment is not None:
-                kwargs["comment"] = comment
-            if rate_limit is not None:
-                kwargs["rate_limit"] = rate_limit
-            if disabled is not None:
-                kwargs["disabled"] = "yes" if disabled else "no"
-            await self._api_call("/ip/dhcp-server/lease", command="set", **kwargs)
-            logger.info("mikrotik_dhcp_lease_updated", id=lease_id)
-            return {"id": lease_id, "action": "updated"}
-        except Exception as e:
-            logger.error("mikrotik_update_dhcp_lease_failed", id=lease_id, error=str(e))
-            raise
-
-    async def delete_dhcp_lease(self, lease_id: str) -> dict:
-        """[DHCP] Delete a DHCP lease. Resource: /ip/dhcp-server/lease remove"""
-
-        try:
-            await self._api_call("/ip/dhcp-server/lease", command="remove", id=lease_id)
-            logger.info("mikrotik_dhcp_lease_deleted", id=lease_id)
-            return {"id": lease_id, "action": "deleted"}
-        except Exception as e:
-            logger.error("mikrotik_delete_dhcp_lease_failed", id=lease_id, error=str(e))
-            raise
-
     async def make_lease_static(self, lease_id: str) -> dict:
         """[DHCP] Convert a dynamic lease to static (permanent reservation)."""
 
@@ -1007,18 +821,6 @@ class MikroTikService:
             return {"id": lease_id, "action": "made_static", "dynamic": False}
         except Exception as e:
             logger.error("mikrotik_make_lease_static_failed", id=lease_id, error=str(e))
-            raise
-
-    async def set_dhcp_lease_block(self, lease_id: str, block: bool) -> dict:
-        """[DHCP] Block or unblock DHCP access for a client (block-access flag)."""
-
-        try:
-            await self._api_call("/ip/dhcp-server/lease", command="set",
-                                 id=lease_id, **{"block_access": "yes" if block else "no"})
-            logger.info("mikrotik_dhcp_lease_block_set", id=lease_id, block=block)
-            return {"id": lease_id, "blocked": block, "action": "block_updated"}
-        except Exception as e:
-            logger.error("mikrotik_set_dhcp_lease_block_failed", id=lease_id, error=str(e))
             raise
 
     async def get_dhcp_networks(self) -> list[dict]:
@@ -1044,37 +846,6 @@ class MikroTikService:
             logger.error("mikrotik_get_dhcp_networks_failed", error=str(e))
             raise
 
-    async def create_dhcp_network(
-        self, address: str, gateway: str = "", dns_server: str = "",
-        domain: str = "", ntp_server: str = "", comment: str = ""
-    ) -> dict:
-        """[DHCP] Create DHCP network config. Resource: /ip/dhcp-server/network add"""
-
-        try:
-            kwargs = {"address": address}
-            if gateway: kwargs["gateway"] = gateway
-            if dns_server: kwargs["dns_server"] = dns_server
-            if domain: kwargs["domain"] = domain
-            if ntp_server: kwargs["ntp_server"] = ntp_server
-            if comment: kwargs["comment"] = comment
-            rid = await self._api_call("/ip/dhcp-server/network", command="add", **kwargs)
-            logger.info("mikrotik_dhcp_network_created", address=address)
-            return {"id": rid, "address": address}
-        except Exception as e:
-            logger.error("mikrotik_create_dhcp_network_failed", address=address, error=str(e))
-            raise
-
-    async def update_dhcp_network(self, network_id: str, **fields) -> dict:
-        """[DHCP] Update DHCP network config fields."""
-
-        try:
-            await self._api_call("/ip/dhcp-server/network", command="set", id=network_id, **fields)
-            logger.info("mikrotik_dhcp_network_updated", id=network_id)
-            return {"id": network_id, "action": "updated"}
-        except Exception as e:
-            logger.error("mikrotik_update_dhcp_network_failed", id=network_id, error=str(e))
-            raise
-
     async def get_ip_pools(self) -> list[dict]:
         """[DHCP] Get all IP pools. Resource: /ip/pool"""
 
@@ -1092,36 +863,6 @@ class MikroTikService:
             return result
         except Exception as e:
             logger.error("mikrotik_get_ip_pools_failed", error=str(e))
-            raise
-
-    async def create_ip_pool(self, name: str, ranges: str, next_pool: str = "") -> dict:
-        """[DHCP] Create an IP pool. Resource: /ip/pool add"""
-
-        try:
-            kwargs = {"name": name, "ranges": ranges}
-            if next_pool:
-                kwargs["next_pool"] = next_pool
-            rid = await self._api_call("/ip/pool", command="add", **kwargs)
-            logger.info("mikrotik_ip_pool_created", name=name, ranges=ranges)
-            return {"id": rid, "name": name, "ranges": ranges}
-        except Exception as e:
-            logger.error("mikrotik_create_ip_pool_failed", name=name, error=str(e))
-            raise
-
-    async def update_ip_pool(self, pool_id: str, ranges: str | None = None, next_pool: str | None = None) -> dict:
-        """[DHCP] Update an IP pool's ranges or next-pool."""
-
-        try:
-            kwargs: dict = {"id": pool_id}
-            if ranges is not None:
-                kwargs["ranges"] = ranges
-            if next_pool is not None:
-                kwargs["next_pool"] = next_pool
-            await self._api_call("/ip/pool", command="set", **kwargs)
-            logger.info("mikrotik_ip_pool_updated", id=pool_id)
-            return {"id": pool_id, "action": "updated"}
-        except Exception as e:
-            logger.error("mikrotik_update_ip_pool_failed", id=pool_id, error=str(e))
             raise
 
     async def get_dhcp_subnet_usage(self) -> list[dict]:
@@ -1202,23 +943,6 @@ class MikroTikService:
             logger.error("mikrotik_get_dhcp_rogue_alerts_failed", error=str(e))
             raise
 
-    async def create_dhcp_rogue_alert(
-        self, interface: str, valid_server: str = "",
-        alert_timeout: str = "1h", on_alert: str = ""
-    ) -> dict:
-        """[DHCP] Create a rogue DHCP alert config. Resource: /ip/dhcp-server/alert add"""
-
-        try:
-            kwargs = {"interface": interface, "alert_timeout": alert_timeout}
-            if valid_server: kwargs["valid_server"] = valid_server
-            if on_alert: kwargs["on_alert"] = on_alert
-            rid = await self._api_call("/ip/dhcp-server/alert", command="add", **kwargs)
-            logger.info("mikrotik_dhcp_rogue_alert_created", interface=interface)
-            return {"id": rid, "interface": interface}
-        except Exception as e:
-            logger.error("mikrotik_create_dhcp_rogue_alert_failed", interface=interface, error=str(e))
-            raise
-
     async def get_dhcp_options(self) -> list[dict]:
         """[DHCP] Get custom DHCP options. Resource: /ip/dhcp-server/option"""
 
@@ -1237,19 +961,6 @@ class MikroTikService:
             return result
         except Exception as e:
             logger.error("mikrotik_get_dhcp_options_failed", error=str(e))
-            raise
-
-    async def create_dhcp_option(self, name: str, code: int, value: str, raw: bool = False) -> dict:
-        """[DHCP] Create a custom DHCP option. Resource: /ip/dhcp-server/option add"""
-
-        try:
-            rid = await self._api_call("/ip/dhcp-server/option", command="add",
-                                       name=name, code=str(code), value=value,
-                                       raw="yes" if raw else "no")
-            logger.info("mikrotik_dhcp_option_created", name=name, code=code)
-            return {"id": rid, "name": name, "code": code}
-        except Exception as e:
-            logger.error("mikrotik_create_dhcp_option_failed", name=name, error=str(e))
             raise
 
     async def execute_readonly_command(self, path: str) -> list[dict]:
@@ -1480,108 +1191,6 @@ class MikroTikService:
         except Exception as e:
             logger.error("mikrotik_get_queues_failed", error=str(e))
             raise
-
-    async def create_queue(
-        self, name: str, target: str, max_limit: str = "0/0",
-        burst_limit: str = "0/0", burst_threshold: str = "0/0",
-        burst_time: str = "0s/0s", comment: str = ""
-    ) -> dict:
-        """
-        [MikroTik API] Create a simple queue (bandwidth limiter).
-        Resource: /queue/simple add
-        max_limit format: 'upload/download' e.g. '5M/10M'
-        """
-
-        try:
-            kwargs: dict = {"name": name, "target": target, "max_limit": max_limit}
-            if burst_limit != "0/0":
-                kwargs["burst_limit"] = burst_limit
-                kwargs["burst_threshold"] = burst_threshold
-                kwargs["burst_time"] = burst_time
-            if comment:
-                kwargs["comment"] = comment
-            rid = await self._api_call("/queue/simple", command="add", **kwargs)
-            logger.info("mikrotik_queue_created", name=name, target=target, max_limit=max_limit)
-            return {"id": rid, "name": name, "target": target, "max_limit": max_limit}
-        except Exception as e:
-            logger.error("mikrotik_create_queue_failed", name=name, error=str(e))
-            raise
-
-    async def update_queue(
-        self, queue_id: str, name: str | None = None, max_limit: str | None = None,
-        comment: str | None = None, disabled: bool | None = None
-    ) -> dict:
-        """
-        [MikroTik API] Update a simple queue.
-        Resource: /queue/simple set
-        """
-
-        try:
-            kwargs: dict = {"id": queue_id}
-            if name is not None:
-                kwargs["name"] = name
-            if max_limit is not None:
-                kwargs["max_limit"] = max_limit
-            if comment is not None:
-                kwargs["comment"] = comment
-            if disabled is not None:
-                kwargs["disabled"] = "yes" if disabled else "no"
-            await self._api_call("/queue/simple", command="set", **kwargs)
-            logger.info("mikrotik_queue_updated", id=queue_id)
-            return {"id": queue_id, "action": "updated"}
-        except Exception as e:
-            logger.error("mikrotik_update_queue_failed", id=queue_id, error=str(e))
-            raise
-
-    async def delete_queue(self, queue_id: str) -> dict:
-        """
-        [MikroTik API] Delete a simple queue.
-        Resource: /queue/simple remove
-        """
-
-        try:
-            await self._api_call("/queue/simple", command="remove", id=queue_id)
-            logger.info("mikrotik_queue_deleted", id=queue_id)
-            return {"id": queue_id, "action": "deleted"}
-        except Exception as e:
-            logger.error("mikrotik_delete_queue_failed", id=queue_id, error=str(e))
-            raise
-
-    async def quarantine_agent_port(self, port_name: str, vlan_id: int) -> dict:
-        """
-        [MikroTik API] Move a bridge port to a quarantine VLAN.
-        Resource: /interface/bridge/vlan
-
-        PLACEHOLDER: This function requires a physical MikroTik bridge with
-        per-port VLAN configuration. The lab uses VirtualBox internal networking
-        without a physical switch, so this operation will log the intention
-        but return a descriptive message instead of executing.
-
-        In production with a physical bridge:
-        1. Find the bridge port for the agent's interface
-        2. Update the bridge VLAN assignment to the quarantine VLAN
-        3. Remove the port from its current VLAN
-        """
-        logger.warning(
-            "mikrotik_quarantine_placeholder",
-            port=port_name,
-            vlan=vlan_id,
-            msg="Quarantine requires physical bridge with per-port VLANs. "
-                "Lab topology uses VirtualBox internal networking.",
-        )
-        return {
-            "action": "quarantine_requested",
-            "port": port_name,
-            "target_vlan": vlan_id,
-            "executed": False,
-            "message": (
-                "Quarantine requires a physical MikroTik bridge with per-port VLAN "
-                "configuration. The current lab topology uses VirtualBox internal "
-                "networking without a managed switch. The quarantine intention has been "
-                "logged. To enable this feature, configure a bridge with VLAN filtering "
-                "on physical interfaces."
-            ),
-        }
 
     async def disconnect(self) -> None:
         """Cleanly close the RouterOS connection."""

@@ -32,6 +32,7 @@ from schemas.phishing import (
     PhishingSimulateRequest,
     SinkholeRequest,
 )
+from services import blocklist_store
 from services.mikrotik_service import MikroTikService, get_mikrotik_service
 from services.wazuh_service import WazuhService, get_wazuh_service
 
@@ -302,82 +303,6 @@ async def get_phishing_stats(
 # ── Sinkhole Management ──────────────────────────────────────────
 
 
-@router.post("/domains/sinkhole")
-async def sinkhole_domain(
-    request: SinkholeRequest,
-    mikrotik: MikroTikService = Depends(get_mt_service),
-    db: AsyncSession = Depends(get_db),
-) -> APIResponse:
-    """
-    [MikroTik API] + [DB] Add domain to DNS sinkhole (resolve to 127.0.0.1).
-    Requires user confirmation via ConfirmModal on frontend.
-    """
-    try:
-        # Add to MikroTik DNS static
-        result = await mikrotik.add_dns_static(
-            domain=request.domain,
-            address="127.0.0.1",
-            comment=f"NetShield sinkhole: {request.reason}",
-        )
-
-        # Record in DB
-        entry = SinkholeEntry(
-            domain=request.domain,
-            reason=request.reason,
-        )
-        db.add(entry)
-
-        await log_action(
-            db,
-            action_type="sinkhole_add",
-            severity="critical",
-            details={"domain": request.domain, "reason": request.reason},
-            comment=f"Sinkholed domain: {request.domain}",
-        )
-
-        logger.info("api_domain_sinkholed", domain=request.domain)
-        return APIResponse.ok(result)
-    except Exception as e:
-        logger.error("api_sinkhole_domain_failed", domain=request.domain, error=str(e))
-        return APIResponse.fail(f"Failed to sinkhole domain: {str(e)}")
-
-
-@router.delete("/domains/sinkhole/{domain}")
-async def remove_sinkhole(
-    domain: str,
-    mikrotik: MikroTikService = Depends(get_mt_service),
-    db: AsyncSession = Depends(get_db),
-) -> APIResponse:
-    """
-    [MikroTik API] + [DB] Remove domain from DNS sinkhole.
-    """
-    try:
-        # Remove from MikroTik DNS static
-        result = await mikrotik.remove_dns_static(domain)
-
-        # Remove from DB
-        db_result = await db.execute(
-            select(SinkholeEntry).where(SinkholeEntry.domain == domain)
-        )
-        entry = db_result.scalar_one_or_none()
-        if entry:
-            await db.delete(entry)
-
-        await log_action(
-            db,
-            action_type="sinkhole_remove",
-            severity="medium",
-            details={"domain": domain},
-            comment=f"Removed sinkhole: {domain}",
-        )
-
-        logger.info("api_sinkhole_removed", domain=domain)
-        return APIResponse.ok(result)
-    except Exception as e:
-        logger.error("api_remove_sinkhole_failed", domain=domain, error=str(e))
-        return APIResponse.fail(f"Failed to remove sinkhole: {str(e)}")
-
-
 @router.get("/domains/sinkhole")
 async def get_sinkholes(
     mikrotik: MikroTikService = Depends(get_mt_service),
@@ -424,17 +349,14 @@ async def block_phishing_ip(
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """
-    [MikroTik API] Block IP source of phishing campaign.
-    Adds to address list "Phishing_Block" with configurable expiration.
-    Requires user confirmation via ConfirmModal on frontend.
+    [DB] Encola la IP origen del phishing en la Lista de bloqueo (NO escribe en MikroTik).
     """
     try:
-        timeout = f"{request.duration_hours}h"
-        result = await mikrotik.add_to_address_list(
-            ip=request.ip,
-            list_name="Phishing_Block",
-            timeout=timeout,
-            comment="Phishing source blocked via NetShield",
+        result = blocklist_store.add(
+            request.ip,
+            "Origen de campaña de phishing",
+            source="phishing",
+            duration=f"{request.duration_hours}h" if request.duration_hours else "",
         )
 
         await log_action(

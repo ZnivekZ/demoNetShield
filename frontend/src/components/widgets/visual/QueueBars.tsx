@@ -33,10 +33,7 @@ export function QueueBars() {
 
   return (
     <div className="flex flex-col h-full">
-      <WidgetHeader
-        title="QoS — Ancho de Banda"
-        subtitle={`${active} colas activas`}
-      />
+      <WidgetHeader title="QoS — Ancho de Banda" />
       <div className="flex-1 overflow-auto space-y-4 mt-3 pr-1">
         {queues.length === 0 && (
           <p className="text-center text-surface-500 py-6 text-sm">

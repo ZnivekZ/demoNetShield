@@ -8,7 +8,6 @@ import {
   widgetsApi,
   wazuhApi,
   mikrotikApi,
-  phishingApi,
   dhcpApi,
 } from '../../../services/api';
 
@@ -120,19 +119,6 @@ export function useBlocksTimeline() {
 }
 
 /* ── Phishing Stats ────────────────────────────────────────────── */
-
-export function usePhishingStats() {
-  return useQuery({
-    queryKey: ['widget', 'phishing-stats'],
-    queryFn: async () => {
-      const res = await phishingApi.getStats();
-      if (!res.success) throw new Error(res.error ?? 'Error cargando estadísticas de phishing');
-      return res.data!;
-    },
-    staleTime: 2 * 60_000,
-    refetchInterval: 5 * 60_000,
-  });
-}
 
 /* ── Agent Alert Heatmap ───────────────────────────────────────── */
 

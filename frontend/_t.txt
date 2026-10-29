@@ -1,0 +1,26 @@
+src/components/reports/ReportsPage.tsx(2,23): error TS6133: 'useQuery' is declared but its value is never read.
+src/components/reports/TemplateSelector.tsx(2,10): error TS6133: 'Wand2' is declared but its value is never read.
+src/components/widgets/hybrid/DhcpDiscovery.tsx(37,9): error TS2322: Type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>' is not assignable to type 'string'.
+src/components/widgets/technical/DhcpLeasesWidget.tsx(31,21): error TS2322: Type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>' is not assignable to type 'string'.
+src/components/widgets/technical/DnsMonitor.tsx(23,19): error TS2352: Conversion of type 'readonly []' to type 'DnsQuery[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  The type 'readonly []' is 'readonly' and cannot be assigned to the mutable type 'DnsQuery[]'.
+src/components/widgets/technical/HttpInspector.tsx(40,16): error TS2352: Conversion of type 'readonly []' to type 'HttpTransaction[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  The type 'readonly []' is 'readonly' and cannot be assigned to the mutable type 'HttpTransaction[]'.
+src/components/widgets/technical/NatTable.tsx(28,9): error TS2322: Type '{ title: string; subtitle: string; }' is not assignable to type 'IntrinsicAttributes & WidgetHeaderProps'.
+  Property 'subtitle' does not exist on type 'IntrinsicAttributes & WidgetHeaderProps'.
+src/components/widgets/technical/RouteTable.tsx(28,9): error TS2322: Type '{ title: string; subtitle: string; }' is not assignable to type 'IntrinsicAttributes & WidgetHeaderProps'.
+  Property 'subtitle' does not exist on type 'IntrinsicAttributes & WidgetHeaderProps'.
+src/components/widgets/technical/TlsFingerprint.tsx(26,22): error TS2352: Conversion of type 'readonly []' to type 'TlsHandshake[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  The type 'readonly []' is 'readonly' and cannot be assigned to the mutable type 'TlsHandshake[]'.
+src/components/widgets/visual/DhcpSubnetUsage.tsx(31,21): error TS2322: Type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>' is not assignable to type 'string'.
+src/components/widgets/visual/DhcpSubnetUsage.tsx(39,22): error TS2345: Argument of type '(pool: { pool_name: string; used: number; total: number; usage_pct: number; range_start?: string; range_end?: string; }) => JSX.Element' is not assignable to parameter of type '(value: DhcpSubnetUsage, index: number, array: DhcpSubnetUsage[]) => Element'.
+  Types of parameters 'pool' and 'value' are incompatible.
+    Type 'DhcpSubnetUsage' is missing the following properties from type '{ pool_name: string; used: number; total: number; usage_pct: number; range_start?: string | undefined; range_end?: string | undefined; }': used, total, usage_pct
+src/components/widgets/visual/index.ts(13,31): error TS2307: Cannot find module './PhishingStats' or its corresponding type declarations.
+src/components/widgets/visual/ProtocolDonut.tsx(22,26): error TS2551: Property 'top_protocols' does not exist on type '{ protocols: never[]; }'. Did you mean 'protocols'?
+src/components/widgets/visual/QueueBars.tsx(26,9): error TS6133: 'active' is declared but its value is never read.
+src/hooks/useAuditHistory.ts(14,31): error TS6196: 'ActionSeverity' is declared but never used.
+src/types.ts(1958,15): error TS2484: Export declaration conflicts with exported declaration of 'ActionSeverity'.
+src/types.ts(1958,31): error TS2484: Export declaration conflicts with exported declaration of 'ActionLogEntry'.
+src/types.ts(1958,47): error TS2484: Export declaration conflicts with exported declaration of 'AuditPaginationMeta'.
+src/types.ts(1958,68): error TS2484: Export declaration conflicts with exported declaration of 'AuditHistoryResponse'.

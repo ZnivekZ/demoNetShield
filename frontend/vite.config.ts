@@ -7,6 +7,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // Export de la lista de bloqueo (lo consume el MikroTik / scripts)
+      '/blocklist.txt': { target: 'http://localhost:8000', changeOrigin: true },
+      '/blocklist.json': { target: 'http://localhost:8000', changeOrigin: true },
       '/api': {
         target: process.env.BACKEND_URL || 'http://localhost:8000',
         changeOrigin: true,

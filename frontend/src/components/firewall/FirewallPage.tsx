@@ -59,9 +59,6 @@ export default function FirewallPage() {
 
 function FilterTab() {
   const queryClient = useQueryClient();
-  const [blockIp, setBlockIp] = useState('');
-  const [blockComment, setBlockComment] = useState('');
-  const [blockDuration, setBlockDuration] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
 
   const {
@@ -81,21 +78,6 @@ function FilterTab() {
     refetchInterval: 15000,
   });
 
-  const blockMutation = useMutation({
-    mutationFn: () =>
-      mikrotikApi.blockIP(
-        blockIp,
-        blockComment || 'Blocked via NetShield Dashboard',
-        blockDuration ? parseInt(blockDuration) : undefined
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['firewall-rules'] });
-      queryClient.invalidateQueries({ queryKey: ['action-history'] });
-      setBlockIp('');
-      setBlockComment('');
-      setBlockDuration('');
-    },
-  });
 
   const unblockMutation = useMutation({
     mutationFn: (ip: string) => mikrotikApi.unblockIP(ip),
@@ -120,78 +102,20 @@ function FilterTab() {
   return (
     <>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Block IP Form */}
-        <div className="glass-card p-5 animate-fade-in-up">
-          <h2 className="text-sm font-semibold text-surface-200 mb-4 flex items-center gap-2">
+        {/* Bloqueo de IPs: se gestiona en la Lista de bloqueo */}
+        <div className="glass-card p-5 animate-fade-in-up bl-fw-disabled">
+          <h2 className="text-sm font-semibold text-surface-200 mb-3 flex items-center gap-2">
             <Ban className="w-4 h-4 text-danger" />
             Bloquear IP
           </h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (blockIp) blockMutation.mutate();
-            }}
-            className="space-y-3"
-          >
-            <div>
-              <label className="text-xs text-surface-400 mb-1 block">
-                Dirección IP
-              </label>
-              <input
-                type="text"
-                className="input"
-                placeholder="192.168.88.100"
-                value={blockIp}
-                onChange={(e) => setBlockIp(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="text-xs text-surface-400 mb-1 block">
-                Motivo
-              </label>
-              <input
-                type="text"
-                className="input"
-                placeholder="Actividad sospechosa"
-                value={blockComment}
-                onChange={(e) => setBlockComment(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-surface-400 mb-1 block">
-                Duración (minutos, vacío = permanente)
-              </label>
-              <input
-                type="number"
-                className="input"
-                placeholder="60"
-                value={blockDuration}
-                onChange={(e) => setBlockDuration(e.target.value)}
-                min="1"
-              />
-            </div>
-            <button
-              type="submit"
-              className="btn btn-danger w-full"
-              disabled={blockMutation.isPending || !blockIp}
-            >
-              {blockMutation.isPending ? (
-                <span className="loading-spinner" />
-              ) : (
-                <Ban className="w-4 h-4" />
-              )}
-              Bloquear IP
-            </button>
-            {blockMutation.isError && (
-              <p className="text-xs text-danger mt-1">
-                Error: {(blockMutation.error as Error).message}
-              </p>
-            )}
-            {blockMutation.isSuccess && (
-              <p className="text-xs text-success mt-1">IP bloqueada exitosamente</p>
-            )}
-          </form>
+          <p className="text-xs text-surface-400 leading-relaxed mb-3">
+            Deshabilitado en esta sección. Los bloqueos se cargan en la
+            <b> Lista de bloqueo</b>, donde se revisan y se aplican al router
+            (push manual o por intervalo), o se exportan a <code>/blocklist.txt</code>.
+          </p>
+          <a href="/blocklist" className="btn btn-ghost w-full justify-center text-xs" style={{ display: 'flex' }}>
+            Ir a la Lista de bloqueo
+          </a>
         </div>
 
         {/* Rules Table */}

@@ -852,6 +852,8 @@ export interface GlpiAssetHealth {
   asset_id: number;
   name: string;
   type: string;
+  /** IP de GLPI (pestaña Red → NetworkPort). "" si el activo no tiene IP. */
+  ip?: string;
   location: string;
   assigned_user: string;
   glpi_status: GlpiAssetStatus;
@@ -874,6 +876,12 @@ export interface GlpiHealthReport {
   summary: GlpiHealthSummary;
   by_type?: Record<string, number>;
   by_status?: Record<string, number>;
+  /** Todos los itemtypes presentes en el inventario (sin aplicar filtro). */
+  available_types?: string[];
+  /** Conteo por itemtype sobre el total (para los chips del filtro). */
+  type_counts?: Record<string, number>;
+  /** Itemtypes efectivamente filtrados en esta respuesta. */
+  selected_types?: string[];
 }
 
 export interface GlpiNetworkContext {
@@ -1949,3 +1957,120 @@ export interface UserUpdate {
 // Note: canonical definition is near line 149. This re-export keeps backward compat.
 export type { ActionSeverity, ActionLogEntry, AuditPaginationMeta, AuditHistoryResponse };
 
+
+
+/* ── Lista de bloqueo ───────────────────────────────────────── */
+
+export interface BlocklistEntry {
+  ip: string;
+  comment: string;
+  duration: string;
+  source: string;
+  added_by: string;
+  added_at: string;
+  enabled: boolean;
+}
+
+export interface BlocklistSettings {
+  push_interval_minutes: number;
+  api_write_enabled?: boolean | null;
+  list_name: string;
+  remove_missing: boolean;
+}
+
+export interface BlocklistLastPush {
+  at: string;
+  added: number;
+  removed: number;
+  total: number;
+  ok: boolean;
+  error?: string | null;
+}
+
+export interface BlocklistData {
+  entries: BlocklistEntry[];
+  settings: BlocklistSettings;
+  last_push: BlocklistLastPush | null;
+  count: number;
+  active: number;
+  path: string;
+  export_urls: { txt: string; json: string };
+  api_write_enabled: boolean;
+  retention_hours?: number;
+}
+
+export interface BlocklistPushResult {
+  ok: boolean;
+  added: number;
+  removed: number;
+  total: number;
+  list?: string;
+  error?: string;
+}
+
+
+/* ── Reputación IP ───────────────────────────────────────────── */
+export type ReputationVerdict = 'malicious' | 'suspicious' | 'clean' | 'unknown';
+
+export interface ReputationSource {
+  configured: boolean;
+  ok: boolean;
+  error?: string | null;
+  // AbuseIPDB
+  abuse_confidence_score?: number;
+  total_reports?: number;
+  num_distinct_users?: number;
+  last_reported_at?: string | null;
+  country_code?: string | null;
+  isp?: string | null;
+  domain?: string | null;
+  usage_type?: string | null;
+  is_whitelisted?: boolean | null;
+  is_tor?: boolean | null;
+  // VirusTotal
+  malicious?: number;
+  suspicious?: number;
+  harmless?: number;
+  undetected?: number;
+  timeout?: number;
+  reputation?: number | null;
+  country?: string | null;
+  as_owner?: string | null;
+  asn?: number | null;
+  network?: string | null;
+  last_analysis_date?: string | null;
+}
+
+export interface IpReputation {
+  ip: string;
+  is_private: boolean;
+  checked_at: string;
+  cached: boolean;
+  verdict: ReputationVerdict;
+  any_configured: boolean;
+  sources: { abuseipdb: ReputationSource; virustotal: ReputationSource };
+}
+
+export interface ReputationCapabilities {
+  abuseipdb: boolean;
+  virustotal: boolean;
+  report: {
+    available: boolean;
+    reason: string | null;
+    source: string;
+    categories?: AbuseCategory[];
+    limits?: { min_comment: number; max_comment: number; max_age_hours: number };
+  };
+}
+
+export interface AbuseCategory {
+  id: number;
+  label: string;
+  group: string;
+}
+
+export interface ReportPayload {
+  categories: number[];
+  comment: string;
+  timestamp?: string | null;
+}

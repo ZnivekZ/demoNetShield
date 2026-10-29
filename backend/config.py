@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     mikrotik_port: int = 8728
     mikrotik_user: str = "admin"
     mikrotik_password: str = ""
+    # ¿La cuenta de API puede ESCRIBIR en el router? Si es False (default),
+    # NetShield no empuja nada: los bloqueos quedan en el archivo
+    # /blocklist.txt para que el propio MikroTik (o un script) haga pull.
+    mikrotik_api_write_enabled: bool = False
 
     # ── Wazuh SIEM ───────────────────────────────────────────────
     wazuh_host: str = "100.90.106.121"
@@ -82,11 +86,21 @@ class Settings(BaseSettings):
     glpi_app_token: str = ""
     glpi_user_token: str = ""
 
+    # ── Portal público de tickets (/soporte, sin autenticación) ───────────
+    public_tickets_enabled: bool = False
+    public_tickets_rate_limit: int = 5      # tickets por IP por hora
+    public_tickets_max_mb: int = 5          # tamaño máximo de adjunto
+
     # ── CrowdSec IPS ──────────────────────────────────────────────────────
     # Local API (LAPI) del agente CrowdSec. Puerto 8080 por defecto.
     # Requiere CROWDSEC_API_KEY con las credenciales del bouncer.
     crowdsec_url: str = "http://localhost:8080"
     crowdsec_api_key: str = ""
+
+    # Reputación de IPs (sección "Reputación IP"). Sin claves, la sección
+    # muestra el estado "no configurado" en vez de fallar.
+    abuseipdb_api_key: str = ""
+    virustotal_api_key: str = ""
 
     # ── GeoIP (MaxMind GeoLite2) ──────────────────────────────────────────
     # Bases de datos locales .mmdb para geolocalización sin API externa.
@@ -173,6 +187,11 @@ class Settings(BaseSettings):
     def glpi_api_base(self) -> str:
         """Versioned High-Level API base, e.g. http://host/api.php/v3.0."""
         return f"{self.glpi_api_url.rstrip('/')}/{self.glpi_api_version}"
+
+    @property
+    def glpi_legacy_base(self) -> str:
+        """Legacy API base (NetworkPort/IPAddress), e.g. http://host/api.php/v1."""
+        return f"{self.glpi_api_url.rstrip('/')}/v1"
 
     @property
     def glpi_configured(self) -> bool:

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from services.audit_service import log_action
+from services.glpi_legacy import get_asset_ip_map, resolve_ip
 from models.quarantine_log import QuarantineLog
 from schemas.common import APIResponse
 from schemas.glpi import (
@@ -121,7 +122,12 @@ async def get_assets(
         computers = await glpi.get_computers(
             search=search, location=location_id, status=status, limit=limit, offset=offset
         )
-        logger.info("api_glpi_assets_fetched", count=len(computers))
+        # IP real de GLPI (pestaña Red) vía API legacy; "" si no está disponible.
+        ip_map = await get_asset_ip_map()
+        for c in computers:
+            c["ip"] = c.get("ip") or resolve_ip(c.get("type"), c.get("id"), ip_map)
+        logger.info("api_glpi_assets_fetched", count=len(computers),
+                    with_ip=sum(1 for c in computers if c.get("ip")))
         return APIResponse.ok({"assets": computers, "total": len(computers)})
     except Exception as e:
         logger.error("api_glpi_get_assets_failed", error=str(e))
@@ -157,11 +163,41 @@ async def search_assets(
 
 @router.get("/assets/health")
 async def get_assets_health(
+    itemtypes: str | None = Query(
+        default=None,
+        description="Itemtypes a incluir, separados por coma (Computer,Printer,…). Vacío = todos.",
+    ),
     glpi: GLPIService = Depends(get_glpi),
 ) -> APIResponse:
-    """[GLPI API] Inventory status per asset — GLPI data only, no cross-tool correlation."""
+    """
+    [GLPI API] Inventory status per asset — GLPI data only, no cross-tool correlation.
+
+    `itemtypes` filtra los activos antes de calcular tarjetas y gráficos.
+    La lista de tipos disponibles se calcula SIEMPRE sobre el total, para que el
+    selector de la UI no se vacíe al aplicar un filtro.
+    """
     try:
-        health_data = await glpi.get_assets_health()
+        all_assets = await glpi.get_assets_health()
+
+        # Tipos disponibles + conteos sobre el conjunto completo (para el filtro)
+        type_counts: dict[str, int] = {}
+        for item in all_assets:
+            type_counts[item["type"]] = type_counts.get(item["type"], 0) + 1
+
+        wanted = [t.strip() for t in (itemtypes or "").split(",") if t.strip()]
+        if wanted:
+            # Filtro estricto: pedir un tipo sin activos devuelve 0 (no "todos").
+            health_data = [i for i in all_assets if i["type"] in wanted]
+            selected = [t for t in wanted if t in type_counts]
+        else:
+            health_data = all_assets
+            selected = list(type_counts)
+
+        # IP real de GLPI (pestaña Red) vía API legacy; "" si no está disponible.
+        ip_map = await get_asset_ip_map()
+        for item in health_data:
+            item["ip"] = resolve_ip(item.get("type"), item.get("asset_id"), ip_map)
+
         summary: dict[str, int] = {"ok": 0, "warning": 0, "critical": 0, "total": len(health_data)}
         by_type: dict[str, int] = {}
         by_status: dict[str, int] = {}
@@ -172,12 +208,20 @@ async def get_assets_health(
         summary["active"] = summary["ok"]
         summary["inactive"] = summary["warning"] + summary["critical"]
 
-        logger.info("api_glpi_health_computed", **summary)
+        logger.info(
+            "api_glpi_health_computed",
+            **summary,
+            selected_types=len(selected),
+            filtered=bool(wanted),
+        )
         return APIResponse.ok({
             "assets": health_data,
             "summary": summary,
             "by_type": by_type,
             "by_status": by_status,
+            "available_types": sorted(type_counts),
+            "type_counts": type_counts,
+            "selected_types": selected,
         })
     except Exception as e:
         logger.error("api_glpi_get_health_failed", error=str(e))

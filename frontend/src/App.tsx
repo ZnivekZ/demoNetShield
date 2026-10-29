@@ -10,7 +10,6 @@
  *   /security/config   → ConfigView
  *   /network           → NetworkPage
  *   /firewall          → FirewallPage
- *   /phishing          → PhishingPanel
  *   /                  → redirect a /system (vista inicial)
  *   /system            → SystemHealth
  *   /security          → QuickView (panel de seguridad)
@@ -27,6 +26,9 @@ import { AuthProvider } from './components/auth/AuthContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import LoginPage from './components/auth/LoginPage';
+import PublicTicketPage from './components/public/PublicTicketPage';
+import { BlocklistView } from './components/blocklist/BlocklistView';
+import { IpReputationView } from './components/reputation/IpReputationView';
 import Layout from './components/Layout';
 // Existing pages
 import FirewallPage from './components/firewall/FirewallPage';
@@ -35,7 +37,6 @@ import ReportsPage from './components/reports/ReportsPage';
 // New pages
 import { QuickView } from './components/security/QuickView';
 import { ConfigView } from './components/security/ConfigView';
-import { PhishingPanel } from './components/phishing/PhishingPanel';
 import { SystemHealth } from './components/system/SystemHealth';
 import { InventoryPage } from './components/inventory/InventoryPage';
 // Custom Views
@@ -50,7 +51,6 @@ import { WazuhVulnerabilitiesPage } from './components/wazuh/VulnerabilitiesPage
 import { WazuhMitrePage } from './components/wazuh/MitrePage';
 import { AgentDetailPage as WazuhAgentDetailPage } from './components/wazuh/AgentDetailPanel';
 // DHCP
-import DhcpPage from './components/dhcp/DhcpPage';
 // Admin
 import UsersManagementPage from './components/admin/UsersManagementPage';
 import AuditHistoryPage from './components/admin/AuditHistoryPage';
@@ -75,6 +75,9 @@ export default function App() {
             {/* Login — outside Layout, no auth required */}
             <Route path="/login" element={<LoginPage />} />
 
+            {/* Portal público — sin autenticación */}
+            <Route path="/soporte" element={<PublicTicketPage />} />
+
             {/* Protected routes — require valid JWT */}
             <Route
               element={
@@ -93,15 +96,15 @@ export default function App() {
               {/* Infrastructure */}
               <Route path="/network" element={<NetworkPage />} />
               <Route path="/firewall" element={<FirewallPage />} />
-              <Route path="/dhcp" element={<DhcpPage />} />
 
               {/* Tools */}
-              <Route path="/phishing" element={<PhishingPanel />} />
               <Route path="/system" element={<SystemHealth />} />
               <Route path="/reports" element={<ReportsPage />} />
 
               {/* Inventory — GLPI */}
               <Route path="/inventory" element={<InventoryPage />} />
+              <Route path="/blocklist" element={<BlocklistView />} />
+              <Route path="/reputation" element={<IpReputationView />} />
 
               {/* Legacy redirect — VLANs page merged into /network */}
               <Route path="/vlans" element={<Navigate to="/network" replace />} />

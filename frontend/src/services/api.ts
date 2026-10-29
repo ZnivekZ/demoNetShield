@@ -1,6 +1,9 @@
 import axios from 'axios';
 import type {
   APIResponse,
+  BlocklistData,
+  BlocklistPushResult,
+  BlocklistSettings,
   // Auth
   LoginRequest,
   TokenResponse,
@@ -35,13 +38,6 @@ import type {
   IPAddress,
   BridgePort,
   QueueEntry,
-  QueueCreate,
-  QueueUpdate,
-  PhishingAlert,
-  SuspiciousDomain,
-  PhishingVictim,
-  PhishingStats,
-  SinkholeEntry,
   SecurityBlockIPRequest,
   QuarantineRequest,
   GeoBlockRequest,
@@ -225,15 +221,6 @@ export const mikrotikApi = {
   // ── QoS / Simple Queues ─────────────────────────────────────
   getQueues: () =>
     api.get<APIResponse<QueueEntry[]>>('/mikrotik/queues').then(r => r.data),
-
-  createQueue: (data: QueueCreate) =>
-    api.post<APIResponse<QueueEntry>>('/mikrotik/queues', data).then(r => r.data),
-
-  updateQueue: (queueId: string, data: QueueUpdate) =>
-    api.put<APIResponse>(`/mikrotik/queues/${encodeURIComponent(queueId)}`, data).then(r => r.data),
-
-  deleteQueue: (queueId: string) =>
-    api.delete<APIResponse>(`/mikrotik/queues/${encodeURIComponent(queueId)}`).then(r => r.data),
 };
 
 /* ── Wazuh ────────────────────────────────────────────────────── */
@@ -703,15 +690,6 @@ export const vlansApi = {
   getVlans: () =>
     api.get<APIResponse<VlanInfo[]>>('/mikrotik/vlans/').then(r => r.data),
 
-  createVlan: (data: { vlan_id: number; name: string; interface: string; comment?: string }) =>
-    api.post<APIResponse<VlanInfo>>('/mikrotik/vlans/', data).then(r => r.data),
-
-  updateVlan: (vlanId: string, data: { name?: string; comment?: string }) =>
-    api.put<APIResponse>(`/mikrotik/vlans/${vlanId}`, data).then(r => r.data),
-
-  deleteVlan: (vlanId: string) =>
-    api.delete<APIResponse>(`/mikrotik/vlans/${vlanId}`).then(r => r.data),
-
   getVlanTraffic: (vlanId: number) =>
     api.get<APIResponse<VlanTrafficData>>(`/mikrotik/vlans/${vlanId}/traffic`).then(r => r.data),
 
@@ -736,42 +714,6 @@ export const securityApi = {
 
   geoBlock: (req: GeoBlockRequest) =>
     api.post<APIResponse>('/security/geo-block', req).then(r => r.data),
-};
-
-/* ── Phishing ─────────────────────────────────────────────────── */
-
-export const phishingApi = {
-  getAlerts: (limit = 50, offset = 0) =>
-    api.get<APIResponse<PhishingAlert[]>>('/phishing/alerts', {
-      params: { limit, offset },
-    }).then(r => r.data),
-
-  getSuspiciousDomains: () =>
-    api.get<APIResponse<SuspiciousDomain[]>>('/phishing/domains/suspicious').then(r => r.data),
-
-  getTimeline: () =>
-    api.get<APIResponse<AlertTimelinePoint[]>>('/phishing/urls/timeline').then(r => r.data),
-
-  getVictims: () =>
-    api.get<APIResponse<PhishingVictim[]>>('/phishing/victims').then(r => r.data),
-
-  getStats: () =>
-    api.get<APIResponse<PhishingStats>>('/phishing/stats').then(r => r.data),
-
-  getSinkholes: () =>
-    api.get<APIResponse<SinkholeEntry[]>>('/phishing/domains/sinkhole').then(r => r.data),
-
-  sinkholeDomain: (domain: string, reason: string) =>
-    api.post<APIResponse>('/phishing/domains/sinkhole', { domain, reason }).then(r => r.data),
-
-  removeSinkhole: (domain: string) =>
-    api.delete<APIResponse>(`/phishing/domains/sinkhole/${encodeURIComponent(domain)}`).then(r => r.data),
-
-  blockIP: (ip: string, duration_hours = 24) =>
-    api.post<APIResponse>('/phishing/ip/block', { ip, duration_hours }).then(r => r.data),
-
-  simulate: (params: { target_agent_id?: string; malicious_url?: string; description?: string }) =>
-    api.post<APIResponse>('/phishing/simulate', params).then(r => r.data),
 };
 
 /* ── CLI ──────────────────────────────────────────────────────── */
@@ -819,8 +761,13 @@ export const glpiApi = {
   getAssetStats: () =>
     api.get<APIResponse<GlpiAssetStats>>('/glpi/assets/stats').then(r => r.data),
 
-  getAssetHealth: () =>
-    api.get<APIResponse<GlpiHealthReport>>('/glpi/assets/health').then(r => r.data),
+  getAssetHealth: (itemtypes?: string[]) =>
+    api
+      .get<APIResponse<GlpiHealthReport>>('/glpi/assets/health', {
+        // Sin tipos seleccionados = todos (el backend interpreta igual).
+        params: itemtypes && itemtypes.length ? { itemtypes: itemtypes.join(',') } : {},
+      })
+      .then(r => r.data),
 
   getAssetsByLocation: (locationId: number) =>
     api.get<APIResponse<{ assets: GlpiAsset[]; location_id: number }>>(
@@ -1123,6 +1070,7 @@ import type {
   ThreatLevelData, ActivityHeatmapData, CorrelationTimelineData,
   ConfirmedThreatsData, IncidentLifecycleData, SuricataAssetCorrelationData,
   WorldThreatMapData, ViewReportResult,
+  IpReputation, ReputationCapabilities, AbuseCategory, ReportPayload,
 } from '../types';
 
 export const viewsApi = {
@@ -1368,5 +1316,55 @@ export const auditApi = {
   getConfig: () =>
     api
       .get<APIResponse<{ min_severity: string; disabled_actions: string[] }>>('/audit/config')
+      .then(r => r.data),
+};
+
+
+/* ── Lista de bloqueo ───────────────────────────────────────── */
+// Revisión humana + push MANUAL al MikroTik (única escritura permitida).
+
+export const blocklistApi = {
+  list: () =>
+    api.get<APIResponse<BlocklistData>>('/blocklist').then(r => r.data),
+
+  add: (ip: string, comment = '', duration = '') =>
+    api.post<APIResponse<unknown>>('/blocklist', { ip, comment, duration }).then(r => r.data),
+
+  remove: (ip: string) =>
+    api.delete<APIResponse<unknown>>(`/blocklist/${encodeURIComponent(ip)}`).then(r => r.data),
+
+  update: (ip: string, patch: { enabled?: boolean; duration?: string; comment?: string }) =>
+    api.patch<APIResponse<unknown>>(`/blocklist/${encodeURIComponent(ip)}`, patch).then(r => r.data),
+
+  toggle: (ip: string, enabled: boolean) =>
+    api.patch<APIResponse<unknown>>(`/blocklist/${encodeURIComponent(ip)}`, { enabled }).then(r => r.data),
+
+  push: () =>
+    api.post<APIResponse<BlocklistPushResult>>('/blocklist/push').then(r => r.data),
+
+  saveSettings: (settings: Partial<BlocklistSettings>) =>
+    api.put<APIResponse<BlocklistSettings>>('/blocklist/settings', settings).then(r => r.data),
+};
+
+
+/* ── Reputación IP ────────────────────────────────────────────── */
+
+export const reputationApi = {
+  capabilities: () =>
+    api.get<APIResponse<ReputationCapabilities>>('/reputation/capabilities').then(r => r.data),
+
+  lookup: (ip: string, refresh = false) =>
+    api
+      .get<APIResponse<IpReputation>>(
+        `/reputation/${encodeURIComponent(ip)}${refresh ? '?refresh=true' : ''}`,
+      )
+      .then(r => r.data),
+
+  categories: () =>
+    api.get<APIResponse<AbuseCategory[]>>('/reputation/categories').then(r => r.data),
+
+  report: (ip: string, payload: ReportPayload) =>
+    api
+      .post<APIResponse<unknown>>(`/reputation/${encodeURIComponent(ip)}/report`, payload)
       .then(r => r.data),
 };

@@ -107,6 +107,8 @@ import type {
     WazuhSyscollectorInfo,
     WazuhVulnerabilitiesFilters,
     WazuhVulnerabilitiesPagination,
+    ActiveCveFilters,
+    ActiveCveInventory,
     WazuhMitreMatrix,
     WazuhStatsSummary,
   WazuhNodeResources,
@@ -475,6 +477,22 @@ export const wazuhApiExtended = {
         .then(r => r.data);
     } catch {
       return notAvailableResponse<WazuhVulnerabilitiesPagination>('getVulnerabilities');
+    }
+  },
+
+  getActiveCveInventory: async (filters: ActiveCveFilters): Promise<APIResponse<ActiveCveInventory>> => {
+    try {
+      const params: Record<string, string | number | boolean> = {
+        page: filters.page,
+        page_size: filters.page_size,
+      };
+      if (filters.severity) params.severity = filters.severity;
+      if (filters.agent_id) params.agent_id = filters.agent_id;
+      if (filters.search) params.search = filters.search;
+      if (filters.kev_only) params.kev_only = true;
+      return (await api.get<APIResponse<ActiveCveInventory>>('/wazuh/vulnerabilities/active', { params })).data;
+    } catch {
+      return notAvailableResponse<ActiveCveInventory>('getActiveCveInventory');
     }
   },
 

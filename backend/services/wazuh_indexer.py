@@ -569,7 +569,7 @@ class WazuhIndexerClient:
     # ── Vulnerabilities ────────────────────────────────────────
 
     async def get_current_vulnerability_findings(self) -> list[dict[str, Any]]:
-        """Read the full current vulnerability state for an exact KEV join.
+        """Read every finding explicitly marked Active by Wazuh.
 
         Scroll avoids the 500-result cap of the dashboard listing endpoint.
         Failures raise so the digest never describes an incomplete scan as clean.
@@ -607,8 +607,8 @@ class WazuhIndexerClient:
                         break
                     for hit in hits:
                         raw = hit.get("_source", {})
-                        status = str((raw.get("vulnerability") or {}).get("status") or "").lower()
-                        if status and status != "active":
+                        status = str((raw.get("vulnerability") or {}).get("status") or "").strip().lower()
+                        if status != "active":
                             continue
                         findings.append(self._normalize_vuln(raw))
                     if not scroll_id:

@@ -5,13 +5,15 @@ import json
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("JWT_SECRET_KEY", "0123456789abcdef0123456789abcdef")
 
 from services.cisa_kev_service import CisaKevService
+from services.active_cve_inventory import build_active_cve_inventory
 from services.digest_service import DigestService
 from services.wazuh_indexer import WazuhIndexerClient
+from routers.wazuh import get_active_cve_inventory
 
 
 class CisaKevMatchingTests(unittest.TestCase):
@@ -57,6 +59,7 @@ class CisaKevMatchingTests(unittest.TestCase):
         }
         matches = self.kev.match_confirmed_vulnerabilities([
             finding, finding, {**finding, "cve_id": "CVE-2024-9999"},
+            {**finding, "cve_id": "CVE-2024-2222", "status": "Solved"},
         ])
         self.assertEqual([m["cve_id"] for m in matches], ["CVE-2024-1111"])
         self.assertEqual(matches[0]["matched_agents"], ["web-01"])
@@ -86,12 +89,22 @@ class CisaKevMatchingTests(unittest.TestCase):
         )
         digest = DigestService._row_to_dict(row)
         self.assertEqual(digest["cisa_kev_matches"], [])
-        self.assertEqual(len(digest["cisa_kev_possible_matches"]), 1)
+        self.assertEqual(digest["cisa_kev_possible_matches"], [])
         self.assertEqual(digest["cisa_kev_status"], "needs_regeneration")
         self.assertEqual(digest["risk_score"], 0)
 
         row.cisa_json = json.dumps({
             "method": "wazuh_cve_id_v1", "status": "verified",
+            "matches": [{"cve_id": "CVE-2024-1111", "evidence": []}],
+            "possible_matches": [], "total_checked": 2,
+            "last_updated": "2026-11-03T00:00:00Z",
+        })
+        old_exact = DigestService._row_to_dict(row)
+        self.assertEqual(old_exact["cisa_kev_matches"], [])
+        self.assertEqual(old_exact["cisa_kev_status"], "needs_regeneration")
+
+        row.cisa_json = json.dumps({
+            "method": "wazuh_active_cve_id_v2", "status": "verified",
             "matches": [{"cve_id": "CVE-2024-1111", "evidence": []}],
             "possible_matches": [], "total_checked": 2,
             "last_updated": "2026-11-03T00:00:00Z",
@@ -153,11 +166,58 @@ class WazuhFindingFetchTests(unittest.IsolatedAsyncioTestCase):
              patch.object(indexer, "_request_lock", None):
             findings = await indexer.get_current_vulnerability_findings()
 
-        self.assertEqual([f["cve_id"] for f in findings], ["CVE-2024-1111", "CVE-2024-3333"])
+        self.assertEqual([f["cve_id"] for f in findings], ["CVE-2024-1111"])
         self.assertEqual((findings[0]["status"], findings[0]["severity"], findings[0]["cvss_score"]), ("active", "high", 8.1))
-        self.assertEqual(findings[1]["status"], "")
-        self.assertIsNone(findings[1]["severity_reported"])
         self.assertTrue(fake_client.cleared)
+
+
+class ActiveInventoryTests(unittest.TestCase):
+    def test_groups_only_active_findings_and_preserves_kev_unknown(self):
+        first = {
+            "cve_id": "CVE-2024-1111", "status": "active", "agent_id": "001",
+            "agent_name": "web-01", "package_name": "libfoo", "package_version": "1.0",
+            "severity_reported": "high", "cvss_score": 8.1,
+        }
+        second = {**first, "agent_id": "002", "agent_name": "web-02", "severity_reported": "critical"}
+        findings = [first, first, second, {**first, "cve_id": "CVE-2024-2222", "status": "Solved"},
+                    {**first, "cve_id": "CVE-2024-3333", "status": ""}]
+        rows = build_active_cve_inventory(findings, {"CVE-2024-1111": {"product": "Example App"}})
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["severity"], "critical")
+        self.assertEqual(rows[0]["agent_count"], 2)
+        self.assertEqual(len(rows[0]["agents"]), 2)
+        self.assertEqual({item["severity"] for item in rows[0]["agents"]}, {"high", "critical"})
+        self.assertTrue(rows[0]["is_kev"])
+        self.assertEqual(rows[0]["kev_product"], "Example App")
+        self.assertIsNone(build_active_cve_inventory([first], None)[0]["is_kev"])
+
+
+class ActiveInventoryRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_filters_kev_and_agent_after_grouping_active_findings(self):
+        finding = {
+            "cve_id": "CVE-2024-1111", "status": "active", "agent_id": "001",
+            "agent_name": "web-01", "package_name": "libfoo", "package_version": "1.0",
+            "severity_reported": "high", "cvss_score": 8.1,
+        }
+        fake_indexer = SimpleNamespace(get_current_vulnerability_findings=AsyncMock(return_value=[
+            finding, {**finding, "agent_id": "002", "agent_name": "web-02"},
+            {**finding, "cve_id": "CVE-2024-2222", "status": "Solved"},
+        ]))
+        fake_kev = SimpleNamespace(
+            is_loaded=lambda: True,
+            refresh=AsyncMock(),
+            entries_by_cve=lambda: {"CVE-2024-1111": {"product": "Example App"}},
+        )
+        with patch("routers.wazuh.get_indexer_client", return_value=fake_indexer), \
+             patch("routers.wazuh.get_cisa_kev_service", return_value=fake_kev):
+            response = await get_active_cve_inventory(
+                page=1, page_size=20, severity=None, search=None, agent_id="002", kev_only=True,
+            )
+        self.assertTrue(response.success)
+        self.assertEqual(response.data["pagination"]["total"], 1)
+        self.assertEqual(response.data["items"][0]["agent_count"], 1)
+        self.assertEqual(response.data["items"][0]["agents"][0]["agent_id"], "002")
+        self.assertEqual(response.data["summary"]["high"], 1)
 
 
 if __name__ == "__main__":

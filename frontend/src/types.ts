@@ -499,6 +499,48 @@ export interface WazuhVulnerabilitiesFilters {
   search?: string;
 }
 
+export type CveSeverity = 'critical' | 'high' | 'medium' | 'low' | 'unknown';
+
+export interface ActiveCveAgentEvidence {
+  agent_id: string;
+  agent_name: string;
+  package_name: string;
+  package_version: string;
+  detected_at: string | null;
+  severity: CveSeverity;
+  cvss_score: number | null;
+  status: 'active';
+}
+
+export interface ActiveCve {
+  cve_id: string;
+  description: string;
+  severity: CveSeverity;
+  cvss_score: number | null;
+  is_kev: boolean | null;
+  kev_product: string | null;
+  agent_count: number;
+  agents: ActiveCveAgentEvidence[];
+}
+
+export interface ActiveCveInventory {
+  items: ActiveCve[];
+  summary: Record<CveSeverity, number>;
+  pagination: WazuhVulnerabilitiesPagination['pagination'];
+  checked_at: string;
+  kev_available: boolean;
+  agents: Array<{ id: string; name: string }>;
+}
+
+export interface ActiveCveFilters {
+  page: number;
+  page_size: number;
+  severity?: CveSeverity;
+  search?: string;
+  agent_id?: string;
+  kev_only?: boolean;
+}
+
 export interface MitreTechnique {
   technique_id: string;
   technique_name: string;

@@ -69,6 +69,16 @@ class CisaKevService:
     def catalog_size(self) -> int:
         return len(self._catalog)
 
+    def entries_by_cve(self) -> dict[str, dict[str, Any]]:
+        """Return catalog entries keyed by exact, normalized CVE ID."""
+        if not self.is_loaded():
+            return {}
+        return {
+            str(entry["cveID"]).strip().upper(): entry
+            for entry in self._catalog
+            if entry.get("cveID")
+        }
+
     def last_updated(self) -> str | None:
         return self._last_fetch.isoformat() if self._last_fetch else None
 
@@ -169,6 +179,8 @@ class CisaKevService:
         seen_evidence: set[tuple[str, str, str, str]] = set()
 
         for finding in findings:
+            if str(finding.get("status") or "").strip().lower() != "active":
+                continue
             cve_id = str(finding.get("cve_id") or "").strip().upper()
             kev = kev_by_cve.get(cve_id)
             if not kev:

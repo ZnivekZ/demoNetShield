@@ -389,7 +389,7 @@ class DigestService:
         for row in rows:
             delta = json.loads(row.delta_json or "{}")
             cisa  = json.loads(row.cisa_json or "[]")
-            is_current = isinstance(cisa, dict) and cisa.get("method") == "wazuh_cve_id_v1"
+            is_current = isinstance(cisa, dict) and cisa.get("method") == "wazuh_active_cve_id_v2"
             confirmed = cisa.get("matches", []) if is_current else []
             risk_score, risk_level, _ = (
                 (row.risk_score, row.risk_level, row.risk_reasoning)
@@ -572,15 +572,8 @@ class DigestService:
                     cisa_status = "vulnerability_data_unavailable"
                     logger.warning("digest_cisa_wazuh_findings_failed", error=str(e))
 
-                # Keep name/vendor matches as candidates only. They never
-                # contribute to the alert count or risk score.
-                if agents:
-                    agent_packages = await self._build_agent_packages(agents)
-                    candidates = await kev.match_against_inventory(agent_packages)
-                    confirmed_ids = {m["cve_id"] for m in cisa_matches}
-                    cisa_possible = [
-                        m for m in candidates if m.get("cve_id") not in confirmed_ids
-                    ]
+                # Name-only package matches do not establish a vulnerable CVE.
+                # Keep them out of the Digest and its risk analysis.
         except Exception as e:
             logger.warning("digest_cisa_kev_failed", error=str(e))
 
@@ -1073,10 +1066,10 @@ class DigestService:
             delta_json        = json.dumps(delta, default=str),
             agents_json       = json.dumps(agents_by_category, default=str),
             cisa_json         = json.dumps({
-                "method": "wazuh_cve_id_v1",
+                "method": "wazuh_active_cve_id_v2",
                 "status": cisa_status,
                 "matches": cisa_matches,
-                "possible_matches": cisa_possible,
+                "possible_matches": [],
                 "total_checked": cisa_total,
                 "last_updated": cisa_updated,
             }, default=str),
@@ -1107,9 +1100,9 @@ class DigestService:
         delta  = json.loads(row.delta_json  or "{}")
         agents = json.loads(row.agents_json or "{}")
         cisa   = json.loads(row.cisa_json   or "[]")
-        if isinstance(cisa, dict) and cisa.get("method") == "wazuh_cve_id_v1":
+        if isinstance(cisa, dict) and cisa.get("method") == "wazuh_active_cve_id_v2":
             cisa_matches = cisa.get("matches", [])
-            cisa_possible = cisa.get("possible_matches", [])
+            cisa_possible = []
             cisa_status = cisa.get("status", "vulnerability_data_unavailable")
             cisa_total = cisa.get("total_checked", 0)
             cisa_updated = cisa.get("last_updated")
@@ -1117,7 +1110,7 @@ class DigestService:
             # Historical rows used fuzzy name/vendor matches. Never display
             # those as confirmed findings after the matching rule changes.
             cisa_matches = []
-            cisa_possible = cisa if isinstance(cisa, list) else []
+            cisa_possible = []
             cisa_status = "needs_regeneration"
             cisa_total = 0
             cisa_updated = None

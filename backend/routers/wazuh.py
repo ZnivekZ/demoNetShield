@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 
 import structlog
 from fastapi import APIRouter, Depends, Query
@@ -17,6 +18,9 @@ from services.audit_service import log_action
 from schemas.common import APIResponse
 from schemas.wazuh import ActiveResponseRequest
 from services.wazuh_service import WazuhService, get_wazuh_service
+from services.active_cve_inventory import build_active_cve_inventory
+from services.cisa_kev_service import get_cisa_kev_service
+from services.wazuh_indexer import get_indexer_client
 
 logger = structlog.get_logger(__name__)
 
@@ -430,6 +434,84 @@ async def get_vulnerabilities(
     except Exception as e:
         logger.error("api_wazuh_vulnerabilities_failed", error=str(e))
         return APIResponse.fail(f"Failed to fetch vulnerabilities: {str(e)}")
+
+
+@router.get("/vulnerabilities/active")
+async def get_active_cve_inventory(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    severity: str | None = Query(None),
+    search: str | None = Query(None),
+    agent_id: str | None = Query(None),
+    kev_only: bool = Query(False),
+) -> APIResponse:
+    """All current Active Wazuh CVEs, grouped by CVE and filterable by agent."""
+    try:
+        findings = await get_indexer_client().get_current_vulnerability_findings()
+    except Exception as e:
+        logger.error("api_wazuh_active_cves_failed", error=str(e))
+        return APIResponse.fail("No se pudo consultar el estado actual de vulnerabilidades en Wazuh")
+
+    checked_at = datetime.now(timezone.utc).isoformat()
+    kev = get_cisa_kev_service()
+    try:
+        if kev.is_loaded():
+            await kev.refresh()
+        else:
+            await kev.initialize()
+    except Exception as e:
+        logger.warning("api_wazuh_active_cves_kev_failed", error=str(e))
+    kev_available = kev.is_loaded()
+    kev_entries = kev.entries_by_cve() if kev_available else None
+    items = build_active_cve_inventory(findings, kev_entries)
+    agents = sorted({
+        (evidence["agent_id"], evidence["agent_name"])
+        for row in items for evidence in row["agents"]
+        if evidence["agent_id"]
+    }, key=lambda agent: (agent[1].lower(), agent[0]))
+
+    if agent_id:
+        items = [row for row in items if any(e["agent_id"] == agent_id for e in row["agents"])]
+        items = [{**row, "agents": [e for e in row["agents"] if e["agent_id"] == agent_id], "agent_count": 1} for row in items]
+    if search:
+        needle = search.strip().lower()
+        items = [row for row in items if needle in row["cve_id"].lower()
+                 or needle in row["description"].lower()
+                 or any(needle in e["package_name"].lower() or needle in e["agent_name"].lower()
+                        or needle in e["agent_id"].lower()
+                        for e in row["agents"])]
+    if kev_only:
+        if not kev_available:
+            return APIResponse.fail("El catálogo CISA KEV no está disponible para aplicar este filtro")
+        items = [row for row in items if row["is_kev"]]
+
+    summary = {name: 0 for name in ("critical", "high", "medium", "low", "unknown")}
+    for row in items:
+        summary[row["severity"]] += 1
+    if severity:
+        if severity not in summary:
+            return APIResponse.fail("Filtro de severidad inválido")
+        items = [row for row in items if row["severity"] == severity]
+
+    total = len(items)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, total_pages)
+    start = (page - 1) * page_size
+    return APIResponse.ok({
+        "items": items[start:start + page_size],
+        "summary": summary,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        },
+        "checked_at": checked_at,
+        "kev_available": kev_available,
+        "agents": [{"id": id_, "name": name} for id_, name in agents],
+    })
 
 
 @router.get("/agents/{agent_id}")

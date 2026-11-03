@@ -20,6 +20,7 @@ import type {
   WazuhAlertsFilters,
   WazuhAgentsFilters,
   WazuhVulnerabilitiesFilters,
+  ActiveCveFilters,
 } from '../types';
 
 /* ── Alerts ─────────────────────────────────────────────────────── */
@@ -81,6 +82,15 @@ export function useWazuhVulnerabilities(filters: WazuhVulnerabilitiesFilters) {
     queryKey: ['wazuh-ext', 'vulnerabilities', filters],
     queryFn: () => wazuhApiExtended.getVulnerabilities(filters),
     placeholderData: keepPreviousData,
+    refetchInterval: 120_000,
+    select: r => r.data,
+  });
+}
+
+export function useActiveCveInventory(filters: ActiveCveFilters) {
+  return useQuery({
+    queryKey: ['wazuh-ext', 'active-cves', filters],
+    queryFn: () => wazuhApiExtended.getActiveCveInventory(filters),
     refetchInterval: 120_000,
     select: r => r.data,
   });

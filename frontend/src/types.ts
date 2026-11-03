@@ -2149,6 +2149,13 @@ export interface CisaKevMatch {
   due_date:           string | null;
   matched_agents:     string[];
   matched_packages:   string[];
+  evidence?:          {
+    agent_id: string;
+    agent_name: string;
+    package_name: string;
+    package_version: string;
+    detected_at: string | null;
+  }[];
 }
 
 export interface DigestResponse {
@@ -2160,6 +2167,8 @@ export interface DigestResponse {
   delta:                 DigestDelta;
   agents_by_category:    Record<AgentCategory, DigestAgent[]>;
   cisa_kev_matches:      CisaKevMatch[];
+  cisa_kev_possible_matches?: CisaKevMatch[];
+  cisa_kev_status?:      'verified' | 'catalog_unavailable' | 'vulnerability_data_unavailable' | 'needs_regeneration' | 'simulated';
   cisa_kev_total_checked: number;
   cisa_kev_last_updated: string | null;
   ai_summary:            string | null;

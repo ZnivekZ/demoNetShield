@@ -6,7 +6,7 @@ Pipeline (called by router on POST /api/digest/generate):
   2. Fetch metrics for both periods in parallel (asyncio.gather)
   3. Compute deltas and classify agents by category
   4. Score risk with deterministic heuristics (no AI required)
-  5. Cross CISA KEV catalog with local software inventory
+  5. Join current Wazuh CVE findings to CISA KEV by exact CVE ID
   6. Optionally enrich with Groq AI analysis (mock if no API key)
   7. Persist to SQLite and return DigestResponse
 
@@ -124,6 +124,8 @@ _MOCK_DIGEST: dict[str, Any] = {
         ],
     },
     "cisa_kev_matches": [],
+    "cisa_kev_possible_matches": [],
+    "cisa_kev_status": "simulated",
     "cisa_kev_total_checked": 1198,
     "cisa_kev_last_updated": "2026-11-02T00:00:00+00:00",
     "ai_summary": (
@@ -143,7 +145,7 @@ _MOCK_DIGEST: dict[str, Any] = {
         "2. 🟠 Actualizar `libssl3` en `web-01` y `db-01`\n"
         "3. 🟡 Investigar por qué `backup-01` no ejecuta syscheck\n"
         "4. 🟡 Revisar la desconexión transitoria de `proxy-01` (3min a las 02:15)\n"
-        "5. 🟢 Sin impacto CISA KEV — inventario limpio\n\n"
+        "5. 🟡 CISA KEV no verificado en modo simulación\n\n"
         "*⚠️ Modo simulación — activar GROQ_API_KEY para análisis real.*"
     ),
     "ai_model_used": "mock",
@@ -157,7 +159,7 @@ _MOCK_DIGEST: dict[str, Any] = {
                       "package": "libssl3", "agents": ["web-01"]}],
         "transient_incidents": [{"agent": "proxy-01",
                                   "event": "disconnected 02:15, reconnected 02:18"}],
-        "cisa_kev": {"matches": 0, "total_checked": 1198, "status": "clean"},
+        "cisa_kev": {"matches": 0, "total_checked": 1198, "status": "simulated"},
         "scan_freshness": {"stale_agents": [{"agent": "backup-01", "hours_ago": 74}]},
         "top_mitre": "T1110 - Brute Force (12 hits)",
     },
@@ -231,7 +233,7 @@ def _calculate_risk_score(
     kev_count = len(cisa_matches)
     if kev_count:
         score += min(kev_count * 30, 60)
-        reasons.append(f"⚠️ {kev_count} CVE(s) del catálogo CISA KEV activas en el inventario")
+        reasons.append(f"⚠️ {kev_count} CVE(s) de CISA KEV detectadas por Wazuh")
 
     # Critical alerts
     crit = delta.get("critical_today", 0)
@@ -360,15 +362,23 @@ class DigestService:
         for row in rows:
             delta = json.loads(row.delta_json or "{}")
             cisa  = json.loads(row.cisa_json or "[]")
+            is_current = isinstance(cisa, dict) and cisa.get("method") == "wazuh_cve_id_v1"
+            confirmed = cisa.get("matches", []) if is_current else []
+            risk_score, risk_level, _ = (
+                (row.risk_score, row.risk_level, row.risk_reasoning)
+                if is_current else _calculate_risk_score(
+                    delta, [], delta.get("agents_scan_status", [])
+                )
+            )
             history.append({
                 "id":               row.id,
                 "date":             row.date,
-                "risk_level":       row.risk_level,
-                "risk_score":       row.risk_score,
+                "risk_level":       risk_level,
+                "risk_score":       risk_score,
                 "alerts_today":     delta.get("alerts_today", 0),
                 "critical_today":   delta.get("critical_today", 0),
                 "new_cves":         len(delta.get("new_cves_today", [])),
-                "cisa_matches":     len(cisa) if isinstance(cisa, list) else 0,
+                "cisa_matches":     len(confirmed),
                 "ai_is_mock":       row.ai_is_mock,
                 "generated_at":     row.generated_at.isoformat() if row.generated_at else "",
                 "generation_method": row.generation_method,
@@ -515,17 +525,35 @@ class DigestService:
 
         # ── 3. CISA KEV cross-reference ───────────────────────────────────────
         cisa_matches: list[dict] = []
+        cisa_possible: list[dict] = []
+        cisa_status = "catalog_unavailable"
         cisa_total   = 0
         cisa_updated: str | None = None
         try:
             from services.cisa_kev_service import get_cisa_kev_service
             kev = get_cisa_kev_service()
+            await kev.refresh()
             if kev.is_loaded():
-                # Build packages per agent: {agent_name: [package dicts]}
-                agent_packages = await self._build_agent_packages(agents)
-                cisa_matches = await kev.match_against_inventory(agent_packages)
                 cisa_total   = kev.catalog_size()
                 cisa_updated = kev.last_updated()
+                from services.wazuh_indexer import get_indexer_client
+                try:
+                    findings = await get_indexer_client().get_current_vulnerability_findings()
+                    cisa_matches = kev.match_confirmed_vulnerabilities(findings)
+                    cisa_status = "verified"
+                except Exception as e:
+                    cisa_status = "vulnerability_data_unavailable"
+                    logger.warning("digest_cisa_wazuh_findings_failed", error=str(e))
+
+                # Keep name/vendor matches as candidates only. They never
+                # contribute to the alert count or risk score.
+                if agents:
+                    agent_packages = await self._build_agent_packages(agents)
+                    candidates = await kev.match_against_inventory(agent_packages)
+                    confirmed_ids = {m["cve_id"] for m in cisa_matches}
+                    cisa_possible = [
+                        m for m in candidates if m.get("cve_id") not in confirmed_ids
+                    ]
         except Exception as e:
             logger.warning("digest_cisa_kev_failed", error=str(e))
 
@@ -533,6 +561,8 @@ class DigestService:
         risk_score, risk_level, risk_reasoning = _calculate_risk_score(
             delta, cisa_matches, scan_status
         )
+        if cisa_status != "verified":
+            risk_reasoning += " | CISA KEV sin verificar (catálogo o Wazuh no disponible)"
 
         # ── 5. Classify agents by category ────────────────────────────────────
         agents_by_category = await self._classify_agents(
@@ -541,7 +571,8 @@ class DigestService:
 
         # ── 6. Build condensed AI payload ─────────────────────────────────────
         ai_payload = self._build_ai_payload(
-            date_str, risk_score, risk_level, delta, cisa_matches, scan_status
+            date_str, risk_score, risk_level, delta, cisa_matches,
+            cisa_status, cisa_total, len(cisa_possible), scan_status
         )
 
         # ── 7. Groq analysis (or mock) ────────────────────────────────────────
@@ -569,6 +600,10 @@ class DigestService:
                 delta=delta,
                 agents_by_category=agents_by_category,
                 cisa_matches=cisa_matches,
+                cisa_possible=cisa_possible,
+                cisa_status=cisa_status,
+                cisa_total=cisa_total,
+                cisa_updated=cisa_updated,
                 ai_summary=ai_summary,
                 ai_model=ai_model,
                 ai_is_mock=ai_is_mock,
@@ -587,6 +622,8 @@ class DigestService:
             "delta":                 delta,
             "agents_by_category":    agents_by_category,
             "cisa_kev_matches":      cisa_matches,
+            "cisa_kev_possible_matches": cisa_possible,
+            "cisa_kev_status":       cisa_status,
             "cisa_kev_total_checked": cisa_total,
             "cisa_kev_last_updated": cisa_updated,
             "ai_summary":            ai_summary,
@@ -892,6 +929,9 @@ class DigestService:
         risk_level: str,
         delta: dict[str, Any],
         cisa_matches: list[dict],
+        cisa_status: str,
+        cisa_total: int,
+        cisa_possible_count: int,
         scan_status: list[dict],
     ) -> dict[str, Any]:
         """Build the condensed payload (~1200 tokens) to send to Groq."""
@@ -943,8 +983,9 @@ class DigestService:
             "transient_incidents": incidents_summary,
             "cisa_kev": {
                 "matches":       len(cisa_matches),
-                "total_checked": 0,
-                "status":        "IMPACTO DETECTADO" if cisa_matches else "clean",
+                "total_checked": cisa_total,
+                "status":        cisa_status,
+                "possible_by_name": cisa_possible_count,
                 "details": [
                     {"cve": m.get("cve_id"), "product": m.get("product"),
                      "agents": m.get("matched_agents")}
@@ -972,6 +1013,10 @@ class DigestService:
         delta: dict,
         agents_by_category: dict,
         cisa_matches: list,
+        cisa_possible: list,
+        cisa_status: str,
+        cisa_total: int,
+        cisa_updated: str | None,
         ai_summary: str | None,
         ai_model: str | None,
         ai_is_mock: bool,
@@ -997,7 +1042,14 @@ class DigestService:
             risk_reasoning    = risk_reasoning,
             delta_json        = json.dumps(delta, default=str),
             agents_json       = json.dumps(agents_by_category, default=str),
-            cisa_json         = json.dumps(cisa_matches, default=str),
+            cisa_json         = json.dumps({
+                "method": "wazuh_cve_id_v1",
+                "status": cisa_status,
+                "matches": cisa_matches,
+                "possible_matches": cisa_possible,
+                "total_checked": cisa_total,
+                "last_updated": cisa_updated,
+            }, default=str),
             ai_summary        = ai_summary,
             ai_model_used     = ai_model,
             ai_is_mock        = ai_is_mock,
@@ -1025,22 +1077,44 @@ class DigestService:
         delta  = json.loads(row.delta_json  or "{}")
         agents = json.loads(row.agents_json or "{}")
         cisa   = json.loads(row.cisa_json   or "[]")
+        if isinstance(cisa, dict) and cisa.get("method") == "wazuh_cve_id_v1":
+            cisa_matches = cisa.get("matches", [])
+            cisa_possible = cisa.get("possible_matches", [])
+            cisa_status = cisa.get("status", "vulnerability_data_unavailable")
+            cisa_total = cisa.get("total_checked", 0)
+            cisa_updated = cisa.get("last_updated")
+        else:
+            # Historical rows used fuzzy name/vendor matches. Never display
+            # those as confirmed findings after the matching rule changes.
+            cisa_matches = []
+            cisa_possible = cisa if isinstance(cisa, list) else []
+            cisa_status = "needs_regeneration"
+            cisa_total = 0
+            cisa_updated = None
+        risk_score, risk_level, risk_reasoning = (
+            (row.risk_score, row.risk_level, row.risk_reasoning)
+            if cisa_status != "needs_regeneration" else _calculate_risk_score(
+                delta, [], delta.get("agents_scan_status", [])
+            )
+        )
         payload = json.loads(row.ai_payload_sent or "null")
         return {
             "id":                    row.id,
             "date":                  row.date,
-            "risk_level":            row.risk_level,
-            "risk_score":            row.risk_score,
-            "risk_reasoning":        row.risk_reasoning,
+            "risk_level":            risk_level,
+            "risk_score":            risk_score,
+            "risk_reasoning":        risk_reasoning,
             "delta":                 delta,
             "agents_by_category":    agents,
-            "cisa_kev_matches":      cisa,
-            "cisa_kev_total_checked": 0,
-            "cisa_kev_last_updated": None,
-            "ai_summary":            row.ai_summary,
+            "cisa_kev_matches":      cisa_matches,
+            "cisa_kev_possible_matches": cisa_possible,
+            "cisa_kev_status":       cisa_status,
+            "cisa_kev_total_checked": cisa_total,
+            "cisa_kev_last_updated": cisa_updated,
+            "ai_summary":            row.ai_summary if cisa_status != "needs_regeneration" else None,
             "ai_model_used":         row.ai_model_used,
             "ai_is_mock":            row.ai_is_mock,
-            "ai_payload_sent":       payload,
+            "ai_payload_sent":       payload if cisa_status != "needs_regeneration" else None,
             "ai_generated_at":       row.ai_generated_at,
             "detector_healthy":      row.detector_healthy,
             "detector_last_scan":    row.detector_last_scan,

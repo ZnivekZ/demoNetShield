@@ -45,7 +45,11 @@ Genera un resumen ejecutivo EN ESPAÑOL con exactamente estas secciones:
 Reglas:
 - Máximo 300 palabras en total.
 - No inventes datos que no estén en el payload.
-- Si hay CISA KEV matches, marcarlo como URGENTE al inicio.
+- CISA KEV matches son solo CVEs detectados por Wazuh y cruzados por ID exacto.
+  Si cisa_kev.status no es "verified", indicar que no se pudo verificar;
+  nunca describirlo como inventario limpio.
+- Las coincidencias cisa_kev.possible_by_name no son vulnerabilidades confirmadas.
+- Si hay CISA KEV matches confirmados, marcarlo como URGENTE al inicio.
 - Usa markdown básico (negrita, listas) para legibilidad.
 - Termina con una línea: "*Análisis generado automáticamente — verificar contra datos fuente.*"
 """
@@ -103,9 +107,12 @@ def _build_mock_summary(payload: dict) -> str:
     if crit.get("delta", 0) > 0:
         critical_line = f"{crit.get('today', 0)} alertas críticas ({crit.get('delta', 0):+d} vs ayer)."
 
-    cisa_line = "✅ Sin coincidencias CISA KEV."
-    if cisa.get("matches", 0) > 0:
-        cisa_line = f"🔴 **URGENTE**: {cisa['matches']} CVE(s) del catálogo CISA KEV activas en el inventario."
+    if cisa.get("status") != "verified":
+        cisa_line = "⚠️ No se pudo verificar CISA KEV contra los hallazgos de Wazuh."
+    elif cisa.get("matches", 0) > 0:
+        cisa_line = f"🔴 **URGENTE**: {cisa['matches']} CVE(s) CISA KEV detectadas por Wazuh."
+    else:
+        cisa_line = "✅ Sin CVEs CISA KEV detectados por Wazuh."
 
     incidents_line = "Sin incidentes de conectividad."
     if incidents:

@@ -31,7 +31,7 @@ class DailyDigest(Base):
     # JSON blobs (avoids schema migrations when adding sub-fields)
     delta_json        = Column(Text, nullable=False, default="{}")
     agents_json       = Column(Text, nullable=False, default="{}")
-    cisa_json         = Column(Text, nullable=False, default="{}")
+    cisa_json         = Column(Text, nullable=False, default="{}")  # versioned KEV matches/status JSON
 
     # AI diagnostic (Groq or mock)
     ai_summary        = Column(Text, nullable=True)

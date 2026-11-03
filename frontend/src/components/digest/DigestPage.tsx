@@ -128,6 +128,8 @@ function DigestContent({ digest }: { digest: DigestResponse }) {
       {/* CISA KEV — top priority */}
       <CisaKevAlert
         matches={digest.cisa_kev_matches ?? []}
+        possibleMatches={digest.cisa_kev_possible_matches ?? []}
+        status={digest.cisa_kev_status ?? 'needs_regeneration'}
         totalChecked={digest.cisa_kev_total_checked ?? 0}
         lastUpdated={digest.cisa_kev_last_updated}
       />

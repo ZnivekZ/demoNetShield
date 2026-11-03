@@ -11,8 +11,8 @@ Lifecycle:
   4. If local cache missing → catalog_size() == 0, matches return []
 
 Matching logic:
-  kev.vendorProject + kev.product (lowercase) cross-referenced against
-  syscollector package.vendor + package.name (lowercase, fuzzy substring).
+  Confirmed findings join Wazuh vulnerability documents to KEV by exact CVE ID.
+  Package-name/vendor matches are retained separately as unverified candidates.
 
 Design:
   - Singleton (one shared catalog in memory).
@@ -96,7 +96,10 @@ class CisaKevService:
         self, agents_packages: dict[str, list[dict]]
     ) -> list[dict[str, Any]]:
         """
-        Cross-reference the KEV catalog with local software inventory.
+        Find unverified KEV candidates in the software inventory.
+
+        A name/vendor match alone does not establish that the installed version
+        is vulnerable. Never use these candidates for the critical alert or score.
 
         Args:
             agents_packages: {agent_name: [{"name": str, "vendor": str, ...}]}
@@ -149,6 +152,66 @@ class CisaKevService:
             matches=len(matches),
         )
         return matches
+
+    def match_confirmed_vulnerabilities(
+        self, findings: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Join current Wazuh vulnerability findings to KEV by exact CVE ID."""
+        if not self.is_loaded():
+            return []
+
+        kev_by_cve = {
+            str(entry.get("cveID") or "").strip().upper(): entry
+            for entry in self._catalog
+            if entry.get("cveID")
+        }
+        grouped: dict[str, dict[str, Any]] = {}
+        seen_evidence: set[tuple[str, str, str, str]] = set()
+
+        for finding in findings:
+            cve_id = str(finding.get("cve_id") or "").strip().upper()
+            kev = kev_by_cve.get(cve_id)
+            if not kev:
+                continue
+            agent_id = str(finding.get("agent_id") or "").strip()
+            agent_name = str(finding.get("agent_name") or "").strip()
+            package_name = str(finding.get("package_name") or "").strip()
+            package_version = str(finding.get("package_version") or "").strip()
+            # A finding without an identifiable agent cannot be tied to inventory.
+            if not (agent_id or agent_name):
+                continue
+
+            evidence_key = (cve_id, agent_id or agent_name, package_name, package_version)
+            if evidence_key in seen_evidence:
+                continue
+            seen_evidence.add(evidence_key)
+
+            match = grouped.setdefault(cve_id, {
+                "cve_id": cve_id,
+                "vendor": kev.get("vendorProject", ""),
+                "product": kev.get("product", ""),
+                "vulnerability_name": kev.get("vulnerabilityName", ""),
+                "date_added": kev.get("dateAdded", ""),
+                "due_date": kev.get("dueDate"),
+                "matched_agents": [],
+                "matched_packages": [],
+                "evidence": [],
+            })
+            display_agent = agent_name or agent_id
+            if display_agent not in match["matched_agents"]:
+                match["matched_agents"].append(display_agent)
+            display_package = f"{package_name} {package_version}".strip()
+            if display_package and display_package not in match["matched_packages"]:
+                match["matched_packages"].append(display_package)
+            match["evidence"].append({
+                "agent_id": agent_id,
+                "agent_name": display_agent,
+                "package_name": package_name,
+                "package_version": package_version,
+                "detected_at": finding.get("detected_at") or None,
+            })
+
+        return [grouped[cve_id] for cve_id in sorted(grouped)]
 
     # ── Private helpers ────────────────────────────────────────────────────────
 

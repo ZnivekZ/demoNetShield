@@ -568,6 +568,79 @@ class WazuhIndexerClient:
 
     # ── Vulnerabilities ────────────────────────────────────────
 
+    async def get_current_vulnerability_findings(self) -> list[dict[str, Any]]:
+        """Read the full current vulnerability state for an exact KEV join.
+
+        Scroll avoids the 500-result cap of the dashboard listing endpoint.
+        Failures raise so the digest never describes an incomplete scan as clean.
+        """
+        if not self.is_configured() or self._breaker.is_open():
+            raise RuntimeError("Wazuh Indexer no disponible para verificar CISA KEV")
+
+        findings: list[dict[str, Any]] = []
+        scroll_id: str | None = None
+        async with self._get_request_lock():
+            client = self._get_client()
+            try:
+                response = await asyncio.wait_for(
+                    client.post(
+                        "/wazuh-states-vulnerabilities-*/_search",
+                        params={"scroll": "1m"},
+                        json={
+                            "size": 500,
+                            "sort": ["_doc"],
+                            "query": {"match_all": {}},
+                            "_source": ["vulnerability", "agent", "package"],
+                        },
+                    ),
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                while True:
+                    if data.get("timed_out") or (data.get("_shards") or {}).get("failed", 0):
+                        raise RuntimeError("Wazuh Indexer devolvió resultados parciales")
+                    scroll_id = data.get("_scroll_id") or scroll_id
+                    hits = data.get("hits", {}).get("hits", [])
+                    if not hits:
+                        break
+                    for hit in hits:
+                        raw = hit.get("_source", {})
+                        status = str((raw.get("vulnerability") or {}).get("status") or "").lower()
+                        if status and status != "active":
+                            continue
+                        findings.append(self._normalize_vuln(raw))
+                    if not scroll_id:
+                        raise RuntimeError("Wazuh Indexer no devolvió cursor para completar la consulta")
+                    response = await asyncio.wait_for(
+                        client.post(
+                            "/_search/scroll",
+                            json={"scroll": "1m", "scroll_id": scroll_id},
+                        ),
+                        timeout=30.0,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+
+                self._breaker.record_success()
+                return findings
+            except Exception:
+                self._breaker.record_failure()
+                raise
+            finally:
+                if scroll_id:
+                    try:
+                        await asyncio.wait_for(
+                            client.request(
+                                "DELETE", "/_search/scroll",
+                                json={"scroll_id": [scroll_id]},
+                            ),
+                            timeout=5.0,
+                        )
+                    except Exception:
+                        pass
+
     async def get_vulnerabilities(
         self, limit: int = 100, agent_id: str | None = None
     ) -> list[dict[str, Any]]:

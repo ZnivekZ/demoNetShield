@@ -99,8 +99,15 @@ class DigestAgent(BaseModel):
     last_rootcheck:  str | None
     last_keep_alive: str | None = None
 
+class CisaKevEvidence(BaseModel):
+    agent_id:       str
+    agent_name:     str
+    package_name:   str
+    package_version: str
+    detected_at:    str | None
+
 class CisaKevMatch(BaseModel):
-    """A CISA KEV entry that matches a package in the local inventory."""
+    """A KEV entry with Wazuh evidence, or an unverified name candidate."""
     cve_id:             str
     vendor:             str
     product:            str
@@ -109,6 +116,7 @@ class CisaKevMatch(BaseModel):
     due_date:           str | None     # Remediation due date from CISA
     matched_agents:     list[str]      # Agent names where match was found
     matched_packages:   list[str]      # Package names that matched
+    evidence:           list[CisaKevEvidence] = Field(default_factory=list)
 
 class DigestHistoryItem(BaseModel):
     """Lightweight summary for the history list."""
@@ -136,6 +144,8 @@ class DigestResponse(BaseModel):
     agents_by_category: dict[str, list[DigestAgent]]  # key = AgentCategory value
 
     cisa_kev_matches:      list[CisaKevMatch]
+    cisa_kev_possible_matches: list[CisaKevMatch] = Field(default_factory=list)
+    cisa_kev_status:       str = "needs_regeneration"
     cisa_kev_total_checked: int
     cisa_kev_last_updated: str | None
 

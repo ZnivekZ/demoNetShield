@@ -209,6 +209,9 @@ class CisaKevService:
                 "package_name": package_name,
                 "package_version": package_version,
                 "detected_at": finding.get("detected_at") or None,
+                "severity": finding.get("severity_reported", finding.get("severity")) or None,
+                "cvss_score": finding.get("cvss_score") or None,
+                "status": finding.get("status") or None,
             })
 
         return [grouped[cve_id] for cve_id in sorted(grouped)]

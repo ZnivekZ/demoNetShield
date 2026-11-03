@@ -45,6 +45,13 @@ class AgentScanStatus(BaseModel):
     rootcheck_hours_ago: float | None
     is_stale:       bool               # True if any scan >48h ago
 
+class AgentAlertDetail(BaseModel):
+    rule_id:         str
+    description:     str
+    level:           int
+    today_count:     int
+    yesterday_count: int
+
 class DigestDelta(BaseModel):
     """Deterministic metrics calculated from two 24h windows."""
     period_start:         str          # ISO 8601 — start of TODAY's window
@@ -91,6 +98,7 @@ class DigestAgent(BaseModel):
     alerts_today:    int
     alerts_yesterday: int
     alerts_delta:    int
+    alert_details:  list[AgentAlertDetail] = Field(default_factory=list)
 
     new_cves:        int
     new_packages:    int               # packages installed/upgraded today
@@ -105,6 +113,9 @@ class CisaKevEvidence(BaseModel):
     package_name:   str
     package_version: str
     detected_at:    str | None
+    severity:       str | None = None
+    cvss_score:     float | None = None
+    status:         str | None = None
 
 class CisaKevMatch(BaseModel):
     """A KEV entry with Wazuh evidence, or an unverified name candidate."""
@@ -150,7 +161,7 @@ class DigestResponse(BaseModel):
     cisa_kev_last_updated: str | None
 
     ai_summary:       str | None       # Groq analysis (or mock)
-    ai_model_used:    str | None       # e.g. "llama-3.3-70b-versatile" or "mock"
+    ai_model_used:    str | None       # e.g. "openai/gpt-oss-120b", "mock", "groq_error"
     ai_is_mock:       bool
     ai_payload_sent:  dict | None      # Condensed payload that was/would be sent to Groq
     ai_generated_at:  str | None

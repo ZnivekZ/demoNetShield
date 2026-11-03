@@ -132,6 +132,7 @@ function DigestContent({ digest }: { digest: DigestResponse }) {
         status={digest.cisa_kev_status ?? 'needs_regeneration'}
         totalChecked={digest.cisa_kev_total_checked ?? 0}
         lastUpdated={digest.cisa_kev_last_updated}
+        generatedAt={digest.generated_at}
       />
 
       {/* Risk semaphore */}
@@ -140,13 +141,13 @@ function DigestContent({ digest }: { digest: DigestResponse }) {
         score={digest.risk_score}
         reasoning={digest.risk_reasoning ?? ''}
         generatedAt={digest.generated_at}
-        isMock={digest.ai_is_mock}
+        isMock={digest.ai_model_used === 'mock'}
       />
 
       {/* Delta metric cards */}
       <section>
         <SectionHeading icon={<BarChart2 />} label="Delta 24h" />
-        <DeltaSummaryCards delta={digest.delta} />
+        <DeltaSummaryCards delta={digest.delta} agentsByCategory={agentsByCategory} generatedAt={digest.generated_at} />
       </section>
 
       {/* Transient incidents */}
@@ -160,6 +161,7 @@ function DigestContent({ digest }: { digest: DigestResponse }) {
         <SectionHeading icon={<Monitor />} label="Agentes por categoría" />
         <AgentCategoryTabs
           agentsByCategory={agentsByCategory}
+          period={digest.delta}
           onUpdateCategory={handleUpdateCategory}
           isUpdating={updateCategory.isPending}
         />

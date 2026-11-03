@@ -7,11 +7,12 @@
  */
 import React, { useState } from 'react';
 import { Pencil, Check, X } from 'lucide-react';
-import type { DigestAgent, AgentCategory } from '../../types';
+import type { DigestAgent, AgentCategory, DigestDelta } from '../../types';
 import { AgentDeltaTable } from './AgentDeltaTable';
 
 interface Props {
   agentsByCategory: Record<AgentCategory, DigestAgent[]>;
+  period: DigestDelta;
   onUpdateCategory: (agentId: string, category: AgentCategory) => void;
   isUpdating?: boolean;
 }
@@ -93,7 +94,7 @@ const OverrideModal: React.FC<OverrideModalProps> = ({ agent, onConfirm, onClose
   );
 };
 
-export const AgentCategoryTabs: React.FC<Props> = ({ agentsByCategory, onUpdateCategory, isUpdating }) => {
+export const AgentCategoryTabs: React.FC<Props> = ({ agentsByCategory, period, onUpdateCategory, isUpdating }) => {
   const [activeTab, setActiveTab] = useState<AgentCategory | 'all'>('all');
   const [overrideAgent, setOverrideAgent] = useState<DigestAgent | null>(null);
 
@@ -157,7 +158,7 @@ export const AgentCategoryTabs: React.FC<Props> = ({ agentsByCategory, onUpdateC
         <div className="flex flex-col gap-4">
           {agentsToShow.map(agent => (
             <div key={agent.agent_id} className="relative">
-              <AgentDeltaTable agent={agent} />
+              <AgentDeltaTable agent={agent} period={period} />
               <button
                 onClick={() => setOverrideAgent(agent)}
                 disabled={isUpdating}

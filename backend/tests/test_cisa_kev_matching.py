@@ -51,6 +51,9 @@ class CisaKevMatchingTests(unittest.TestCase):
             "package_name": "example-app",
             "package_version": "1.2.3",
             "detected_at": "2026-11-03T10:00:00Z",
+            "severity": "high",
+            "cvss_score": 8.1,
+            "status": "active",
         }
         matches = self.kev.match_confirmed_vulnerabilities([
             finding, finding, {**finding, "cve_id": "CVE-2024-9999"},
@@ -59,6 +62,9 @@ class CisaKevMatchingTests(unittest.TestCase):
         self.assertEqual(matches[0]["matched_agents"], ["web-01"])
         self.assertEqual(len(matches[0]["evidence"]), 1)
         self.assertEqual(matches[0]["evidence"][0]["package_version"], "1.2.3")
+        self.assertEqual(matches[0]["evidence"][0]["severity"], "high")
+        self.assertEqual(matches[0]["evidence"][0]["cvss_score"], 8.1)
+        self.assertEqual(matches[0]["evidence"][0]["status"], "active")
 
     def test_vendor_only_match_remains_unverified(self):
         candidates = self.kev.match_against_inventory({
@@ -112,7 +118,7 @@ class WazuhFindingFetchTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self):
                 self.pages = iter([
                     {"_scroll_id": "cursor", "hits": {"hits": [
-                        {"_source": {"vulnerability": {"id": "CVE-2024-1111", "status": "Active"}, "agent": {"id": "001"}}},
+                        {"_source": {"vulnerability": {"id": "CVE-2024-1111", "status": "Active", "severity": "High", "score": {"base": 8.1}}, "agent": {"id": "001"}}},
                         {"_source": {"vulnerability": {"id": "CVE-2024-2222", "status": "Solved"}, "agent": {"id": "001"}}},
                     ]}},
                     {"_scroll_id": "cursor", "hits": {"hits": [
@@ -148,6 +154,9 @@ class WazuhFindingFetchTests(unittest.IsolatedAsyncioTestCase):
             findings = await indexer.get_current_vulnerability_findings()
 
         self.assertEqual([f["cve_id"] for f in findings], ["CVE-2024-1111", "CVE-2024-3333"])
+        self.assertEqual((findings[0]["status"], findings[0]["severity"], findings[0]["cvss_score"]), ("active", "high", 8.1))
+        self.assertEqual(findings[1]["status"], "")
+        self.assertIsNone(findings[1]["severity_reported"])
         self.assertTrue(fake_client.cleared)
 
 

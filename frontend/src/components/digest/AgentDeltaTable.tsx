@@ -3,12 +3,16 @@
  * Shows "yesterday vs today" metrics for a single agent.
  * Styled with NetShield glass-card / design-system tokens.
  */
-import React from 'react';
-import type { DigestAgent } from '../../types';
+import React, { useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import type { DigestAgent, DigestDelta } from '../../types';
 
 interface Props {
   agent: DigestAgent;
+  period: DigestDelta;
 }
+
+type AlertDetail = NonNullable<DigestAgent['alert_details']>[number];
 
 const CATEGORY_LABELS: Record<string, string> = {
   proxy:    '🌐 Proxy',
@@ -17,21 +21,100 @@ const CATEGORY_LABELS: Record<string, string> = {
   server:   '🖥️ Servidor',
 };
 
-function DeltaBadge({ val }: { val: number }) {
-  if (val === 0) return <span className="text-xs text-surface-500">—</span>;
+function DeltaBadge({ val, expanded, onClick, controls }: {
+  val: number;
+  expanded: boolean;
+  onClick: () => void;
+  controls: string;
+}) {
   const isPos = val > 0;
   return (
-    <span
-      className="text-xs font-semibold"
-      style={{ color: isPos ? '#ef4444' : '#22c55e' }}
+    <button
+      type="button"
+      onClick={onClick}
+      aria-expanded={expanded}
+      aria-controls={controls}
+      className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold border border-surface-700 hover:border-indigo-400/50"
+      style={{ color: val === 0 ? '#94a3b8' : isPos ? '#f87171' : '#4ade80' }}
     >
-      {isPos ? '↑' : '↓'} {Math.abs(val)}
-    </span>
+      {val === 0 ? '→ 0' : `${isPos ? '↑' : '↓'} ${Math.abs(val)}`}
+      <span className="text-surface-400">Detalle</span>
+      {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+    </button>
   );
 }
 
-export const AgentDeltaTable: React.FC<Props> = ({ agent }) => {
+function alertSeverity(level: number): { label: string; color: string } {
+  if (level >= 12) return { label: 'Crítica', color: '#ef4444' };
+  if (level >= 8) return { label: 'Alta', color: '#f97316' };
+  if (level >= 5) return { label: 'Media', color: '#eab308' };
+  return { label: 'Baja', color: '#94a3b8' };
+}
+
+function formatPeriod(start: string, end: string): string {
+  const format = (value: string) => new Date(value).toLocaleString('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  return `${format(start)} → ${format(end)}`;
+}
+
+function AlertGroup({ title, items }: { title: string; items: AlertDetail[] }) {
+  const [showAll, setShowAll] = useState(false);
+  return (
+    <div className="rounded-lg border border-surface-800 bg-surface-900/40 p-3">
+      <p className="text-xs font-semibold text-surface-200 mb-2">{title} <span className="text-surface-500">({items.length} tipos)</span></p>
+      {items.length === 0 ? (
+        <p className="text-xs text-surface-500">Ninguno</p>
+      ) : (
+        <div className="space-y-2">
+          {(showAll ? items : items.slice(0, 3)).map((item, index) => {
+            const severity = alertSeverity(item.level);
+            return (
+              <div key={`${item.rule_id}-${index}`} className="border-b border-surface-800/60 pb-2 last:border-0 last:pb-0">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs text-surface-200 leading-snug">{item.description}</p>
+                  <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ color: severity.color, background: `${severity.color}20` }}>
+                    {severity.label} · {item.level}
+                  </span>
+                </div>
+                <p className="text-[11px] text-surface-500 mt-1">
+                  {item.rule_id ? `Regla ${item.rule_id} · ` : ''}{item.today_count} hoy · {item.yesterday_count} ayer
+                </p>
+              </div>
+            );
+          })}
+          {items.length > 3 && (
+            <button type="button" onClick={() => setShowAll(open => !open)} className="text-[11px] font-semibold text-indigo-300 hover:text-indigo-200">
+              {showAll ? 'Ver menos' : `Ver ${items.length - 3} tipos más`}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function keepAliveLabel(agent: DigestAgent): string {
+  if (agent.agent_id === '000') return 'Manager local · no aplica';
+  if (agent.last_keep_alive?.startsWith('9999-12-31')) return 'Fecha especial de Wazuh · no aplica';
+  if (!agent.last_keep_alive) return 'No informado';
+  const date = new Date(agent.last_keep_alive);
+  return Number.isNaN(date.getTime()) ? 'Fecha no válida' : date.toLocaleString('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+export const AgentDeltaTable: React.FC<Props> = ({ agent, period }) => {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const alertDelta = agent.alerts_today - agent.alerts_yesterday;
+  const alertDetails = agent.alert_details ?? [];
+  const newTypes = alertDetails.filter(item => item.today_count > 0 && item.yesterday_count === 0);
+  const recurringTypes = alertDetails.filter(item => item.today_count > 0 && item.yesterday_count > 0);
+  const onlyYesterday = alertDetails.filter(item => item.today_count === 0 && item.yesterday_count > 0);
+  const detailsId = `agent-alert-details-${agent.agent_id}`;
 
   return (
     <div
@@ -75,9 +158,8 @@ export const AgentDeltaTable: React.FC<Props> = ({ agent }) => {
         </thead>
         <tbody>
           {[
-            { label: '🔔 Alertas',        yesterday: agent.alerts_yesterday, today: agent.alerts_today, delta: alertDelta },
-            { label: '🐛 CVEs nuevas',    yesterday: null,                   today: agent.new_cves,     delta: null },
-            { label: '📦 Paquetes nuevos',yesterday: null,                   today: agent.new_packages, delta: null },
+            { kind: 'alerts', label: '🔔 Alertas', yesterday: agent.alerts_yesterday, today: agent.alerts_today },
+            { kind: 'cves', label: '🐛 CVEs detectadas', yesterday: null, today: agent.new_cves },
           ].map((row, i) => (
             <tr
               key={i}
@@ -90,7 +172,9 @@ export const AgentDeltaTable: React.FC<Props> = ({ agent }) => {
               </td>
               <td className="px-3.5 py-2.5 font-semibold text-surface-100">{row.today}</td>
               <td className="px-3.5 py-2.5">
-                {row.delta !== null ? <DeltaBadge val={row.delta} /> : <span className="text-surface-500">—</span>}
+                {row.kind === 'alerts'
+                  ? <DeltaBadge val={alertDelta} expanded={detailsOpen} onClick={() => setDetailsOpen(open => !open)} controls={detailsId} />
+                  : <span className="text-surface-500">—</span>}
               </td>
             </tr>
           ))}
@@ -111,7 +195,7 @@ export const AgentDeltaTable: React.FC<Props> = ({ agent }) => {
                         border: '1px solid rgba(249,115,22,0.2)',
                       }}
                     >
-                      {p.port}/{p.protocol}
+                      {String(p.port ?? '?')}/{String(p.protocol ?? '?')}
                     </span>
                   ))}
                 </div>
@@ -121,14 +205,9 @@ export const AgentDeltaTable: React.FC<Props> = ({ agent }) => {
 
           {/* KeepAlive / Sincronización del agente */}
           <tr className="border-b border-surface-800/40">
-            <td className="px-3.5 py-2.5 text-surface-200">📡 Última sincronización</td>
+            <td className="px-3.5 py-2.5 text-surface-200">📡 Último contacto Wazuh</td>
             <td colSpan={3} className="px-3.5 py-2.5 text-surface-400 text-xs">
-              {agent.last_keep_alive
-                ? new Date(agent.last_keep_alive).toLocaleString('es-AR', {
-                    day: '2-digit', month: '2-digit', year: 'numeric',
-                    hour: '2-digit', minute: '2-digit',
-                  })
-                : <span className="text-surface-500">—</span>}
+              {keepAliveLabel(agent)}
             </td>
           </tr>
 
@@ -146,6 +225,29 @@ export const AgentDeltaTable: React.FC<Props> = ({ agent }) => {
           </tr>
         </tbody>
       </table>
+      {detailsOpen && (
+        <div id={detailsId} className="border-t border-indigo-400/20 bg-indigo-500/5 px-4 py-4">
+          <p className="text-sm font-semibold text-surface-100">Qué cambió en las alertas</p>
+          <p className="text-xs text-surface-400 mt-1">
+            Hoy: {formatPeriod(period.period_start, period.period_end)} · Ayer: {formatPeriod(period.yesterday_start, period.yesterday_end)} (Argentina).
+          </p>
+          <p className="text-xs text-surface-500 mt-1 mb-3">
+            “Nuevo” y “ya visto” comparan tipos de regla entre períodos; no indican que sea el mismo evento activo.
+          </p>
+          {agent.alert_details === undefined ? (
+            <p className="text-xs text-surface-400 rounded-lg border border-surface-800 p-3">
+              Este Digest anterior no guardó el detalle de las reglas. Regeneralo para ver el desglose.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+              <AlertGroup title="Nuevos hoy" items={newTypes} />
+              <AlertGroup title="Ya vistos ayer" items={recurringTypes} />
+              <AlertGroup title="Solo ayer" items={onlyYesterday} />
+            </div>
+          )}
+          <p className="text-[11px] text-surface-500 mt-3">Criticidad estimada a partir del nivel de la regla de Wazuh (0–16).</p>
+        </div>
+      )}
     </div>
   );
 };

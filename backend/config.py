@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # ── Groq AI (Daily Security Digest) ──────────────────────────────────────
     # Clave gratuita: https://console.groq.com/keys
     # Vacío = modo mock (muestra payload + respuesta simulada, ai_is_mock=true)
-    # Con key  = llama a Groq real con fallback: llama-3.3-70b → llama-3.1-8b → mixtral-8x7b
+    # Con key = Groq real con modelos GPT-OSS de producción (ver groq_service.py)
     groq_api_key: str = ""
     # Si True → genera el digest automáticamente a las 08:00 AM UTC-3 (APScheduler)
     # Si False (default) → solo generación manual desde la UI

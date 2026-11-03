@@ -4,11 +4,10 @@ GroqService — AI analysis for the Daily Security Digest.
 Behavior:
   - GROQ_API_KEY empty  → mock mode: returns realistic simulated analysis,
                           ai_is_mock=True, ai_model_used="mock".
-  - GROQ_API_KEY set    → calls Groq API (OpenAI-compatible) with model fallback chain:
-                          1. llama-3.3-70b-versatile  (best quality)
-                          2. llama-3.1-8b-instant      (fallback on 429)
-                          3. mixtral-8x7b-32768        (tertiary fallback)
-                          If all models hit rate limits → degrades to mock transparently.
+  - GROQ_API_KEY set    → calls Groq API with currently supported production
+                          models, checking the account's /models list first.
+                          If all calls fail, reports an error instead of
+                          presenting a simulated analysis as real.
 
 Design:
   - NOT a singleton: instantiated per digest generation (like AIService).
@@ -29,9 +28,8 @@ logger = structlog.get_logger(__name__)
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 FALLBACK_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
 ]
 
 SYSTEM_PROMPT = """Eres un analista SOC senior. Tu tarea es analizar el delta de seguridad \
@@ -153,7 +151,7 @@ def _build_mock_summary(payload: dict) -> str:
 
 class GroqService:
     """
-    Calls Groq API for digest analysis with transparent mock fallback.
+    Calls Groq API for digest analysis.
 
     Returns: tuple[summary: str | None, model: str | None, is_mock: bool]
     """
@@ -172,8 +170,8 @@ class GroqService:
         Returns:
             (summary, model_used, is_mock)
             - summary: markdown text or None if all failed
-            - model_used: model name, "mock", or None
-            - is_mock: True when mock or all models exhausted
+            - model_used: model name, "mock" (no key), or "groq_error"
+            - is_mock: True when the result is not a real Groq analysis
         """
         if self._is_mock:
             logger.info("groq_service_mock_mode")
@@ -184,12 +182,12 @@ class GroqService:
     async def _call_with_fallback(
         self, payload: dict
     ) -> tuple[str | None, str | None, bool]:
-        """Try each model in FALLBACK_MODELS; degrade to mock if all fail."""
+        """Try the available production models without fabricating a result on failure."""
         try:
             from openai import AsyncOpenAI, RateLimitError
         except ImportError:
             logger.error("groq_openai_package_missing")
-            return _build_mock_summary(payload), "mock", True
+            return None, "groq_error", True
 
         client = AsyncOpenAI(
             api_key=self._api_key,
@@ -203,32 +201,48 @@ class GroqService:
             + "\n```"
         )
 
-        for model in FALLBACK_MODELS:
+        try:
+            # The available-models endpoint reflects the key's access and
+            # prevents calls to models that have since been decommissioned.
+            models_to_try = FALLBACK_MODELS
             try:
-                logger.info("groq_calling_model", model=model)
-                response = await client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user",   "content": user_content},
-                    ],
-                    max_tokens=600,
-                    temperature=0.3,
-                )
-                summary = response.choices[0].message.content or ""
-                logger.info("groq_success", model=model, tokens=response.usage.total_tokens)
-                return summary, model, False
-
-            except RateLimitError:
-                logger.warning("groq_rate_limited", model=model)
-                continue
+                listed = await client.models.list()
+                available_ids = {model.id for model in listed.data}
+                models_to_try = [model for model in FALLBACK_MODELS if model in available_ids]
+                if not models_to_try:
+                    logger.error("groq_no_supported_models", available_count=len(available_ids))
+                    return None, "groq_error", True
             except Exception as e:
-                logger.error("groq_model_failed", model=model, error=str(e))
-                continue
+                logger.warning("groq_models_list_failed", error=str(e))
 
-        # All models failed → graceful degradation
-        logger.warning("groq_all_models_exhausted")
-        return _build_mock_summary(payload), None, True
+            for model in models_to_try:
+                try:
+                    logger.info("groq_calling_model", model=model)
+                    response = await client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user",   "content": user_content},
+                        ],
+                        max_completion_tokens=1200,
+                        reasoning_effort="low",
+                        temperature=0.3,
+                    )
+                    summary = response.choices[0].message.content or ""
+                    if not summary.strip():
+                        raise ValueError("Groq devolvió una respuesta vacía")
+                    tokens = getattr(response.usage, "total_tokens", None)
+                    logger.info("groq_success", model=model, tokens=tokens)
+                    return summary, model, False
+                except RateLimitError:
+                    logger.warning("groq_rate_limited", model=model)
+                except Exception as e:
+                    logger.error("groq_model_failed", model=model, error=str(e))
+
+            logger.warning("groq_all_models_exhausted", models=models_to_try)
+            return None, "groq_error", True
+        finally:
+            await client.close()
 
 
 def _safe_json(obj: dict) -> str:

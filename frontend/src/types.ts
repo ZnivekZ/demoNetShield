@@ -2132,6 +2132,13 @@ export interface DigestAgent {
   alerts_today:     number;
   alerts_yesterday: number;
   alerts_delta:     number;
+  alert_details?:   {
+    rule_id: string;
+    description: string;
+    level: number;
+    today_count: number;
+    yesterday_count: number;
+  }[];
   new_cves:         number;
   new_packages:     number;
   port_changes:     Record<string, unknown>[];
@@ -2155,6 +2162,9 @@ export interface CisaKevMatch {
     package_name: string;
     package_version: string;
     detected_at: string | null;
+    severity?: string | null;
+    cvss_score?: number | null;
+    status?: string | null;
   }[];
 }
 

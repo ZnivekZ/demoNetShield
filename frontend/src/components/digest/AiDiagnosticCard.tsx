@@ -2,8 +2,8 @@
  * AiDiagnosticCard.tsx
  * Shows the Groq AI diagnosis section.
  * - If real: renders the markdown summary + model badge
- * - If mock: shows "Simulación" banner + collapsible payload viewer + mock response
- * - If quota exhausted: orange degradation banner
+ * - If no key: shows "Simulación" banner + mock response
+ * - If Groq fails: shows a failure banner without claiming the key is missing
  * Styled with NetShield glass-card system.
  */
 import React, { useState } from 'react';
@@ -62,6 +62,8 @@ export const AiDiagnosticCard: React.FC<Props> = ({
   aiGeneratedAt,
 }) => {
   const [payloadOpen, setPayloadOpen] = useState(false);
+  const missingKey = aiIsMock && aiModelUsed === 'mock';
+  const groqFailed = aiIsMock && !missingKey;
 
   const formattedDate = aiGeneratedAt
     ? new Date(aiGeneratedAt).toLocaleString('es-AR', {
@@ -100,7 +102,7 @@ export const AiDiagnosticCard: React.FC<Props> = ({
                 border: '1px solid #f9731633',
               }}
             >
-              📋 SIMULACIÓN — Sin API key Groq
+              {missingKey ? '📋 SIMULACIÓN — Sin API key Groq' : '⚠️ Groq no generó el análisis'}
             </span>
           ) : (
             <span
@@ -123,13 +125,20 @@ export const AiDiagnosticCard: React.FC<Props> = ({
           style={{ background: 'rgba(120,53,15,0.12)', color: '#fbbf24' }}
         >
           <span className="mt-0.5">💡</span>
-          <span>
-            Para análisis real, agregá{' '}
-            <code className="bg-surface-900 text-surface-300 px-1.5 py-0.5 rounded text-[11px]">GROQ_API_KEY=gsk_...</code>{' '}
-            en{' '}
-            <code className="bg-surface-900 text-surface-300 px-1.5 py-0.5 rounded text-[11px]">backend/.env</code>{' '}
-            y reiniciá el backend.
-          </span>
+          {missingKey ? (
+            <span>
+              Para análisis real, agregá{' '}
+              <code className="bg-surface-900 text-surface-300 px-1.5 py-0.5 rounded text-[11px]">GROQ_API_KEY=gsk_...</code>{' '}
+              en{' '}
+              <code className="bg-surface-900 text-surface-300 px-1.5 py-0.5 rounded text-[11px]">backend/.env</code>{' '}
+              y reiniciá el backend.
+            </span>
+          ) : (
+            <span>
+              La clave está configurada, pero Groq rechazó o no pudo completar la solicitud.
+              Revisá los modelos disponibles y los logs del backend; luego regenerá el Digest.
+            </span>
+          )}
         </div>
       )}
 
@@ -152,7 +161,7 @@ export const AiDiagnosticCard: React.FC<Props> = ({
             {payloadOpen
               ? <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />
               : <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" />}
-            Ver payload que se enviaría a Groq (~1200 tokens)
+            {groqFailed ? 'Ver payload preparado para Groq' : 'Ver payload que se enviaría a Groq (~1200 tokens)'}
           </button>
           {payloadOpen && (
             <div className="px-6 pb-5">

@@ -216,6 +216,33 @@ def _pct_change(today: int | float, yesterday: int | float) -> float:
     return round(((today - yesterday) / yesterday) * 100, 2)
 
 
+def _summarize_alert_types(today: list[dict], yesterday: list[dict]) -> list[dict]:
+    """Compare rule types per agent; individual alerts are separate events."""
+    grouped: dict[str, dict] = {}
+    for alerts, period in ((today, "today_count"), (yesterday, "yesterday_count")):
+        for alert in alerts:
+            rule = alert.get("rule") or {}
+            rule_id = str(rule.get("id") or alert.get("rule_id") or "").strip()
+            description = str(rule.get("description") or alert.get("rule_description") or "Alerta sin descripción").strip()
+            key = rule_id or f"description:{description.lower()}"
+            try:
+                level = int(rule.get("level") or alert.get("rule_level") or 0)
+            except (TypeError, ValueError):
+                level = 0
+            item = grouped.setdefault(key, {
+                "rule_id": rule_id,
+                "description": description,
+                "level": level,
+                "today_count": 0,
+                "yesterday_count": 0,
+            })
+            item[period] += 1
+            item["level"] = max(item["level"], level)
+            if item["description"] == "Alerta sin descripción" and description != item["description"]:
+                item["description"] = description
+    return sorted(grouped.values(), key=lambda item: (-item["level"], -item["today_count"], item["rule_id"]))
+
+
 def _calculate_risk_score(
     delta: dict[str, Any],
     cisa_matches: list[dict],
@@ -848,8 +875,8 @@ class DigestService:
         wazuh = get_wazuh_service()
 
         # Pre-index alerts and CVEs per agent
-        alerts_by_agent_today: dict[str, int] = defaultdict(int)
-        alerts_by_agent_yest:  dict[str, int] = defaultdict(int)
+        alerts_by_agent_today: dict[str, list[dict]] = defaultdict(list)
+        alerts_by_agent_yest:  dict[str, list[dict]] = defaultdict(list)
         cves_by_agent:         dict[str, int] = defaultdict(int)
         scans_by_agent:        dict[str, dict] = {}
 
@@ -863,12 +890,12 @@ class DigestService:
             agent = a.get("agent", {}) or {}
             aid   = agent.get("id") or a.get("agent_id", "")
             if aid:
-                alerts_by_agent_today[aid] += 1
+                alerts_by_agent_today[aid].append(a)
         for a in alerts_yesterday:
             agent = a.get("agent", {}) or {}
             aid   = agent.get("id") or a.get("agent_id", "")
             if aid:
-                alerts_by_agent_yest[aid] += 1
+                alerts_by_agent_yest[aid].append(a)
         for c in cves_today:
             aid = c.get("agent_id", "")
             if aid:
@@ -886,8 +913,10 @@ class DigestService:
             else:
                 cat, source = _classify_agent(agent_name, overrides)
 
-            a_today = alerts_by_agent_today.get(agent_id, 0)
-            a_yest  = alerts_by_agent_yest.get(agent_id, 0)
+            agent_alerts_today = alerts_by_agent_today.get(agent_id, [])
+            agent_alerts_yest = alerts_by_agent_yest.get(agent_id, [])
+            a_today = len(agent_alerts_today)
+            a_yest = len(agent_alerts_yest)
 
             scan_info = scans_by_agent.get(agent_id, {})
             last_sys  = scan_info.get("last_syscheck")
@@ -912,6 +941,7 @@ class DigestService:
                 "alerts_today":    a_today,
                 "alerts_yesterday": a_yest,
                 "alerts_delta":    a_today - a_yest,
+                "alert_details":   _summarize_alert_types(agent_alerts_today, agent_alerts_yest),
                 "new_cves":        cves_by_agent.get(agent_id, 0),
                 "new_packages":    0,   # populated by syscollector if needed
                 "port_changes":    ports,

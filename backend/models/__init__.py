@@ -9,6 +9,8 @@ from models.telegram import TelegramReportConfig, TelegramMessageLog, TelegramPe
 from models.custom_view import CustomView
 from models.user import User
 from models.public_ticket import PublicTicket
+from models.daily_digest import DailyDigest
+from models.agent_category_override import AgentCategoryOverride
 
 __all__ = [
     "IPLabel",
@@ -23,5 +25,7 @@ __all__ = [
     "CustomView",
     "User",
     "PublicTicket",
+    "DailyDigest",
+    "AgentCategoryOverride",
 ]
 

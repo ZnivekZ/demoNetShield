@@ -1075,6 +1075,70 @@ class WazuhService:
             logger.warning("wazuh_stats_summary_alerts_24h_failed", error=str(e))
         return result
 
+
+    async def get_syscheck_last_scan(self, agent_id: str) -> dict | None:
+        """
+        [Wazuh API] Get the timestamp of the last syscheck (FIM) scan for an agent.
+        Endpoint: GET /syscheck/{agent_id}/last_scan
+        Returns: {"start": "ISO8601", "end": "ISO8601"} or None on failure.
+        """
+        try:
+            data = await self._api_request("GET", f"/syscheck/{agent_id}/last_scan")
+            items = data.get("data", {}).get("affected_items", [])
+            if items:
+                return {"start": items[0].get("start", ""), "end": items[0].get("end", "")}
+            return None
+        except Exception as e:
+            logger.warning("wazuh_syscheck_last_scan_failed", agent_id=agent_id, error=str(e))
+            return None
+
+    async def get_rootcheck_last_scan(self, agent_id: str) -> dict | None:
+        """
+        [Wazuh API] Get the timestamp of the last rootcheck scan for an agent.
+        Endpoint: GET /rootcheck/{agent_id}/last_scan
+        Returns: {"start": "ISO8601", "end": "ISO8601"} or None on failure.
+        """
+        try:
+            data = await self._api_request("GET", f"/rootcheck/{agent_id}/last_scan")
+            items = data.get("data", {}).get("affected_items", [])
+            if items:
+                return {"start": items[0].get("start", ""), "end": items[0].get("end", "")}
+            return None
+        except Exception as e:
+            logger.warning("wazuh_rootcheck_last_scan_failed", agent_id=agent_id, error=str(e))
+            return None
+
+    async def get_agent_ports(self, agent_id: str, limit: int = 100) -> list[dict]:
+        """
+        [Wazuh API] Get open ports (network listeners) for an agent.
+        Endpoint: GET /syscollector/{agent_id}/ports
+        Returns: [{local_port, local_ip, protocol, state, process}]
+        """
+        try:
+            data = await self._api_request(
+                "GET", f"/syscollector/{agent_id}/ports",
+                params={"limit": limit, "q": "state=listen"},
+            )
+            items = data.get("data", {}).get("affected_items", [])
+            out: list[dict] = []
+            for p in items:
+                local = p.get("local", {}) or {}
+                out.append({
+                    "local_port": local.get("port", 0),
+                    "local_ip":   local.get("ip", ""),
+                    "protocol":   p.get("protocol", ""),
+                    "state":      p.get("state", ""),
+                    "process":    (
+                        p.get("process", {}).get("name", "")
+                        if isinstance(p.get("process"), dict) else ""
+                    ),
+                    "agent_id":   agent_id,
+                })
+            return out
+        except Exception as e:
+            logger.warning("wazuh_agent_ports_failed", agent_id=agent_id, error=str(e))
+            return []
+
     async def close(self) -> None:
         """Close the HTTP client."""
         if self._client and not self._client.is_closed:

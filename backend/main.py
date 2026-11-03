@@ -44,6 +44,7 @@ from routers import blocklist as blocklist_router
 from routers import reputation as reputation_router
 from routers import dhcp as dhcp_router
 from routers import auth as auth_router
+from routers import digest as digest_router
 from services.mikrotik_service import get_mikrotik_service
 from services.wazuh_service import get_wazuh_service
 from services.glpi_service import get_glpi_service
@@ -254,6 +255,47 @@ async def lifespan(app: FastAPI):
     _lag_monitor_task = asyncio.create_task(_event_loop_lag_monitor())
     logger.info("event_loop_lag_monitor_started")
 
+    # Initialize CISA KEV catalog (downloads on startup, falls back to local cache)
+    try:
+        from services.cisa_kev_service import get_cisa_kev_service
+        cisa_kev = get_cisa_kev_service()
+        asyncio.create_task(cisa_kev.initialize())
+        logger.info("cisa_kev_init_scheduled")
+    except Exception as e:
+        logger.warning("cisa_kev_init_failed", error=str(e))
+
+    # Daily Digest auto-scheduler (opt-in via DIGEST_AUTO_GENERATE=true)
+    if settings.digest_auto_generate:
+        try:
+            from apscheduler.schedulers.asyncio import AsyncIOScheduler
+            from apscheduler.triggers.cron import CronTrigger
+            from services.digest_service import get_digest_service
+
+            _digest_scheduler = AsyncIOScheduler()
+
+            async def _run_scheduled_digest():
+                """Generate daily digest at 08:00 AM ART (UTC-3 = 11:00 UTC)."""
+                try:
+                    from database import async_session_factory
+                    async with async_session_factory() as db:
+                        svc = get_digest_service()
+                        await svc.generate(method="scheduled", db=db, force=False)
+                        logger.info("digest_scheduled_generation_complete")
+                except Exception as exc:
+                    logger.error("digest_scheduled_generation_failed", error=str(exc))
+
+            _digest_scheduler.add_job(
+                _run_scheduled_digest,
+                CronTrigger(hour=11, minute=0, timezone="UTC"),  # 08:00 ART = 11:00 UTC
+                id="daily_digest",
+                replace_existing=True,
+            )
+            _digest_scheduler.start()
+            app.state.digest_scheduler = _digest_scheduler
+            logger.info("digest_auto_scheduler_started", cron="11:00 UTC (08:00 ART)")
+        except Exception as e:
+            logger.warning("digest_scheduler_start_failed", error=str(e))
+
     yield
 
     # Stop the lag monitor
@@ -315,14 +357,6 @@ app = FastAPI(
 
 # ── CORS ──────────────────────────────────────────────────────────
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # ── JWT Auth Middleware ─────────────────────────────────────────────
 
 # Routes that DON'T require authentication
@@ -344,6 +378,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     Global HTTP middleware that validates JWT tokens on every request.
 
     - Public paths (login, logout, health, docs) pass through without validation.
+    - CORS preflight OPTIONS requests pass through.
     - WebSocket paths (/ws/*) pass through — they handle auth at the connection level.
     - All other paths require a valid 'Authorization: Bearer <token>' header.
     - Returns standard APIResponse envelope on 401 so the frontend interceptor
@@ -351,6 +386,10 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
+        # Allow CORS preflight OPTIONS requests through
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         path = request.url.path
 
         # Allow public paths and WebSocket upgrades through
@@ -383,6 +422,15 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 app.add_middleware(JWTAuthMiddleware)
 app.add_middleware(MikroTikReadOnlyMiddleware)
 
+# ── CORS (added last so it wraps all middlewares and intercepts preflight first) ───
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ── Routers ───────────────────────────────────────────────────────
 
@@ -404,6 +452,8 @@ app.include_router(blocklist_router.router)
 app.include_router(blocklist_router.export_router)
 
 app.include_router(reputation_router.router)
+app.include_router(digest_router.router)
+
 
 
 # ── Root & Health Check ───────────────────────────────────────────

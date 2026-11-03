@@ -104,3 +104,7 @@ backend/data/geoip/*.mmdb
 
 # Docs
 docs/
+
+# Daily Digest — runtime artifacts (DO NOT COMMIT)
+backend/data/cisa_kev.json
+backend/scripts/test_digest.py

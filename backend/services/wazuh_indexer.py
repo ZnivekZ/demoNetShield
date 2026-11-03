@@ -692,3 +692,152 @@ class WazuhIndexerClient:
 def get_indexer_client() -> WazuhIndexerClient:
     """Get the global WazuhIndexerClient singleton."""
     return WazuhIndexerClient()
+
+
+# ── Daily Digest — additional methods ────────────────────────────────────────
+# Added outside the class body and attached via assignment to keep the
+# original class definition untouched.
+
+async def _get_alerts_for_period(
+    self: WazuhIndexerClient,
+    time_from: str,
+    time_to: str,
+    level_min: int | None = None,
+    agent_id: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """
+    Get alerts within a specific time window [time_from, time_to].
+    Used by DigestService to compare today's vs yesterday's windows.
+
+    Args:
+        time_from: ISO 8601 or OpenSearch relative (e.g. "now-48h")
+        time_to:   ISO 8601 or OpenSearch relative (e.g. "now-24h")
+    """
+    must: list[dict[str, Any]] = [
+        {"range": {"@timestamp": {"gte": time_from, "lte": time_to}}}
+    ]
+    if level_min is not None:
+        must.append({"range": {"rule.level": {"gte": level_min}}})
+    if agent_id is not None:
+        must.append({"term": {"agent.id": agent_id}})
+
+    hits = await self._search(
+        "wazuh-alerts-4.x-*",
+        query={"bool": {"must": must}},
+        size=min(limit, 500),
+        sort=[{"@timestamp": {"order": "desc"}}],
+    )
+    return [self._normalize_alert(h) for h in hits]
+
+
+async def _get_vulnerabilities_for_period(
+    self: WazuhIndexerClient,
+    time_from: str,
+    time_to: str,
+    agent_id: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """
+    Get CVE findings detected within a specific time window.
+    Uses 'vulnerability.detected_at' field in wazuh-states-vulnerabilities-*.
+    """
+    must: list[dict[str, Any]] = [
+        {"range": {"vulnerability.detected_at": {"gte": time_from, "lte": time_to}}}
+    ]
+    if agent_id is not None:
+        must.append({"term": {"agent.id": agent_id}})
+
+    hits = await self._search(
+        "wazuh-states-vulnerabilities-*",
+        query={"bool": {"must": must}},
+        size=min(limit, 500),
+        sort=None,
+    )
+    return [self._normalize_vuln(h) for h in hits]
+
+
+async def _get_transient_incidents(
+    self: WazuhIndexerClient,
+    time_from: str,
+    time_to: str,
+) -> list[dict[str, Any]]:
+    """
+    Detect transient agent incidents (disconnect/reconnect) within a time window.
+
+    Wazuh fires:
+      rule.id 504  → "Agent disconnected" (level 7)
+      rule.id 505  → "Agent started / connected" (level 3)
+
+    Returns each disconnect event paired with its closest subsequent reconnect
+    within the window (or marked as unrecovered if none found).
+    """
+    must: list[dict[str, Any]] = [
+        {"range": {"@timestamp": {"gte": time_from, "lte": time_to}}},
+        {"terms": {"rule.id": ["504", "505"]}},
+    ]
+    hits = await self._search(
+        "wazuh-alerts-4.x-*",
+        query={"bool": {"must": must}},
+        size=500,
+        sort=[{"@timestamp": {"order": "asc"}}],
+    )
+
+    from collections import defaultdict
+    from datetime import datetime
+
+    events_by_agent: dict[str, list[dict]] = defaultdict(list)
+    for h in hits:
+        agent = h.get("agent", {}) or {}
+        rule  = h.get("rule", {}) or {}
+        events_by_agent[agent.get("id", "")].append({
+            "agent_name": agent.get("name", ""),
+            "rule_id":    str(rule.get("id", "")),
+            "timestamp":  h.get("@timestamp") or h.get("timestamp", ""),
+        })
+
+    incidents: list[dict[str, Any]] = []
+    for agent_id, evts in events_by_agent.items():
+        pending_disconnect: dict | None = None
+        for evt in evts:
+            if evt["rule_id"] == "504":
+                pending_disconnect = evt
+            elif evt["rule_id"] == "505" and pending_disconnect:
+                duration: int | None = None
+                try:
+                    t_dis = datetime.fromisoformat(
+                        pending_disconnect["timestamp"].replace("Z", "+00:00")
+                    )
+                    t_con = datetime.fromisoformat(
+                        evt["timestamp"].replace("Z", "+00:00")
+                    )
+                    duration = int((t_con - t_dis).total_seconds())
+                except (ValueError, TypeError):
+                    pass
+                incidents.append({
+                    "agent_id":         agent_id,
+                    "agent_name":       evt["agent_name"],
+                    "event_type":       "disconnect_reconnect",
+                    "disconnected_at":  pending_disconnect["timestamp"],
+                    "reconnected_at":   evt["timestamp"],
+                    "duration_seconds": duration,
+                })
+                pending_disconnect = None
+
+        if pending_disconnect:
+            incidents.append({
+                "agent_id":         agent_id,
+                "agent_name":       pending_disconnect["agent_name"],
+                "event_type":       "disconnect_no_recovery",
+                "disconnected_at":  pending_disconnect["timestamp"],
+                "reconnected_at":   None,
+                "duration_seconds": None,
+            })
+
+    return incidents
+
+
+# Attach new methods to the singleton class
+WazuhIndexerClient.get_alerts_for_period          = _get_alerts_for_period          # type: ignore[attr-defined]
+WazuhIndexerClient.get_vulnerabilities_for_period = _get_vulnerabilities_for_period # type: ignore[attr-defined]
+WazuhIndexerClient.get_transient_incidents        = _get_transient_incidents         # type: ignore[attr-defined]

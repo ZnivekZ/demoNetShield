@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_model: str = "openrouter/auto"  # modelo gratuito por defecto
 
+    # ── Groq AI (Daily Security Digest) ──────────────────────────────────────
+    # Clave gratuita: https://console.groq.com/keys
+    # Vacío = modo mock (muestra payload + respuesta simulada, ai_is_mock=true)
+    # Con key  = llama a Groq real con fallback: llama-3.3-70b → llama-3.1-8b → mixtral-8x7b
+    groq_api_key: str = ""
+    # Si True → genera el digest automáticamente a las 08:00 AM UTC-3 (APScheduler)
+    # Si False (default) → solo generación manual desde la UI
+    digest_auto_generate: bool = False
+
     # ── Database ─────────────────────────────────────────────────
     database_url: str = "sqlite+aiosqlite:///./netshield.db"
 
@@ -63,7 +72,15 @@ class Settings(BaseSettings):
     # ── Application ──────────────────────────────────────────────
     app_env: str = "development"  # "development" | "production"
     log_level: str = "DEBUG"
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175",
+    ]
 
     # ── Security Thresholds ──────────────────────────────────────
     alert_notification_threshold: int = 10  # Min alert level for push notifications

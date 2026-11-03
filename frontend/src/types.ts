@@ -2074,3 +2074,134 @@ export interface ReportPayload {
   comment: string;
   timestamp?: string | null;
 }
+
+/* ── Daily Security Digest Types ──────────────────────────────── */
+
+export type DigestRiskLevel = 'green' | 'yellow' | 'orange' | 'red';
+export type AgentCategory   = 'proxy' | 'mail' | 'notebook' | 'server';
+
+export interface TransientIncident {
+  agent_id:         string;
+  agent_name:       string;
+  event_type:       'disconnect_reconnect' | 'disconnect_no_recovery';
+  disconnected_at:  string;
+  reconnected_at:   string | null;
+  duration_seconds: number | null;
+}
+
+export interface AgentScanStatus {
+  agent_id:            string;
+  agent_name:          string;
+  last_syscheck:       string | null;
+  last_rootcheck:      string | null;
+  syscheck_hours_ago:  number | null;
+  rootcheck_hours_ago: number | null;
+  is_stale:            boolean;
+}
+
+export interface DigestDelta {
+  period_start:         string;
+  period_end:           string;
+  yesterday_start:      string;
+  yesterday_end:        string;
+  alerts_today:         number;
+  alerts_yesterday:     number;
+  alerts_delta:         number;
+  alerts_delta_percent: number;
+  critical_today:       number;
+  critical_yesterday:   number;
+  critical_delta:       number;
+  new_cves_today:       Record<string, unknown>[];
+  resolved_cves:        Record<string, unknown>[];
+  total_cves_today:     number;
+  total_cves_yesterday: number;
+  agents_active:        number;
+  agents_disconnected:  number;
+  transient_incidents:  TransientIncident[];
+  new_techniques_today: string[];
+  top_tactic:           string | null;
+  agents_scan_status:   AgentScanStatus[];
+}
+
+export interface DigestAgent {
+  agent_id:         string;
+  agent_name:       string;
+  status:           string;
+  category:         AgentCategory;
+  category_source:  'pattern' | 'manual_override';
+  alerts_today:     number;
+  alerts_yesterday: number;
+  alerts_delta:     number;
+  new_cves:         number;
+  new_packages:     number;
+  port_changes:     Record<string, unknown>[];
+  last_syscheck:    string | null;
+  last_rootcheck:   string | null;
+  last_keep_alive?: string | null;
+}
+
+export interface CisaKevMatch {
+  cve_id:             string;
+  vendor:             string;
+  product:            string;
+  vulnerability_name: string;
+  date_added:         string;
+  due_date:           string | null;
+  matched_agents:     string[];
+  matched_packages:   string[];
+}
+
+export interface DigestResponse {
+  id:                    number;
+  date:                  string;
+  risk_level:            DigestRiskLevel;
+  risk_score:            number;
+  risk_reasoning:        string;
+  delta:                 DigestDelta;
+  agents_by_category:    Record<AgentCategory, DigestAgent[]>;
+  cisa_kev_matches:      CisaKevMatch[];
+  cisa_kev_total_checked: number;
+  cisa_kev_last_updated: string | null;
+  ai_summary:            string | null;
+  ai_model_used:         string | null;
+  ai_is_mock:            boolean;
+  ai_payload_sent:       Record<string, unknown> | null;
+  ai_generated_at:       string | null;
+  detector_healthy:      boolean;
+  detector_last_scan:    string | null;
+  generated_at:          string;
+  generation_method:     string;
+}
+
+export interface DigestHistoryItem {
+  id:                number;
+  date:              string;
+  risk_level:        DigestRiskLevel;
+  risk_score:        number;
+  alerts_today:      number;
+  critical_today:    number;
+  new_cves:          number;
+  cisa_matches:      number;
+  ai_is_mock:        boolean;
+  generated_at:      string;
+  generation_method: string;
+}
+
+export interface DigestAgentInfo {
+  agent_id:         string;
+  agent_name:       string;
+  status:           string;
+  category:         AgentCategory;
+  category_source:  'pattern' | 'manual_override';
+  ip:               string;
+  os:               string;
+  last_keep_alive:  string;
+}
+
+export interface CisaKevStatus {
+  loaded:       boolean;
+  catalog_size: number;
+  last_updated: string | null;
+  feed_url:     string;
+}
+

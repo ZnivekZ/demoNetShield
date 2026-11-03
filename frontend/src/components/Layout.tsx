@@ -41,6 +41,7 @@ import {
   Bug,
   Target,
   ShieldQuestion,
+  CalendarClock,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GlobalSearch } from './common/GlobalSearch';
@@ -90,6 +91,7 @@ const navGroups = [
       { to: '/wazuh/agents', icon: Server, label: 'Agentes', end: false },
       { to: '/wazuh/vulnerabilities', icon: Bug, label: 'Vulnerabilidades', end: false },
       { to: '/wazuh/mitre', icon: Target, label: 'MITRE ATT&CK', end: false },
+      { to: '/digest', icon: CalendarClock, label: 'Daily Digest', end: true },
     ],
   },
   {

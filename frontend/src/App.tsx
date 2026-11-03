@@ -50,6 +50,7 @@ import { WazuhAgentsPage } from './components/wazuh/AgentsPage';
 import { WazuhVulnerabilitiesPage } from './components/wazuh/VulnerabilitiesPage';
 import { WazuhMitrePage } from './components/wazuh/MitrePage';
 import { AgentDetailPage as WazuhAgentDetailPage } from './components/wazuh/AgentDetailPanel';
+import DigestPage from './components/digest/DigestPage';
 // DHCP
 // Admin
 import UsersManagementPage from './components/admin/UsersManagementPage';
@@ -122,6 +123,9 @@ export default function App() {
               <Route path="/wazuh/agents/:agentId" element={<WazuhAgentDetailPage />} />
               <Route path="/wazuh/vulnerabilities" element={<WazuhVulnerabilitiesPage />} />
               <Route path="/wazuh/mitre" element={<WazuhMitrePage />} />
+
+              {/* Daily Security Digest */}
+              <Route path="/digest" element={<DigestPage />} />
 
               {/* Admin — accessible from SettingsDrawer */}
               <Route path="/admin/users" element={<UsersManagementPage />} />

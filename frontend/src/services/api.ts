@@ -111,6 +111,12 @@ import type {
     WazuhStatsSummary,
   WazuhNodeResources,
   AgentVulnRanking,
+  // Daily Digest
+  DigestResponse,
+  DigestHistoryItem,
+  DigestAgentInfo,
+  CisaKevStatus,
+  AgentCategory,
   } from '../types';
 import { groupMitreTactics, tacticForRow } from './mitre';
 
@@ -1368,3 +1374,53 @@ export const reputationApi = {
       .post<APIResponse<unknown>>(`/reputation/${encodeURIComponent(ip)}/report`, payload)
       .then(r => r.data),
 };
+
+
+/* ── Daily Security Digest ─────────────────────────────────────── */
+
+export const digestApi = {
+  /** Get the most recent digest from SQLite. Fast — no Wazuh/AI calls. */
+  getLatest: () =>
+    api.get<APIResponse<DigestResponse | null>>('/digest/latest').then(r => r.data),
+
+  /** Paginated list of past digests (date, risk, key metrics). */
+  getHistory: (limit = 30) =>
+    api
+      .get<APIResponse<DigestHistoryItem[]>>('/digest/history', { params: { limit } })
+      .then(r => r.data),
+
+  /** Get digest for a specific date (YYYY-MM-DD). */
+  getByDate: (date: string) =>
+    api.get<APIResponse<DigestResponse>>(`/digest/${date}`).then(r => r.data),
+
+  /**
+   * Trigger full digest generation (Wazuh data + CISA KEV + Groq/mock).
+   * Returns cached version if today's digest already exists and force=false.
+   */
+  generate: (force = false) =>
+    api
+      .post<APIResponse<DigestResponse>>('/digest/generate', { force })
+      .then(r => r.data),
+
+  /** Live delta metrics — no AI, no DB write, real-time Wazuh comparison. */
+  getDelta: () =>
+    api.get<APIResponse<Partial<DigestResponse>>>('/digest/delta').then(r => r.data),
+
+  /** Agent list with current categories and override status. */
+  getAgents: () =>
+    api.get<APIResponse<DigestAgentInfo[]>>('/digest/agents').then(r => r.data),
+
+  /** CISA KEV catalog status (loaded, count, last updated). */
+  getCisaKev: () =>
+    api.get<APIResponse<CisaKevStatus>>('/digest/cisa-kev').then(r => r.data),
+
+  /** Manually override the category of an agent (persisted in SQLite). */
+  updateAgentCategory: (agentId: string, category: AgentCategory) =>
+    api
+      .put<APIResponse<{ agent_id: string; category: string }>>(
+        `/digest/agents/${agentId}/category`,
+        { category },
+      )
+      .then(r => r.data),
+};
+

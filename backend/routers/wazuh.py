@@ -6,10 +6,14 @@ Prefix: /api/wazuh
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 
 import structlog
-from fastapi import APIRouter, Depends, Query
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -372,6 +376,25 @@ async def get_stats_summary(
         return APIResponse.fail(f"Failed to fetch Wazuh stats: {str(e)}")
 
 
+def _apply_vuln_filters(
+    items: list[dict], severity: str | None, search: str | None
+) -> list[dict]:
+    """Filtro de severidad + búsqueda, compartido por la lista y el export."""
+    out = items
+    if severity:
+        out = [v for v in out if v.get("severity") == severity.lower()]
+    if search:
+        q = search.lower()
+        out = [
+            v for v in out
+            if q in (v.get("cve_id") or "").lower()
+            or q in (v.get("package_name") or "").lower()
+            or q in (v.get("agent_name") or "").lower()
+            or q in (v.get("title") or "").lower()
+        ]
+    return out
+
+
 @router.get("/vulnerabilities")
 async def get_vulnerabilities(
     page: int = Query(1, ge=1),
@@ -395,17 +418,7 @@ async def get_vulnerabilities(
             v["severity"] = sev_raw if sev_raw in ("critical", "high", "medium", "low") else "unknown"
         # Client-side filter + paginate (bounded dataset; switch to server-side
         # query when the index grows past ~thousands of CVEs)
-        if severity:
-            items = [v for v in items if v.get("severity") == severity.lower()]
-        if search:
-            q = search.lower()
-            items = [
-                v for v in items
-                if q in (v.get("cve_id") or "").lower()
-                or q in (v.get("package_name") or "").lower()
-                or q in (v.get("agent_name") or "").lower()
-                or q in (v.get("title") or "").lower()
-            ]
+        items = _apply_vuln_filters(items, severity, search)
         total = len(items)
         # Severity breakdown over the FULL filtered set (not just the page) so the
         # UI tabs/summary stay consistent with the totals.
@@ -430,6 +443,68 @@ async def get_vulnerabilities(
     except Exception as e:
         logger.error("api_wazuh_vulnerabilities_failed", error=str(e))
         return APIResponse.fail(f"Failed to fetch vulnerabilities: {str(e)}")
+
+
+@router.get("/vulnerabilities/export")
+async def export_vulnerabilities(
+    severity: str | None = Query(None),
+    search: str | None = Query(None),
+    agent_id: str | None = Query(None),
+    fmt: str = Query("csv", alias="format", pattern="^(csv)$"),
+    service: WazuhService = Depends(get_service),
+) -> Response:
+    """
+    [Wazuh Indexer] Exporta las vulnerabilidades con los filtros activos.
+
+    Devuelve CSV (UTF-8 con BOM, abre bien en Excel) respetando exactamente
+    los mismos filtros que la vista: equipo, severidad y búsqueda.
+    """
+    try:
+        items = await service.get_vulnerabilities(agent_id=agent_id, limit=500)
+        for v in items:
+            sev_raw = (v.get("severity") or "").strip().lower()
+            v["severity"] = sev_raw if sev_raw in ("critical", "high", "medium", "low") else "unknown"
+        items = _apply_vuln_filters(items, severity, search)
+
+        buf = io.StringIO()
+        writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+        writer.writerow([
+            "CVE", "Severidad", "CVSS", "Paquete", "Version",
+            "Equipo", "Agente ID", "Titulo", "Detectada",
+        ])
+        for v in items:
+            writer.writerow([
+                v.get("cve_id", ""),
+                v.get("severity", ""),
+                v.get("cvss_score", ""),
+                v.get("package_name", ""),
+                v.get("package_version", ""),
+                v.get("agent_name", ""),
+                v.get("agent_id", ""),
+                (v.get("title") or "").replace(chr(10), " "),
+                v.get("detected_at", ""),
+            ])
+
+        stamp = datetime.now().strftime("%Y%m%d-%H%M")
+        tag = f"agente-{agent_id}" if agent_id else "todos"
+        filename = f"vulnerabilidades_{tag}_{stamp}.csv"
+
+        logger.info("api_vulns_exported", rows=len(items), agent=agent_id or "todos")
+        return Response(
+            content=buf.getvalue().encode("utf-8-sig"),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
+    except Exception as e:
+        logger.error("api_vulns_export_failed", error=str(e))
+        return Response(
+            content=json.dumps({"success": False, "error": str(e)}),
+            media_type="application/json",
+            status_code=500,
+        )
 
 
 @router.get("/agents/{agent_id}")

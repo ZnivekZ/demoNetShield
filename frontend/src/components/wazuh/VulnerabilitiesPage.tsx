@@ -14,9 +14,10 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   Bug, Search, Filter, X, ChevronLeft, ChevronRight,
-  ShieldAlert, Package, RefreshCw, Server, Clock,
+  ShieldAlert, Package, RefreshCw, Server, Clock, Download,
 } from 'lucide-react';
 import { useWazuhVulnerabilities } from '../../hooks/useWazuh';
+import { wazuhApiExtended } from '../../services/api';
 import { useAgentsList } from '../../hooks/useWazuhSummary';
 import { formatDateTime } from '../utils/time';
 import type { WazuhVulnerability, WazuhVulnerabilitiesFilters } from '../../types';
@@ -43,6 +44,8 @@ export function WazuhVulnerabilitiesPage() {
   const [search, setSearch] = useState<string>(searchParams.get('search') || '');
   const [agent, setAgent] = useState<string>(searchParams.get('agent') || '');
   const [showFilters, setShowFilters] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
 
   useEffect(() => {
     const params: Record<string, string> = {};
@@ -79,6 +82,28 @@ export function WazuhVulnerabilitiesPage() {
   const summary = data?.summary ?? { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };
   const unknownCount = summary.unknown ?? 0;
   const summaryTotal = summary.critical + summary.high + summary.medium + summary.low + unknownCount;
+
+  const handleExport = async () => {
+    setExporting(true);
+    setExportError('');
+    try {
+      const blob = await wazuhApiExtended.exportVulnerabilities(filters);
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+      const tag = agent ? `agente-${agent}` : 'todos';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `vulnerabilidades_${tag}_${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setExportError((e as Error).message || 'No se pudo exportar');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const applyFilters = () => {
     setPage(1);
@@ -124,6 +149,19 @@ export function WazuhVulnerabilitiesPage() {
             {isFetching ? 'Actualizando…' : 'Actualizar'}
           </button>
           <button
+            className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50"
+            onClick={handleExport}
+            disabled={exporting || items.length === 0}
+            title="Descargar las vulnerabilidades con los filtros activos (CSV)"
+          >
+            {exporting ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Download className="w-3.5 h-3.5" />
+            )}
+            {exporting ? 'Exportando…' : 'Exportar CSV'}
+          </button>
+          <button
             className={`btn-secondary flex items-center gap-2 text-sm ${
               hasFilters ? 'border-amber-500/50 text-amber-300' : ''
             }`}
@@ -134,6 +172,12 @@ export function WazuhVulnerabilitiesPage() {
           </button>
         </div>
       </div>
+
+      {exportError && (
+        <div className="glass-card px-4 py-2 text-xs text-red-300 border-red-500/30 bg-red-500/5">
+          No se pudo exportar: {exportError}
+        </div>
+      )}
 
       {/* ── Backend unavailable notice ──────────────────────────────── */}
       {isBackendUnavailable && (

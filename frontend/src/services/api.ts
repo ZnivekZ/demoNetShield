@@ -472,6 +472,17 @@ export const wazuhApiExtended = {
     }
   },
 
+  /** Exporta las vulnerabilidades filtradas como CSV (blob). */
+  exportVulnerabilities: async (filters: WazuhVulnerabilitiesFilters): Promise<Blob> => {
+    const params: Record<string, string> = {};
+    if (filters.severity) params.severity = filters.severity;
+    if (filters.agent_id) params.agent_id = filters.agent_id;
+    if (filters.search) params.search = filters.search;
+
+    const res = await api.get('/wazuh/vulnerabilities/export', { params, responseType: 'blob' });
+    return res.data as Blob;
+  },
+
   // ── MITRE matrix ─────────────────────────────────────────────────
   getMitreMatrix: async (): Promise<APIResponse<WazuhMitreMatrix>> => {
     try {

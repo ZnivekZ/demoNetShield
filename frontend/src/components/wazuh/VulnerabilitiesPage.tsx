@@ -17,6 +17,7 @@ import {
   ShieldAlert, Package, RefreshCw, Server, Clock,
 } from 'lucide-react';
 import { useWazuhVulnerabilities } from '../../hooks/useWazuh';
+import { useAgentsList } from '../../hooks/useWazuhSummary';
 import { formatDateTime } from '../utils/time';
 import type { WazuhVulnerability, WazuhVulnerabilitiesFilters } from '../../types';
 
@@ -40,6 +41,7 @@ export function WazuhVulnerabilitiesPage() {
     (searchParams.get('severity') as SeverityFilter) || ''
   );
   const [search, setSearch] = useState<string>(searchParams.get('search') || '');
+  const [agent, setAgent] = useState<string>(searchParams.get('agent') || '');
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
@@ -47,15 +49,21 @@ export function WazuhVulnerabilitiesPage() {
     if (page > 1) params.page = String(page);
     if (severity) params.severity = severity;
     if (search) params.search = search;
+    if (agent) params.agent = agent;
     setSearchParams(params, { replace: true });
-  }, [page, severity, search, setSearchParams]);
+  }, [page, severity, search, agent, setSearchParams]);
 
   const filters: WazuhVulnerabilitiesFilters = {
     page,
     page_size: PAGE_SIZE,
     severity: severity || undefined,
+    agent_id: agent || undefined,
     search: search || undefined,
   };
+
+  const { data: agents = [] } = useAgentsList();
+  const sortedAgents = [...agents].sort((a, b) => a.name.localeCompare(b.name));
+  const selectedAgent = agents.find(a => a.id === agent);
 
   const { data, isLoading, isFetching, refetch } = useWazuhVulnerabilities(filters);
   // El hook hace select: r => r.data → data ya es el payload paginado.
@@ -64,7 +72,7 @@ export function WazuhVulnerabilitiesPage() {
 
   const items = data?.items ?? [];
   const pagination = data?.pagination;
-  const hasFilters = !!(severity || search);
+  const hasFilters = !!(severity || search || agent);
 
   // Severity counts come from the backend (computed over the FULL filtered set,
   // not just the current page) so "Todas" and "Altas" stay consistent.
@@ -80,6 +88,7 @@ export function WazuhVulnerabilitiesPage() {
   const clearAll = () => {
     setSeverity('');
     setSearch('');
+    setAgent('');
     setPage(1);
   };
 
@@ -191,6 +200,23 @@ export function WazuhVulnerabilitiesPage() {
           </div>
           <div>
             <label className="text-xs text-surface-400 mb-1 flex items-center gap-1">
+              <Server className="w-3 h-3" /> Equipo (agente)
+            </label>
+            <select
+              className="input-sm w-full"
+              value={agent}
+              onChange={e => { setAgent(e.target.value); setPage(1); }}
+            >
+              <option value="">Todos los equipos</option>
+              {sortedAgents.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({a.id}){a.status !== 'active' ? ` · ${a.status}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-surface-400 mb-1 flex items-center gap-1">
               <Search className="w-3 h-3" /> Buscar (CVE, paquete, agente)
             </label>
             <input
@@ -217,6 +243,11 @@ export function WazuhVulnerabilitiesPage() {
           {severity && (
             <Chip onRemove={() => setSeverity('')}>
               Severidad: {SEVERITY_TABS.find(t => t.value === severity)?.label}
+            </Chip>
+          )}
+          {agent && (
+            <Chip onRemove={() => { setAgent(''); setPage(1); }}>
+              Equipo: {selectedAgent ? `${selectedAgent.name} (${selectedAgent.id})` : agent}
             </Chip>
           )}
           {search && <Chip onRemove={() => setSearch('')}>“{search}”</Chip>}

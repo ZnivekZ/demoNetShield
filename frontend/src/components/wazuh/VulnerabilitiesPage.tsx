@@ -42,6 +42,7 @@ export function WazuhVulnerabilitiesPage() {
     (searchParams.get('severity') as SeverityFilter) || ''
   );
   const [search, setSearch] = useState<string>(searchParams.get('search') || '');
+  const [pageSize, setPageSize] = useState<number>(Number(searchParams.get('size')) || PAGE_SIZE);
   const [agent, setAgent] = useState<string>(searchParams.get('agent') || '');
   const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -53,12 +54,13 @@ export function WazuhVulnerabilitiesPage() {
     if (severity) params.severity = severity;
     if (search) params.search = search;
     if (agent) params.agent = agent;
+    if (pageSize !== PAGE_SIZE) params.size = String(pageSize);
     setSearchParams(params, { replace: true });
-  }, [page, severity, search, agent, setSearchParams]);
+  }, [page, severity, search, agent, pageSize, setSearchParams]);
 
   const filters: WazuhVulnerabilitiesFilters = {
     page,
-    page_size: PAGE_SIZE,
+    page_size: pageSize,
     severity: severity || undefined,
     agent_id: agent || undefined,
     search: search || undefined,
@@ -341,7 +343,19 @@ export function WazuhVulnerabilitiesPage() {
               <span className="text-surface-500"> · {summaryTotal} con severidad clasificada</span>
             )}
           </p>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-surface-500 flex items-center gap-1">
+              Por página
+              <select
+                className="input-sm text-xs"
+                value={pageSize}
+                onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+              >
+                {[20, 50, 100, 200].map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
             <button
               className="btn-secondary text-xs flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
               disabled={!pagination.has_prev}

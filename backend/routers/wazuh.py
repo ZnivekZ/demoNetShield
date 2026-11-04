@@ -47,7 +47,7 @@ async def get_agents(
 @router.get("/alerts/paginated")
 async def get_alerts_paginated(
     page: int = Query(1, ge=1),
-    page_size: int = Query(25, ge=1, le=100),
+    page_size: int = Query(25, ge=1, le=500),
     level_min: int | None = Query(None, ge=1, le=15),
     agent_id: str | None = Query(None),
     rule_id: str | None = Query(None),
@@ -63,31 +63,21 @@ async def get_alerts_paginated(
     Filters: level_min, agent_id, rule_id, search (description/agent/rule), from_date/to_date.
     """
     try:
-        # Fetch a bounded recent window (up to 500 from the Indexer, last 7d by
-        # default) then filter + paginate client-side. The Indexer query already
-        # narrows by level_min / agent_id / time window.
+        # Paginación y filtros resueltos en el Indexer: total exacto, sin
+        # ventana de 500 y sin filtrar en memoria.
         time_from = from_date or ("now-7d" if not to_date else None)
-        data = await service.get_alerts(
-            limit=500, level_min=level_min, agent_id=agent_id, time_from=time_from
+        result = await service.get_alerts_page(
+            page=page,
+            page_size=page_size,
+            level_min=level_min,
+            agent_id=agent_id,
+            rule_id=rule_id,
+            search=search,
+            time_from=time_from,
+            to_date=to_date,
         )
-        # Client-side filters the Indexer query can't express
-        if rule_id:
-            data = [a for a in data if a.get("rule_id") == rule_id]
-        if search:
-            q = search.lower()
-            data = [
-                a for a in data
-                if q in (a.get("rule_description") or "").lower()
-                or q in (a.get("agent_name") or "").lower()
-                or q in (a.get("rule_id") or "").lower()
-                or q in (a.get("mitre_id") or "").lower()
-                or q in (a.get("mitre_technique") or "").lower()
-            ]
-        if to_date:
-            data = [a for a in data if (a.get("timestamp") or "") <= to_date]
-        total = len(data)
-        start = (page - 1) * page_size
-        page_items = data[start:start + page_size]
+        page_items = result["items"]
+        total = result["total"]
         total_pages = max(1, (total + page_size - 1) // page_size)
         return APIResponse.ok({
             "items": page_items,
@@ -398,7 +388,7 @@ def _apply_vuln_filters(
 @router.get("/vulnerabilities")
 async def get_vulnerabilities(
     page: int = Query(1, ge=1),
-    page_size: int = Query(25, ge=1, le=100),
+    page_size: int = Query(25, ge=1, le=500),
     severity: str | None = Query(None),
     search: str | None = Query(None),
     agent_id: str | None = Query(None),
@@ -410,23 +400,18 @@ async def get_vulnerabilities(
     {items: [...], pagination: {page, page_size, total, total_pages, has_next, has_prev}}.
     """
     try:
-        items = await service.get_vulnerabilities(agent_id=agent_id, limit=500)
-        # Normalize severity: Wazuh uses '-' / '' for unclassified CVEs. Map them
-        # to an explicit "unknown" bucket so the summary always sums to the total.
-        for v in items:
-            sev_raw = (v.get("severity") or "").strip().lower()
-            v["severity"] = sev_raw if sev_raw in ("critical", "high", "medium", "low") else "unknown"
-        # Client-side filter + paginate (bounded dataset; switch to server-side
-        # query when the index grows past ~thousands of CVEs)
-        items = _apply_vuln_filters(items, severity, search)
-        total = len(items)
-        # Severity breakdown over the FULL filtered set (not just the page) so the
-        # UI tabs/summary stay consistent with the totals.
-        severity_summary = {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0}
-        for v in items:
-            severity_summary[v["severity"]] += 1
-        start = (page - 1) * page_size
-        page_items = items[start:start + page_size]
+        # Paginación, filtros y resumen se resuelven EN el Indexer: el total es
+        # exacto (hits.total.value) y deja de estar capeado en 500.
+        result = await service.get_vulnerabilities_page(
+            agent_id=agent_id,
+            severity=severity,
+            search=search,
+            page=page,
+            page_size=page_size,
+        )
+        page_items = result["items"]
+        total = result["total"]
+        severity_summary = result["summary"]
         total_pages = max(1, (total + page_size - 1) // page_size)
         return APIResponse.ok({
             "items": page_items,
@@ -460,11 +445,18 @@ async def export_vulnerabilities(
     los mismos filtros que la vista: equipo, severidad y búsqueda.
     """
     try:
-        items = await service.get_vulnerabilities(agent_id=agent_id, limit=500)
-        for v in items:
-            sev_raw = (v.get("severity") or "").strip().lower()
-            v["severity"] = sev_raw if sev_raw in ("critical", "high", "medium", "low") else "unknown"
-        items = _apply_vuln_filters(items, severity, search)
+        # Mismos filtros y misma normalización que la vista, pero trayendo todo
+        # lo que el Indexer permita en una página (MAX_FETCH) en vez de 500.
+        from services.wazuh_indexer import MAX_FETCH
+
+        result = await service.get_vulnerabilities_page(
+            agent_id=agent_id,
+            severity=severity,
+            search=search,
+            page=1,
+            page_size=MAX_FETCH,
+        )
+        items = result["items"]
 
         buf = io.StringIO()
         writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
@@ -481,7 +473,7 @@ async def export_vulnerabilities(
                 v.get("package_version", ""),
                 v.get("agent_name", ""),
                 v.get("agent_id", ""),
-                (v.get("title") or "").replace(chr(10), " "),
+                " ".join(str(v.get("title") or "").split()),
                 v.get("detected_at", ""),
             ])
 

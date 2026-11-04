@@ -33,6 +33,14 @@ from services.resilience import make_resilience, safe_call
 
 logger = structlog.get_logger(__name__)
 
+# Techo duro de una sola página (export, KPIs y listados internos).
+# La paginación de la UI usa page_size <= 500 y from/size (límite del Indexer: 10.000).
+MAX_FETCH = 5000
+
+# Patrones de índice (constantes para poder testear con índices sintéticos).
+ALERTS_INDEX = "wazuh-alerts-4.x-*"
+VULNS_INDEX = "wazuh-states-vulnerabilities-*"
+
 
 class WazuhIndexerClient:
     """Async client for Wazuh Indexer (OpenSearch 7.10) at port 9200."""
@@ -115,6 +123,35 @@ class WazuhIndexerClient:
 
     # ── Low-level search ───────────────────────────────────────
 
+    async def search_page(
+        self,
+        index_pattern: str,
+        query: dict[str, Any],
+        size: int = 50,
+        from_: int = 0,
+        sort: list[dict] | None = None,
+        aggs: dict[str, Any] | None = None,
+        timeout_s: float = 12.0,
+    ) -> dict[str, Any]:
+        """
+        Búsqueda paginada con total exacto y agregaciones opcionales.
+
+        Devuelve {'hits': [...], 'total': int, 'aggregations': {...}}.
+        `total` sale de hits.total.value con track_total_hits=True (exacto
+        hasta 10.000 por defecto del Indexer; más allá use search_after).
+        """
+        raw = await self._search_raw(
+            index_pattern, query, size=size, from_=from_, sort=sort, aggs=aggs, timeout_s=timeout_s
+        )
+        hits_block = (raw or {}).get("hits", {}) or {}
+        total = hits_block.get("total", {})
+        total_value = total.get("value", 0) if isinstance(total, dict) else int(total or 0)
+        return {
+            "hits": [h.get("_source", {}) for h in hits_block.get("hits", [])],
+            "total": int(total_value or 0),
+            "aggregations": (raw or {}).get("aggregations", {}) or {},
+        }
+
     async def _search(
         self,
         index_pattern: str,
@@ -123,6 +160,7 @@ class WazuhIndexerClient:
         sort: list[dict] | None = None,
         timeout_s: float = 8.0,
     ) -> list[dict[str, Any]]:
+        """Compatibilidad: sólo los _source de los hits."""
         """
         Run a search against the given index pattern.
         Returns the list of hits (`_source` fields). Empty list on failure.
@@ -133,20 +171,37 @@ class WazuhIndexerClient:
         spurious ConnectTimeout('') even when the network is perfectly fine;
         retrying once the loop frees up almost always succeeds.
         """
+        page = await self.search_page(index_pattern, query, size=size, sort=sort, timeout_s=timeout_s)
+        return page["hits"]
+
+    async def _search_raw(
+        self,
+        index_pattern: str,
+        query: dict[str, Any],
+        size: int = 50,
+        from_: int = 0,
+        sort: list[dict] | None = None,
+        aggs: dict[str, Any] | None = None,
+        timeout_s: float = 8.0,
+    ) -> dict[str, Any]:
+        """POST _search crudo (con reintentos). Devuelve el JSON completo o {}."""
         # Circuit breaker: skip calls when the Indexer is known to be failing
         if self._breaker.is_open():
             logger.debug("wazuh_indexer_circuit_open_skip", index=index_pattern)
-            return []
+            return {}
         if not self.is_configured():
             logger.warning("wazuh_indexer_not_configured")
-            return []
+            return {}
         body: dict[str, Any] = {
             "size": size,
+            "from": max(0, int(from_)),
             "query": query,
             "track_total_hits": True,
         }
         if sort:
             body["sort"] = sort
+        if aggs:
+            body["aggs"] = aggs
         payload = json.dumps(body)
         url = f"/{index_pattern}/_search"
 
@@ -164,7 +219,7 @@ class WazuhIndexerClient:
                 resp.raise_for_status()
                 data = resp.json()
                 self._breaker.record_success()
-                return [hit["_source"] for hit in data.get("hits", {}).get("hits", [])]
+                return data
             except httpx.ConnectTimeout as e:
                 # Spurious timeout from event-loop lag — reset client and retry
                 await self._reset_client()
@@ -179,7 +234,7 @@ class WazuhIndexerClient:
                     hint="event loop likely blocked; check event_loop_blocked warnings",
                 )
                 self._breaker.record_failure()
-                return []
+                return {}
             except asyncio.TimeoutError:
                 logger.warning(
                     "wazuh_indexer_search_timeout",
@@ -189,7 +244,7 @@ class WazuhIndexerClient:
                 )
                 await self._reset_client()
                 self._breaker.record_failure()
-                return []
+                return {}
             except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
                 logger.warning(
                     "wazuh_indexer_search_transport_error",
@@ -199,7 +254,7 @@ class WazuhIndexerClient:
                 )
                 await self._reset_client()
                 self._breaker.record_failure()
-                return []
+                return {}
             except httpx.HTTPStatusError as e:
                 logger.error(
                     "wazuh_indexer_search_http_error",
@@ -208,7 +263,7 @@ class WazuhIndexerClient:
                     detail=e.response.text[:300],
                     url=str(e.request.url),
                 )
-                return []
+                return {}
             except Exception as e:
                 logger.error(
                     "wazuh_indexer_search_failed",
@@ -219,8 +274,8 @@ class WazuhIndexerClient:
                     exc_info=True,
                 )
                 self._breaker.record_failure()
-                return []
-        return []
+                return {}
+        return {}
 
 
     # ── Alerts ─────────────────────────────────────────────────
@@ -568,6 +623,137 @@ class WazuhIndexerClient:
 
     # ── Vulnerabilities ────────────────────────────────────────
 
+    # ── Paginación server-side (alertas y vulnerabilidades) ────
+
+    @staticmethod
+    def _severity_clause(severity: str) -> dict[str, Any]:
+        """Cláusula de severidad tolerante a mayúsculas y al '-' de Wazuh."""
+        sev = (severity or "").strip().lower()
+        if sev in ("critical", "high", "medium", "low"):
+            return {
+                "bool": {
+                    "should": [
+                        {"term": {"vulnerability.severity": sev}},
+                        {"term": {"vulnerability.severity": sev.capitalize()}},
+                        {"term": {"vulnerability.severity": sev.upper()}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        # unknown: todo lo que no sea una severidad clasificada
+        return {
+            "bool": {
+                "must_not": [
+                    {"terms": {"vulnerability.severity": [
+                        "critical", "high", "medium", "low",
+                        "Critical", "High", "Medium", "Low",
+                    ]}}
+                ]
+            }
+        }
+
+    async def get_vulnerabilities_page(
+        self,
+        agent_id: str | None = None,
+        severity: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 25,
+    ) -> dict[str, Any]:
+        """
+        Vulnerabilidades paginadas EN el Indexer, con total exacto y resumen
+        por severidad calculado por agregación sobre el MISMO filtro.
+        """
+        if not self.is_configured():
+            return {"items": [], "total": 0, "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0}}
+
+        must: list[dict[str, Any]] = []
+        if agent_id:
+            must.append({"term": {"agent.id": agent_id}})
+        if severity:
+            must.append(self._severity_clause(severity))
+        if search:
+            must.append({
+                "multi_match": {
+                    "query": search,
+                    "fields": ["vulnerability.id", "package.name", "agent.name", "vulnerability.description"],
+                    "type": "best_fields",
+                }
+            })
+        query: dict[str, Any] = {"bool": {"must": must}} if must else {"match_all": {}}
+
+        aggs = {"severity": {"terms": {"field": "vulnerability.severity", "size": 10}}}
+        page = max(1, int(page))
+        size = max(1, min(int(page_size), 500))
+        res = await self.search_page(
+            VULNS_INDEX,
+            query=query,
+            size=size,
+            from_=(page - 1) * size,
+            aggs=aggs,
+        )
+
+        items = [self._normalize_vuln(h) for h in res["hits"]]
+        summary = {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0}
+        for b in res["aggregations"].get("severity", {}).get("buckets", []):
+            key = str(b.get("key", "") or "").strip().lower()
+            count = int(b.get("doc_count", 0) or 0)
+            if key in ("critical", "high", "medium", "low"):
+                summary[key] += count
+            else:
+                summary["unknown"] += count
+        return {"items": items, "total": res["total"], "summary": summary}
+
+    async def get_alerts_page(
+        self,
+        page: int = 1,
+        page_size: int = 50,
+        level_min: int | None = None,
+        agent_id: str | None = None,
+        time_from: str | None = None,
+        to_date: str | None = None,
+        rule_id: str | None = None,
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        """Alertas paginadas en el Indexer con total exacto (sin techo de 500)."""
+        if not self.is_configured():
+            return {"items": [], "total": 0}
+
+        must: list[dict[str, Any]] = []
+        if level_min is not None:
+            must.append({"range": {"rule.level": {"gte": level_min}}})
+        if agent_id:
+            must.append({"term": {"agent.id": agent_id}})
+        if rule_id:
+            must.append({"term": {"rule.id": rule_id}})
+        if search:
+            must.append({
+                "multi_match": {
+                    "query": search,
+                    "fields": ["rule.description", "agent.name", "rule.id", "rule.mitre.technique"],
+                    "type": "best_fields",
+                }
+            })
+        ts_range: dict[str, Any] = {"gte": time_from or "now-7d"}
+        if to_date:
+            ts_range["lte"] = to_date
+        must.append({"range": {"timestamp": ts_range}})
+        query: dict[str, Any] = {"bool": {"must": must}}
+
+        page = max(1, int(page))
+        size = max(1, min(int(page_size), 500))
+        res = await self.search_page(
+            ALERTS_INDEX,
+            query=query,
+            size=size,
+            from_=(page - 1) * size,
+            sort=[{"timestamp": {"order": "desc"}}],
+        )
+        return {
+            "items": [self._normalize_alert(h) for h in res["hits"]],
+            "total": res["total"],
+        }
+
     async def get_vulnerabilities(
         self, limit: int = 100, agent_id: str | None = None
     ) -> list[dict[str, Any]]:
@@ -589,7 +775,7 @@ class WazuhIndexerClient:
         hits = await self._search(
             "wazuh-states-vulnerabilities-*",
             query=query,
-            size=min(limit, 500),
+            size=min(limit, MAX_FETCH),
             sort=None,  # let OpenSearch use _score relevance
         )
         if not hits:
@@ -597,7 +783,7 @@ class WazuhIndexerClient:
             hits = await self._search(
                 "wazuh-states-vulnerabilities-*",
                 query=query,
-                size=min(limit, 500),
+                size=min(limit, MAX_FETCH),
                 sort=None,
             )
         return [self._normalize_vuln(h) for h in hits]

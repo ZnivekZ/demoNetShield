@@ -40,6 +40,8 @@ from routers import views as views_router
 from routers import widgets as widgets_router
 from routers import public_tickets as public_tickets_router
 from routers import blocklist as blocklist_router
+from routers import ai_diagnosis as ai_diagnosis_router
+from routers import network_activity as network_activity_router
 
 from routers import reputation as reputation_router
 from routers import dhcp as dhcp_router
@@ -198,6 +200,8 @@ async def lifespan(app: FastAPI):
     logger.info("netshield_starting", env=settings.app_env)
     await init_db()
     logger.info("database_initialized")
+    from services.ai_diagnosis_service import mark_interrupted_runs
+    await mark_interrupted_runs()
 
     # Migrate legacy 'admin' user to credentials defined in .env (if needed)
     from services.auth_service import get_auth_service
@@ -303,6 +307,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("netshield_shutting_down")
+    from services.ai_diagnosis_service import service as ai_diagnosis_service
+    await ai_diagnosis_service.stop()
     task = getattr(app.state, "blocklist_task", None)
     if task:
         task.cancel()
@@ -453,6 +459,8 @@ app.include_router(blocklist_router.export_router)
 
 app.include_router(reputation_router.router)
 app.include_router(digest_router.router)
+app.include_router(ai_diagnosis_router.router)
+app.include_router(network_activity_router.router)
 
 
 

@@ -1,6 +1,10 @@
 import axios from 'axios';
 import type {
   APIResponse,
+  ActivityParticipant,
+  ActivityAccess,
+  ActivityDirection,
+  ActivityPage,
   BlocklistData,
   BlocklistPushResult,
   BlocklistSettings,
@@ -119,6 +123,9 @@ import type {
   DigestAgentInfo,
   CisaKevStatus,
   AgentCategory,
+  DiagnosisRun,
+  DiagnosisRunHistoryItem,
+  GroqUsageStatus,
   } from '../types';
 import { groupMitreTactics, tacticForRow } from './mitre';
 
@@ -127,6 +134,15 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 });
+
+export const networkActivityApi = {
+  participants: (params: { ip?: string; offset?: number; limit?: number }) =>
+    api.get<APIResponse<ActivityPage<ActivityParticipant>>>('/network-activity/participants', { params }).then(r => r.data),
+  accesses: (params: { direction: ActivityDirection; ip?: string; offset?: number; limit?: number }) =>
+    api.get<APIResponse<ActivityPage<ActivityAccess>>>('/network-activity/accesses', { params }).then(r => r.data),
+  reverseDns: (ip: string) =>
+    api.get<APIResponse<{ ip: string; name: string | null; note: string }>>('/network-activity/reverse-dns', { params: { ip } }).then(r => r.data),
+};
 
 // ── JWT Interceptors ──────────────────────────────────────────────────────────
 
@@ -1440,5 +1456,13 @@ export const digestApi = {
         { category },
       )
       .then(r => r.data),
+};
+
+export const aiDiagnosisApi = {
+  latest: () => api.get<APIResponse<DiagnosisRun | null>>('/ai-diagnosis/runs/latest').then(r => r.data),
+  byId: (id: number) => api.get<APIResponse<DiagnosisRun>>(`/ai-diagnosis/runs/${id}`).then(r => r.data),
+  history: () => api.get<APIResponse<DiagnosisRunHistoryItem[]>>('/ai-diagnosis/runs/history').then(r => r.data),
+  start: () => api.post<APIResponse<{ id: number; status: string }>>('/ai-diagnosis/runs').then(r => r.data),
+  usage: () => api.get<APIResponse<GroqUsageStatus>>('/ai-diagnosis/groq-usage').then(r => r.data),
 };
 

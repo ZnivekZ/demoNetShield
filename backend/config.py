@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     # NetShield no empuja nada: los bloqueos quedan en el archivo
     # /blocklist.txt para que el propio MikroTik (o un script) haga pull.
     mikrotik_api_write_enabled: bool = False
+    # Alcance inicial del panel de actividad. Ampliar si existen otras VLAN/VPN.
+    network_activity_cidr: str = "10.2.0.0/16"
 
     # ── Wazuh SIEM ───────────────────────────────────────────────
     wazuh_host: str = "100.90.106.121"
@@ -59,6 +61,10 @@ class Settings(BaseSettings):
     # Vacío = modo mock (muestra payload + respuesta simulada, ai_is_mock=true)
     # Con key = Groq real con modelos GPT-OSS de producción (ver groq_service.py)
     groq_api_key: str = ""
+    # Public free-plan baseline. Set these to the exact TPD limits in Groq Console.
+    # Displayed remaining tokens are estimates from NetShield's own usage only.
+    groq_tpd_120b: int = 200_000
+    groq_tpd_20b: int = 200_000
     # Si True → genera el digest automáticamente a las 08:00 AM UTC-3 (APScheduler)
     # Si False (default) → solo generación manual desde la UI
     digest_auto_generate: bool = False

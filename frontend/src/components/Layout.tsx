@@ -42,6 +42,7 @@ import {
   Target,
   ShieldQuestion,
   CalendarClock,
+  Bot,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GlobalSearch } from './common/GlobalSearch';
@@ -64,7 +65,8 @@ const navGroups = [
   {
     label: 'Infraestructura',
     items: [
-      { to: '/network', icon: Network, label: 'Red', end: false },
+      { to: '/network', icon: Network, label: 'Red', end: true },
+      { to: '/network/activity', icon: Activity, label: 'Actividad de red', end: false },
       { to: '/firewall', icon: Flame, label: 'Firewall', end: false },
       { to: '/blocklist', icon: Ban, label: 'Lista de bloqueo', end: false },
       { to: '/reputation', icon: ShieldQuestion, label: 'Reputación IP', end: false },
@@ -92,6 +94,7 @@ const navGroups = [
       { to: '/wazuh/vulnerabilities', icon: Bug, label: 'Vulnerabilidades', end: false },
       { to: '/wazuh/mitre', icon: Target, label: 'MITRE ATT&CK', end: false },
       { to: '/digest', icon: CalendarClock, label: 'Daily Digest', end: true },
+      { to: '/ai-diagnosis', icon: Bot, label: 'Diagnóstico IA', end: true },
     ],
   },
   {

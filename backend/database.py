@@ -113,6 +113,7 @@ def _register_models() -> None:  # noqa: F401
     from models import action_log, ip_label, user  # noqa: F401
     from models import telegram  # noqa: F401
     from models import daily_digest, agent_category_override  # noqa: F401
+    from models import ai_diagnosis  # noqa: F401
     try:
         from models import saved_report  # noqa: F401
     except ImportError:

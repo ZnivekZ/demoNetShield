@@ -371,6 +371,80 @@ class WazuhIndexerClient:
         """Get alerts with rule.level >= 12 (critical severity in Wazuh)."""
         return await self.get_alerts(limit=limit, level_min=12)
 
+    async def get_agent_alert_summary(self, agent_id: str, time_from: str,
+                                      time_to: str) -> dict[str, Any]:
+        """Count all matching alerts, with bounded rule details for diagnosis."""
+        if not self.is_configured() or self._breaker.is_open():
+            raise RuntimeError("Wazuh Indexer no disponible para resumir alertas")
+        query = {
+            "size": 0,
+            "track_total_hits": True,
+            "query": {"bool": {"filter": [
+                {"term": {"agent.id": agent_id}},
+                {"range": {"@timestamp": {"gte": time_from, "lte": time_to}}},
+            ]}},
+            "aggs": {
+                "max_level": {"max": {"field": "rule.level"}},
+                "highest_alerts": {"top_hits": {"size": 3,
+                    "sort": [{"rule.level": {"order": "desc"}}, {"@timestamp": {"order": "desc"}}],
+                    "_source": ["@timestamp", "rule.id", "rule.level", "rule.description", "data.srcip", "data.src_ip"]}},
+                "top_rules": {"terms": {"field": "rule.id", "size": 12,
+                                        "order": {"_count": "desc"}},
+                              "aggs": {
+                                  "level": {"max": {"field": "rule.level"}},
+                                  "latest": {"max": {"field": "@timestamp", "format": "strict_date_optional_time"}},
+                                  "sample": {"top_hits": {"size": 1, "_source": [
+                                      "rule.description", "data.srcip", "data.src_ip"]}},
+                              }},
+            },
+        }
+        async with self._get_request_lock():
+            try:
+                response = await asyncio.wait_for(
+                    self._get_client().post("/wazuh-alerts-4.x-*/_search", json=query),
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+                if data.get("timed_out") or (data.get("_shards") or {}).get("failed", 0):
+                    raise RuntimeError("Wazuh Indexer devolvió agregación parcial")
+                aggs = data.get("aggregations") or {}
+                total = data.get("hits", {}).get("total", {})
+                count = int(total.get("value", 0) if isinstance(total, dict) else total or 0)
+                top_rules = []
+                for bucket in (aggs.get("top_rules") or {}).get("buckets", []):
+                    sample = ((bucket.get("sample") or {}).get("hits") or {}).get("hits") or []
+                    raw = (sample[0].get("_source") or {}) if sample else {}
+                    sample_data = raw.get("data") or {}
+                    observed_ip = sample_data.get("srcip") or sample_data.get("src_ip")
+                    top_rules.append({
+                        "rule_id": str(bucket.get("key", "")),
+                        "description": str((raw.get("rule") or {}).get("description") or "")[:180],
+                        "level": int((bucket.get("level") or {}).get("value") or 0),
+                        "count": int(bucket.get("doc_count") or 0),
+                        "latest": (bucket.get("latest") or {}).get("value_as_string") or "",
+                        "source_ips": [observed_ip] if observed_ip else [],
+                    })
+                highlights = []
+                for hit in ((aggs.get("highest_alerts") or {}).get("hits") or {}).get("hits", []):
+                    raw = hit.get("_source") or {}
+                    rule = raw.get("rule") or {}
+                    source = raw.get("data") or {}
+                    highlights.append({
+                        "rule_id": str(rule.get("id") or ""),
+                        "description": str(rule.get("description") or "")[:180],
+                        "level": int(rule.get("level") or 0),
+                        "timestamp": raw.get("@timestamp") or "",
+                        "source_ip": source.get("srcip") or source.get("src_ip") or None,
+                    })
+                self._breaker.record_success()
+                return {"observed_count": count, "truncated": False,
+                        "max_level": int((aggs.get("max_level") or {}).get("value") or 0),
+                        "top_rules": top_rules, "highlights": highlights}
+            except Exception:
+                self._breaker.record_failure()
+                raise
+
     async def get_alerts_timeline(
         self, level_min: int | None = None, hours: int = 24
     ) -> list[dict[str, Any]]:

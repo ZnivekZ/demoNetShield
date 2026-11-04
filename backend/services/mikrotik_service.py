@@ -322,6 +322,7 @@ class MikroTikService:
                 src_ip, src_port = (src.rsplit(":", 1) + [""])[:2] if ":" in src else (src, "")
                 dst_ip, dst_port = (dst.rsplit(":", 1) + [""])[:2] if ":" in dst else (dst, "")
                 result.append({
+                    "id": conn.get(".id", ""),
                     "src_address": src_ip,
                     "dst_address": dst_ip,
                     "protocol": conn.get("protocol", ""),
@@ -331,6 +332,14 @@ class MikroTikService:
                     "dst_port": dst_port,
                     "orig_bytes": int(conn.get("orig-bytes", 0)),
                     "repl_bytes": int(conn.get("repl-bytes", 0)),
+                    "seen_reply": str(conn.get("seen-reply", "false")).lower() in ("true", "yes"),
+                    "tcp_state": conn.get("tcp-state", ""),
+                    "dstnat": str(conn.get("dstnat", "false")).lower() in ("true", "yes"),
+                    "reply_src_address": (conn.get("reply-src-address") or "").rsplit(":", 1)[0],
+                    "reply_src_port": conn.get("reply-src-port") or (
+                        (conn.get("reply-src-address") or "").rsplit(":", 1)[-1]
+                        if ":" in (conn.get("reply-src-address") or "") else ""
+                    ),
                 })
             logger.debug("mikrotik_connections_fetched", count=len(result))
             return result

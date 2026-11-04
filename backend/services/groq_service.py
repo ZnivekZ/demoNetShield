@@ -233,6 +233,8 @@ class GroqService:
                         raise ValueError("Groq devolvió una respuesta vacía")
                     tokens = getattr(response.usage, "total_tokens", None)
                     logger.info("groq_success", model=model, tokens=tokens)
+                    from services.groq_usage import record_usage
+                    await record_usage(model, "daily_digest", response.usage)
                     return summary, model, False
                 except RateLimitError:
                     logger.warning("groq_rate_limited", model=model)

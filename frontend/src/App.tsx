@@ -33,6 +33,7 @@ import Layout from './components/Layout';
 // Existing pages
 import FirewallPage from './components/firewall/FirewallPage';
 import NetworkPage from './components/network/NetworkPage';
+import NetworkActivityPage from './components/network/NetworkActivityPage';
 import ReportsPage from './components/reports/ReportsPage';
 // New pages
 import { QuickView } from './components/security/QuickView';
@@ -51,6 +52,7 @@ import { WazuhVulnerabilitiesPage } from './components/wazuh/VulnerabilitiesPage
 import { WazuhMitrePage } from './components/wazuh/MitrePage';
 import { AgentDetailPage as WazuhAgentDetailPage } from './components/wazuh/AgentDetailPanel';
 import DigestPage from './components/digest/DigestPage';
+import AiDiagnosisPage from './components/diagnosis/AiDiagnosisPage';
 // DHCP
 // Admin
 import UsersManagementPage from './components/admin/UsersManagementPage';
@@ -96,6 +98,7 @@ export default function App() {
 
               {/* Infrastructure */}
               <Route path="/network" element={<NetworkPage />} />
+              <Route path="/network/activity" element={<NetworkActivityPage />} />
               <Route path="/firewall" element={<FirewallPage />} />
 
               {/* Tools */}
@@ -126,6 +129,7 @@ export default function App() {
 
               {/* Daily Security Digest */}
               <Route path="/digest" element={<DigestPage />} />
+              <Route path="/ai-diagnosis" element={<AiDiagnosisPage />} />
 
               {/* Admin — accessible from SettingsDrawer */}
               <Route path="/admin/users" element={<UsersManagementPage />} />

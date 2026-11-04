@@ -22,6 +22,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 
 - **🌐 MikroTik CHR** — Control del router vía API RouterOS: firewall, VLANs, tráfico en tiempo real
 - **🔍 Wazuh SIEM** — Alertas de seguridad (vía Indexer OpenSearch :9200), vulnerabilidades, agentes, MITRE ATT&CK y detalle por agente
+- **🤖 Diagnóstico IA de agentes** — Consulta manual que guarda una instantánea de Wazuh, suma contexto MikroTik solo con coincidencia única de IP y genera acciones técnicas con Groq y fuentes de corrección.
 - **🛡️ CrowdSec** — Inteligencia colaborativa de amenazas: decisiones de bloqueo, reputación de IPs, escenarios, bouncers y heatmaps geográficos
 - **📡 Suricata IDS/IPS/NSM** — Motor de análisis de red: detección de amenazas en capa de red, bloqueo inline (IPS), forense de tráfico (NSM). Flujo: `Tráfico → Suricata (eve.json) → Wazuh → NetShield`
 - **🌍 GeoLite2 (MaxMind)** — Geolocalización local de IPs sin latencia: país, ciudad, coordenadas, ASN, tipo de red (ISP/Hosting/Datacenter/Tor). Enriquece automáticamente decisiones CrowdSec y alertas Wazuh
@@ -60,6 +61,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 | **Wazuh — Detalle Agente** | `/wazuh/agents/:agentId` | Syscollector, syscheck, alertas y contexto completo del agente |
 | **Wazuh — Vulnerabilidades** | `/wazuh/vulnerabilities` | CVEs detectados por vulnerability-detector (vía Indexer) |
 | **Wazuh — MITRE ATT&CK** | `/wazuh/mitre` | Matriz de tácticas y técnicas con frecuencia de activación |
+| **Diagnóstico IA** | `/ai-diagnosis` | Estado y acciones por agente, evidencia con fecha, historial de consultas, modelo usado y saldo Groq estimado |
 | **Vistas** | `/views` | Lista de dashboards personalizados guardados |
 | **Vista Detail** | `/views/:id` | Dashboard personalizado con widgets en grid |
 | **View Builder** | `/views/:id/edit` | Editor de vistas con catálogo tabulado de widgets |

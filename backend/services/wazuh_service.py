@@ -291,8 +291,18 @@ class WazuhService:
         Returns normalized agent data.
         """
         try:
-            data = await self._api_request("GET", "/agents", params={"limit": 500})
-            agents = data.get("data", {}).get("affected_items", [])
+            agents: list[dict] = []
+            page_size = 500
+            for offset in range(0, 5000, page_size):
+                data = await self._api_request("GET", "/agents", params={"limit": page_size, "offset": offset})
+                body = data.get("data", {})
+                items = body.get("affected_items", [])
+                agents.extend(items)
+                total = int(body.get("total_affected_items", 0) or 0)
+                if len(items) < page_size or (total and len(agents) >= total):
+                    break
+            if len(agents) >= 5000 and (not total or total > 5000):
+                raise RuntimeError("El inventario de Wazuh supera 5000 agentes; consulta incompleta")
             result = [self._normalize_agent(a) for a in agents]
             logger.debug("wazuh_agents_fetched", count=len(result))
             return result
@@ -1115,29 +1125,54 @@ class WazuhService:
         Returns: [{local_port, local_ip, protocol, state, process}]
         """
         try:
-            data = await self._api_request(
-                "GET", f"/syscollector/{agent_id}/ports",
-                params={"limit": limit, "q": "state=listen"},
-            )
-            items = data.get("data", {}).get("affected_items", [])
-            out: list[dict] = []
-            for p in items:
-                local = p.get("local", {}) or {}
-                out.append({
-                    "local_port": local.get("port", 0),
-                    "local_ip":   local.get("ip", ""),
-                    "protocol":   p.get("protocol", ""),
-                    "state":      p.get("state", ""),
-                    "process":    (
-                        p.get("process", {}).get("name", "")
-                        if isinstance(p.get("process"), dict) else ""
-                    ),
-                    "agent_id":   agent_id,
-                })
-            return out
+            snapshot = await self.get_agent_ports_snapshot(agent_id)
+            return snapshot["ports"][:limit]
         except Exception as e:
             logger.warning("wazuh_agent_ports_failed", agent_id=agent_id, error=str(e))
             return []
+
+    async def get_agent_ports_snapshot(self, agent_id: str) -> dict:
+        """Read listening sockets with scan time; raise on failure for diagnosis.
+
+        Wazuh reports TCP state as ``listening`` (not ``listen``). A missing or
+        failed scan must not be interpreted as an empty list of open ports.
+        """
+        page_size = 500
+        out: list[dict] = []
+        scanned_at = ""
+        total = 0
+        last_page_full = False
+        for offset in range(0, 5000, page_size):
+            data = await self._api_request(
+                "GET", f"/syscollector/{agent_id}/ports",
+                params={"limit": page_size, "offset": offset},
+            )
+            body = data.get("data", {})
+            items = body.get("affected_items", [])
+            last_page_full = len(items) == page_size
+            total = int(body.get("total_affected_items", 0) or 0)
+            for p in items:
+                local = p.get("local") or {}
+                protocol = str(p.get("protocol") or "").lower()
+                state = str(p.get("state") or "").lower()
+                # UDP listeners may have no state in the Syscollector response.
+                if state not in ("listening", "listen") and not (protocol == "udp" and not state):
+                    continue
+                if not local.get("port"):
+                    continue
+                scan_time = (p.get("scan") or {}).get("time") or ""
+                scanned_at = max(scanned_at, scan_time)
+                process = p.get("process") or ""
+                out.append({
+                    "local_port": local.get("port"), "local_ip": local.get("ip", ""),
+                    "protocol": protocol, "state": state or "listening",
+                    "process": process.get("name", "") if isinstance(process, dict) else str(process),
+                    "scan_time": scan_time, "agent_id": agent_id,
+                })
+            if len(items) < page_size or (total and offset + len(items) >= total):
+                break
+        return {"ports": out, "scanned_at": scanned_at,
+                "truncated": total > 5000 or (last_page_full and not total)}
 
     async def close(self) -> None:
         """Close the HTTP client."""

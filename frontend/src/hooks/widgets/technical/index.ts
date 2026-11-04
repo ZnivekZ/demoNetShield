@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   widgetsApi,
   mikrotikApi,
+  networkActivityApi,
   actionsApi,
   glpiApi,
   dhcpApi,
@@ -144,20 +145,9 @@ export function useBandwidthTop(limit = 10) {
   return useQuery({
     queryKey: ['widget', 'bandwidth-top', limit],
     queryFn: async () => {
-      const res = await mikrotikApi.getConnections();
+      const res = await networkActivityApi.participants({ limit });
       if (!res.success) throw new Error(res.error ?? 'Error cargando conexiones');
-      const conns = (res.data ?? []) as Array<{ src_address?: string; bytes?: number; orig_bytes?: number }>;
-      // Agrega bytes por IP de origen
-      const byIp = new Map<string, number>();
-      for (const c of conns) {
-        const ip = c.src_address ?? 'unknown';
-        const bytes = (c.bytes ?? 0) + (c.orig_bytes ?? 0);
-        byIp.set(ip, (byIp.get(ip) ?? 0) + bytes);
-      }
-      const sorted = Array.from(byIp.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, limit)
-        .map(([ip, bytes]) => ({ ip, bytes }));
+      const sorted = (res.data?.items ?? []).map(({ ip, bytes }) => ({ ip, bytes }));
       const max = sorted[0]?.bytes ?? 1;
       return sorted.map(r => ({ ...r, pct: Math.round((r.bytes / max) * 100) }));
     },

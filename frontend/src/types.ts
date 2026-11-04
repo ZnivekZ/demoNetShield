@@ -6,6 +6,126 @@ export interface APIResponse<T = unknown> {
   error: string | null;
 }
 
+export interface ActivityIdentity {
+  label: string;
+  source: 'glpi_ip' | 'glpi_mac' | 'dhcp' | 'ip';
+  mac: string;
+  mac_kind: 'global' | 'local_o_aleatoria' | 'desconocida';
+  asset_id: number | null;
+  asset_type: string | null;
+}
+
+export interface ActivityParticipant {
+  ip: string;
+  bytes: number;
+  connections: number;
+  percent: number;
+  identity: ActivityIdentity;
+}
+
+export type ActivityDirection = 'outbound' | 'inbound' | 'internal';
+
+export interface ActivityAccess {
+  direction: ActivityDirection;
+  source_ip: string;
+  destination_ip: string;
+  destination_port: string;
+  protocol: string;
+  target_ip: string;
+  target_port: string;
+  target_source: 'direct' | 'conntrack_nat' | 'nat_rule_inferred';
+  connections: number;
+  bytes: number;
+  responded: number;
+  without_reply: number;
+  source_identity: ActivityIdentity | null;
+  target_identity: ActivityIdentity | null;
+}
+
+export interface ActivityPage<T> {
+  items: T[];
+  total: number;
+  offset: number;
+  limit: number;
+  observed_at: string;
+  cidr: string;
+  connection_count?: number;
+  total_attributed_bytes?: number;
+  glpi_ip_available?: boolean;
+  sources?: { arp: boolean; dhcp: boolean; nat: boolean; glpi_assets: boolean; glpi_ip: boolean };
+}
+
+export type DiagnosisStatus = 'attention_high' | 'review' | 'no_indications' | 'unassessed';
+
+export interface DiagnosisRun {
+  id: number;
+  status: 'running' | 'completed' | 'failed';
+  started_at: string;
+  finished_at: string | null;
+  total_agents: number;
+  processed_agents: number;
+  reports: AgentDiagnosis[];
+  error: string | null;
+}
+
+export interface DiagnosisRunHistoryItem {
+  id: number;
+  status: 'running' | 'completed' | 'failed';
+  started_at: string;
+  total_agents: number;
+  processed_agents: number;
+}
+
+export interface AgentDiagnosis {
+  agent_id: string;
+  name: string;
+  status: DiagnosisStatus;
+  model: string | null;
+  tokens_used: number | null;
+  ai: {
+    assessment: string;
+    actions: { title: string; detail: string; source_url: string | null }[];
+    uncertainties: string[];
+  } | null;
+  ai_error: string | null;
+  payload_prepared: Record<string, unknown> | null;
+  snapshot: {
+    ip: string | null;
+    os: string;
+    wazuh_status: string;
+    last_seen: string | null;
+    ports: { local_port: number; local_ip: string; protocol: string; process: string; scan_time: string }[];
+    ports_scanned_at: string | null;
+    ports_truncated: boolean;
+    fim_last_scan: string | null;
+    rootcheck_last_scan: string | null;
+    cves: { cve_id: string; severity: string; package: string; version: string; detected_at: string | null; is_kev: boolean | null }[];
+    cves_available: boolean;
+    alerts: { observed_count: number; truncated: boolean; max_level: number; top_rules: {
+      rule_id: string; description: string; level: number; count: number; latest: string; source_ips: string[];
+    }[]; highlights: { rule_id: string; description: string; level: number; timestamp: string;
+      source_ip: string | null }[] } | null;
+    alerts_window: { from: string; to: string };
+    router: { observed_at: string; connection_count_snapshot: number;
+      top_outbound: { destination_ip: string; port: string; protocol: string; count: number }[];
+      top_inbound: { source_ip: string; port: string; protocol: string; count: number }[];
+      configured_dstnat: { protocol: string; dst_port: string; to_ports: string; comment: string }[];
+      note: string;
+    } | null;
+    gaps: string[];
+  };
+  sources: { cve_id: string; links: { kind: string; url: string }[] }[];
+}
+
+export interface GroqUsageStatus {
+  estimated: true;
+  configured: boolean;
+  window: string;
+  note: string;
+  models: { model: string; limit_24h_configured: number; used_24h_local: number;
+    remaining_24h_estimated: number | null }[];
+}
+
 /* ── MikroTik Types ─────────────────────────────────────────── */
 
 export interface InterfaceInfo {

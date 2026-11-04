@@ -331,6 +331,8 @@ _PUBLIC_PATHS: frozenset[str] = frozenset({
     "/openapi.json",
     "/blocklist.txt",
     "/blocklist.json",
+    "/api/blocklist/export.txt",
+    "/api/blocklist/export.json",
 })
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):

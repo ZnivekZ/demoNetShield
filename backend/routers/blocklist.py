@@ -80,6 +80,24 @@ async def export_json() -> Response:
     )
 
 
+# ── Alias bajo /api (pasan por el proxy en producción) ────────────
+# En prod nginx sirve el SPA en la raíz y sólo proxea /api/*, así que
+# /blocklist.txt nunca llega al backend. Estos alias usan el prefijo /api
+# que sí está proxeado. Son públicos (sin JWT), igual que los originales.
+
+
+@router.get("/export.txt", include_in_schema=False)
+async def export_txt_api() -> Response:
+    """Alias de /blocklist.txt que atraviesa el proxy de producción."""
+    return await export_txt()
+
+
+@router.get("/export.json", include_in_schema=False)
+async def export_json_api() -> Response:
+    """Alias de /blocklist.json que atraviesa el proxy de producción."""
+    return await export_json()
+
+
 # ── CRUD + push (requieren JWT) ───────────────────────────────────
 
 

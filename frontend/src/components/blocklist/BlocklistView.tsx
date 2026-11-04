@@ -190,7 +190,7 @@ export function BlocklistView() {
         <div className="bl-alert bl-alert--warn">
           <AlertCircle size={15} />
           La cuenta de API no tiene permisos de escritura en el router: los bloqueos se aplican
-          con el archivo <code>/blocklist.txt</code> (pull desde el MikroTik o un script).
+          con el archivo <code>/api/blocklist/export.txt</code> (pull desde el MikroTik o un script).
         </div>
       )}
 
@@ -418,11 +418,13 @@ export function BlocklistView() {
         <div className="bl-card">
           <h2 className="bl-card__title"><Download size={15} /> Export para la LAN</h2>
           <p className="bl-hint">
-            Sin autenticación, para que el MikroTik o un script hagan pull del archivo:
+            Sin autenticación, para que el MikroTik o un script hagan pull del archivo.
+            Estas rutas pasan por <code>/api</code>, así que funcionan también detrás de un
+            proxy que sólo reenvía esa ruta (producción):
           </p>
           {[
-            { key: 'txt', url: `${origin}/blocklist.txt`, label: 'IPs en texto plano' },
-            { key: 'json', url: `${origin}/blocklist.json`, label: 'JSON completo' },
+            { key: 'txt', url: `${origin}/api/blocklist/export.txt`, label: 'IPs en texto plano' },
+            { key: 'json', url: `${origin}/api/blocklist/export.json`, label: 'JSON completo' },
           ].map(({ key, url, label }) => (
             <div className="bl-url" key={key}>
               <div>
@@ -435,7 +437,11 @@ export function BlocklistView() {
             </div>
           ))}
           <p className="bl-hint bl-hint--mono">
-            /tool fetch url="{origin}/blocklist.txt" dst-path=blocklist.txt
+            /tool fetch url="{origin}/api/blocklist/export.txt" dst-path=blocklist.txt
+          </p>
+          <p className="bl-hint">
+            Alias corto (requiere que el proxy reenvíe la raíz):{' '}
+            <code>{origin}/blocklist.txt</code> · <code>{origin}/blocklist.json</code>
           </p>
           <p className="bl-hint">Archivo local: <code>{data?.data?.path ?? '—'}</code></p>
         </div>

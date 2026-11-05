@@ -125,6 +125,8 @@ import type {
   AgentCategory,
   DiagnosisRun,
   DiagnosisRunHistoryItem,
+  MitreReportRun,
+  MitreReportHistoryItem,
   GroqUsageStatus,
   } from '../types';
 import { groupMitreTactics, tacticForRow } from './mitre';
@@ -1466,5 +1468,10 @@ export const aiDiagnosisApi = {
   history: () => api.get<APIResponse<DiagnosisRunHistoryItem[]>>('/ai-diagnosis/runs/history').then(r => r.data),
   start: () => api.post<APIResponse<{ id: number; status: string }>>('/ai-diagnosis/runs').then(r => r.data),
   usage: () => api.get<APIResponse<GroqUsageStatus>>('/ai-diagnosis/groq-usage').then(r => r.data),
+  mitreLatest: () => api.get<APIResponse<MitreReportRun | null>>('/ai-diagnosis/mitre-reports/latest').then(r => r.data),
+  mitreById: (id: number) => api.get<APIResponse<MitreReportRun>>(`/ai-diagnosis/mitre-reports/${id}`).then(r => r.data),
+  mitreHistory: () => api.get<APIResponse<MitreReportHistoryItem[]>>('/ai-diagnosis/mitre-reports/history').then(r => r.data),
+  mitreStart: (periodHours: number) => api.post<APIResponse<{ id: number; status: string }>>('/ai-diagnosis/mitre-reports', null,
+    { params: { period_hours: periodHours } }).then(r => r.data),
 };
 

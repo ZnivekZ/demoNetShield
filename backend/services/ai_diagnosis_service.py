@@ -29,8 +29,12 @@ MODELS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b")
 
 SYSTEM_PROMPT = """Sos un analista técnico de infraestructura. Recibís hechos de Wazuh y, solo si
 existen, datos de MikroTik y extractos de fuentes públicas. Escribí español claro y breve.
-Respondé SOLO JSON con claves assessment (máximo 450 caracteres), actions (lista de hasta 4
-objetos con title, detail, source_url), uncertainties (lista de hasta 2 frases).
+Respondé SOLO JSON con claves assessment (máximo 300 caracteres), cve_situation,
+alerts_situation, interesting (una frase técnica breve por cada clave), actions (lista
+de hasta 4 objetos con title, detail, source_url), uncertainties (hasta 2 frases).
+Las tres frases deben referirse exclusivamente a este agente. Usá los totales por
+severidad para CVE y la ventana temporal indicada para alertas. Si faltan datos,
+decilo; no conviertas ausencia de datos en ausencia de problemas.
 Nunca inventes CVE, versiones, comandos, explotación, accesibilidad desde Internet ni
 confirmación de ataque. Un puerto local en escucha no demuestra exposición externa.
 Una conexión de MikroTik no prueba intento de autenticación. Si falta evidencia para un
@@ -167,7 +171,10 @@ def _safe_ai_json(content: str, allowed_urls: set[str]) -> dict:
                         "detail": str(item.get("detail") or "")[:500],
                         "source_url": url if url in allowed_urls else None})
     raw_uncertainties = data.get("uncertainties")
-    return {"assessment": str(data.get("assessment") or "")[:600],
+    return {"assessment": str(data.get("assessment") or "")[:350],
+            "cve_situation": str(data.get("cve_situation") or "")[:280],
+            "alerts_situation": str(data.get("alerts_situation") or "")[:280],
+            "interesting": str(data.get("interesting") or "")[:280],
             "actions": actions,
             "uncertainties": [str(x)[:250] for x in (raw_uncertainties if isinstance(raw_uncertainties, list) else [])[:2]]}
 
@@ -364,6 +371,14 @@ class AiDiagnosisService:
                     })
                 compact_vulns.sort(key=lambda v: (not (v["is_kev"] is True),
                                                       {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(v["severity"], 4)))
+                severity_by_cve: dict[str, str] = {}
+                severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "unknown": 4}
+                for v in compact_vulns:
+                    old = severity_by_cve.get(v["cve_id"])
+                    if old is None or severity_rank.get(v["severity"], 4) < severity_rank.get(old, 4):
+                        severity_by_cve[v["cve_id"]] = v["severity"]
+                severity_counts = {level: sum(s == level for s in severity_by_cve.values())
+                                   for level in ("critical", "high", "medium", "low", "unknown")}
                 ip = _safe_ip(str(agent.get("ip") or ""))
                 last_contact = _parse_time(agent.get("last_keep_alive"))
                 fresh_private_ip = bool(
@@ -410,6 +425,9 @@ class AiDiagnosisService:
                     "rootcheck_last_scan": snapshot["rootcheck_last_scan"],
                     "ports": snapshot["ports"][:20], "ports_total": len(snapshot["ports"]),
                     "cves": compact_vulns[:10], "cves_total": len(compact_vulns),
+                    "cves_unique_total": len(severity_by_cve),
+                    "cves_by_severity": severity_counts,
+                    "cisa_kev_cves": len({v["cve_id"] for v in compact_vulns if v["is_kev"] is True}),
                     "alerts": alerts, "router": router_context,
                     "data_gaps": gaps, "remediation_sources": compact_sources,
                 }

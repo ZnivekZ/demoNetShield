@@ -202,6 +202,8 @@ async def lifespan(app: FastAPI):
     logger.info("database_initialized")
     from services.ai_diagnosis_service import mark_interrupted_runs
     await mark_interrupted_runs()
+    from services.mitre_report_service import mark_interrupted_reports
+    await mark_interrupted_reports()
 
     # Migrate legacy 'admin' user to credentials defined in .env (if needed)
     from services.auth_service import get_auth_service
@@ -309,6 +311,8 @@ async def lifespan(app: FastAPI):
     logger.info("netshield_shutting_down")
     from services.ai_diagnosis_service import service as ai_diagnosis_service
     await ai_diagnosis_service.stop()
+    from services.mitre_report_service import service as mitre_report_service
+    await mitre_report_service.stop()
     task = getattr(app.state, "blocklist_task", None)
     if task:
         task.cancel()

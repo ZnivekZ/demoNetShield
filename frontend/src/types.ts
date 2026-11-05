@@ -102,6 +102,9 @@ export interface AgentDiagnosis {
   tokens_used: number | null;
   ai: {
     assessment: string;
+    cve_situation?: string;
+    alerts_situation?: string;
+    interesting?: string;
     actions: { title: string; detail: string; source_url: string | null }[];
     uncertainties: string[];
   } | null;
@@ -144,6 +147,46 @@ export interface GroqUsageStatus {
   models: { model: string; limit_24h_configured: number; used_24h_local: number;
     remaining_24h_estimated: number | null; limit_tpm_configured?: number;
     used_1m_local?: number; remaining_1m_estimated?: number | null }[];
+}
+
+export interface MitreReportRun {
+  id: number;
+  status: 'running' | 'completed' | 'failed';
+  period_hours: number;
+  started_at: string;
+  finished_at: string | null;
+  report: {
+    period_start: string;
+    period_end: string;
+    total_alerts: number;
+    mapped_alerts: number;
+    attributed_alerts: number;
+    unmapped_alerts: number;
+    mapped_without_agent: number;
+    count_note: string;
+    tactics: { name: string; count_associations: number; technique_ids: string[];
+      agent_count: number; max_level: number }[];
+    techniques: {
+      technique_id: string; technique_name: string; tactics: string[];
+      count: number; max_level: number; first: string | null; last: string | null;
+      sample: { event_id: string; rule_id: string; description: string; timestamp: string | null; source_ip: string | null };
+      agents: { agent_id: string; agent_name: string; count: number; max_level: number;
+        first: string | null; last: string | null; sample: { rule_id: string; description: string; source_ip: string | null } }[];
+    }[];
+    agents: { agent_id: string; agent_name: string; count_associations: number; max_level: number;
+      techniques: { technique_id: string; technique_name: string; count: number; max_level: number;
+        last: string | null; sample: { rule_id: string; description: string; source_ip: string | null } }[] }[];
+  };
+  ai: { summary: string; findings: { technique_id: string; interpretation: string; action: string }[];
+    limitations: string[] } | null;
+  ai_model: string | null;
+  tokens_used: number | null;
+  ai_error: string | null;
+  error: string | null;
+}
+
+export interface MitreReportHistoryItem {
+  id: number; status: 'running' | 'completed' | 'failed'; period_hours: number; started_at: string;
 }
 
 /* ── MikroTik Types ─────────────────────────────────────────── */

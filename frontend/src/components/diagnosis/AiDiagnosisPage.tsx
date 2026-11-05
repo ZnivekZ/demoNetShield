@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Bot, Clock3, ExternalLink, RefreshCw, Server, ShieldAlert } from 'lucide-react';
 import { aiDiagnosisApi } from '../../services/api';
 import type { AgentDiagnosis, DiagnosisStatus } from '../../types';
 import { CveUsageContext } from '../wazuh/CveUsageStatus';
+import MitreReportPanel from './MitreReportPanel';
 
 const STATUS: Record<DiagnosisStatus, { label: string; className: string; order: number }> = {
   attention_high: { label: 'Atención alta', className: 'text-red-300 bg-red-500/10 border-red-500/20', order: 0 },
@@ -72,6 +74,18 @@ function AgentCard({ report }: { report: AgentDiagnosis }) {
   const status = STATUS[report.status];
   const ports = s.ports.slice(0, 8);
   const uniqueCves = new Set(s.cves.map(item => item.cve_id)).size;
+  const cveById = new Map<string, typeof s.cves[number]>();
+  for (const item of s.cves) if (!cveById.has(item.cve_id)) cveById.set(item.cve_id, item);
+  const previewCves = [...cveById.values()].slice(0, 5);
+  const severityByCve = new Map<string, string>();
+  const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, unknown: 4 };
+  for (const cve of s.cves) {
+    const current = severityByCve.get(cve.cve_id);
+    if (!current || (severityOrder[cve.severity] ?? 4) < (severityOrder[current] ?? 4)) severityByCve.set(cve.cve_id, cve.severity);
+  }
+  const severityCounts = Object.fromEntries(['critical', 'high', 'medium', 'low', 'unknown'].map(level =>
+    [level, [...severityByCve.values()].filter(value => value === level).length]));
+  const kevCount = new Set(s.cves.filter(item => item.is_kev === true).map(item => item.cve_id)).size;
   const standoutAlerts = (s.alerts?.highlights || []).filter(highlight =>
     !s.alerts?.top_rules.slice(0, 5).some(rule => rule.rule_id === highlight.rule_id));
   return (
@@ -116,6 +130,16 @@ function AgentCard({ report }: { report: AgentDiagnosis }) {
       ) : (
         <p className="text-sm text-surface-400">{report.ai_error || 'Interpretación IA no disponible.'}</p>
       )}
+      <div className="grid gap-2 text-xs">
+        <p className="text-surface-300"><strong className="text-surface-100">CVE:</strong> {report.ai?.cve_situation || (s.cves_available
+          ? `${uniqueCves} CVE en inventario; ${severityCounts.critical} críticos, ${severityCounts.high} altos${kevCount ? ` y ${kevCount} CISA KEV` : ''}.`
+          : 'Inventario no disponible.')}</p>
+        <p className="text-surface-300"><strong className="text-surface-100">Alertas:</strong> {report.ai?.alerts_situation || (s.alerts
+          ? `${s.alerts.observed_count} eventos en 24 h${s.alerts.top_rules[0] ? `; predominó la regla ${s.alerts.top_rules[0].rule_id} (${s.alerts.top_rules[0].count}).` : '.'}`
+          : 'Alertas no disponibles.')}</p>
+        <p className="text-surface-300"><strong className="text-surface-100">A tener en cuenta:</strong> {report.ai?.interesting ||
+          (s.gaps[0] || `Último contacto Wazuh: ${fmt(s.last_seen)}.`)}</p>
+      </div>
       {report.model && <p className="text-xs text-surface-500">Modelo: {report.model}{report.tokens_used ? ` · ${report.tokens_used.toLocaleString('es-AR')} tokens` : ''}</p>}
 
       <details className="border-t border-surface-700/50 pt-3 group">
@@ -146,33 +170,33 @@ function AgentCard({ report }: { report: AgentDiagnosis }) {
           <div>
             <p className="font-medium text-surface-200">CVE presentes en inventario Wazuh</p>
             <p className="text-xs text-surface-500">{s.cves_available
-              ? `${uniqueCves} CVE único${uniqueCves === 1 ? '' : 's'} · ${s.cves.length} hallazgo${s.cves.length === 1 ? '' : 's'} por paquete · consultado ${fmt(s.cves_checked_at)}`
+              ? `${uniqueCves} CVE únicos · ${s.cves.length} hallazgos por paquete · consultado ${fmt(s.cves_checked_at)}`
               : 'No se pudo consultar el inventario; cero no indica ausencia.'}</p>
+            {s.cves_available && <p className="text-xs text-surface-400 mt-1">
+              Críticos {severityCounts.critical} · Altos {severityCounts.high} · Medios {severityCounts.medium} · Bajos {severityCounts.low}
+              {severityCounts.unknown > 0 && ` · Sin clasificar ${severityCounts.unknown}`}{kevCount > 0 && ` · CISA KEV ${kevCount}`}
+            </p>}
+            <p className="text-xs text-surface-500 mt-1">Informados en el inventario actual de Wazuh; no confirma explotación ni exposición del componente.</p>
             {s.cves_available ? (
-              s.cves.length ? <ul className="mt-2 space-y-2 text-surface-300">
-                {s.cves.slice(0, 8).map((v, i) => <li key={`${v.cve_id}-${i}`} className="rounded-lg border border-surface-800/70 bg-surface-900/30 px-3 py-2">
-                  <strong className="text-surface-200">{v.cve_id}</strong> · {severityLabel(v.severity)}
-                  {v.is_kev && <span className="text-red-300"> · CISA KEV</span>}
-                  {v.is_kev === null && <span className="text-amber-300"> · KEV sin datos</span>}
-                  {' · '}{v.package || 'paquete desconocido'} {v.version || ''}
-                  {v.description && <p className="text-xs text-surface-300 mt-1">{v.description}</p>}
-                  <p className="text-xs text-surface-500 mt-1">status Wazuh: {v.wazuh_status || 'no informado'} · publicado: {calendarDate(v.published_at)} · detectado en agente: {fmt(v.detected_at)}</p>
-                  <p className="mt-1"><CveUsageContext status={v.usage_status} evidence={v.usage_evidence} checkedAt={v.usage_checked_at} /></p>
-                  {v.scanner_condition && <p className="text-xs text-surface-500">Condición detectada: {v.scanner_condition}</p>}
-                  <p className="text-xs text-surface-500">{report.sources.some(item => item.cve_id === v.cve_id && item.links.some(link => link.kind === 'vendor_advisory'))
-                    ? 'Hay un aviso del fabricante entre las referencias de corrección.'
-                    : 'Versión corregida no confirmada en las fuentes recuperadas.'}</p>
+              s.cves.length ? <ul className="mt-2 space-y-1 text-surface-300">
+                {previewCves.map(v => <li key={v.cve_id}>
+                  <details className="rounded-lg border border-surface-800/70 bg-surface-900/30 px-3 py-2">
+                    <summary className="cursor-pointer text-xs">
+                      <strong className="text-surface-200">{v.cve_id}</strong> · {severityLabel(v.severity)}{v.is_kev ? ' · CISA KEV' : ''}
+                      {' · '}{v.package || 'paquete desconocido'} {v.version || ''}
+                    </summary>
+                    <div className="mt-2 space-y-1 text-xs text-surface-400">
+                      {v.description && <p>{v.description}</p>}
+                      <p>Publicado: {calendarDate(v.published_at)} · detectado en agente: {fmt(v.detected_at)} · status Wazuh: {v.wazuh_status || 'no informado'}</p>
+                      <CveUsageContext status={v.usage_status} evidence={v.usage_evidence} checkedAt={v.usage_checked_at} />
+                      {v.scanner_condition && <p>Condición del escáner: {v.scanner_condition}</p>}
+                    </div>
+                  </details>
                 </li>)}
               </ul> : <p className="text-surface-400 mt-1">Wazuh no informó CVE en su inventario al consultar.</p>
             ) : <p className="text-amber-300 mt-1">No se pudo consultar el estado de CVE.</p>}
-            {s.cves.length > 8 && <details className="mt-2">
-              <summary className="text-xs text-cyan-400 cursor-pointer">Ver {s.cves.length - 8} CVE más</summary>
-              <ul className="mt-1 space-y-1 text-surface-300">
-                {s.cves.slice(8).map((v, i) => <li key={`${v.cve_id}-extra-${i}`}>
-                  {v.cve_id} · {severityLabel(v.severity)}{v.is_kev ? ' · CISA KEV' : v.is_kev === null ? ' · KEV sin datos' : ''} · {v.package || 'paquete desconocido'} {v.version || ''} · status {v.wazuh_status || 'no informado'}
-                </li>)}
-              </ul>
-            </details>}
+            {s.cves.length > previewCves.length && <Link to={`/wazuh/vulnerabilities?agent=${encodeURIComponent(report.agent_id)}`}
+              className="inline-block text-xs text-cyan-400 mt-2 hover:underline">Ver inventario actual de este agente ({uniqueCves} CVE en esta consulta) ↗</Link>}
           </div>
           <div>
             <p className="font-medium text-surface-200">Alertas Wazuh de 24 h</p>
@@ -221,18 +245,6 @@ function AgentCard({ report }: { report: AgentDiagnosis }) {
           {report.ai?.uncertainties && report.ai.uncertainties.length > 0 && (
             <p className="text-xs text-surface-400">Límites: {report.ai.uncertainties.join(' · ')}</p>
           )}
-          {report.sources.length > 0 && <div>
-            <p className="font-medium text-surface-200">Referencias para corrección</p>
-            {s.cves.length > report.sources.length && <p className="text-xs text-surface-500">Se consultaron fuentes para los {report.sources.length} CVE prioritarios; los demás siguen listados arriba.</p>}
-            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
-              {report.sources.flatMap(item => item.links.map(link => <a key={`${item.cve_id}-${link.url}`}
-                href={link.url} target="_blank" rel="noopener noreferrer" className="text-xs text-cyan-400 hover:underline">
-                {item.cve_id} · {link.kind.replaceAll('_', ' ')} ↗
-              </a>))}
-            </div>
-          </div>}
-          {s.cves.length > 0 && report.sources.every(item => item.links.length === 0) &&
-            <p className="text-xs text-amber-300">No se recuperaron referencias externas para estos CVE. Validá la corrección con el fabricante.</p>}
           {report.payload_prepared && <details className="border-t border-surface-700/50 pt-2">
             <summary className="text-xs text-cyan-400 cursor-pointer">Ver datos preparados para Groq</summary>
             <pre className="text-xs text-surface-300 whitespace-pre-wrap break-words mt-2 max-h-80 overflow-auto">{JSON.stringify(report.payload_prepared, null, 2)}</pre>
@@ -385,5 +397,6 @@ export default function AiDiagnosisPage() {
         {reports.map(report => <AgentCard key={report.agent_id} report={report} />)}
       </div>
     </div>}
+    <MitreReportPanel />
   </div>;
 }

@@ -38,3 +38,19 @@ class GroqUsage(Base):
     input_tokens = Column(Integer, nullable=False, default=0)
     output_tokens = Column(Integer, nullable=False, default=0)
     total_tokens = Column(Integer, nullable=False, default=0)
+
+
+class MitreReportRun(Base):
+    __tablename__ = "mitre_report_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    status = Column(String(20), nullable=False, default="running", index=True)
+    period_hours = Column(Integer, nullable=False)
+    started_at = Column(DateTime, nullable=False, default=utc_now)
+    finished_at = Column(DateTime, nullable=True)
+    report_json = Column(Text, nullable=False, default="{}")
+    ai_json = Column(Text, nullable=True)
+    ai_model = Column(String(80), nullable=True)
+    tokens_used = Column(Integer, nullable=True)
+    ai_error = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)

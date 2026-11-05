@@ -497,6 +497,125 @@ class WazuhIndexerClient:
             logger.warning("wazuh_indexer_timeline_failed", error=str(e))
             return []
 
+    async def get_mitre_report_data(self, time_from: str, time_to: str) -> dict[str, Any]:
+        """Aggregate every agent/ATT&CK technique pair in a fixed window.
+
+        Composite pagination avoids the top-N truncation of the dashboard matrix.
+        Counts per technique are alert/technique associations: one alert may map
+        to several techniques and must not be added to get the alert total.
+        """
+        if not self.is_configured() or self._breaker.is_open():
+            raise RuntimeError("Wazuh Indexer no disponible para el informe MITRE")
+
+        after: dict[str, str] | None = None
+        pairs: list[dict[str, Any]] = []
+        total_alerts = mapped_alerts = attributed_alerts = 0
+        async with self._get_request_lock():
+            try:
+                for _page in range(100):
+                    composite: dict[str, Any] = {
+                        "size": 500,
+                        "sources": [
+                            {"agent_id": {"terms": {"field": "agent.id"}}},
+                            {"technique_id": {"terms": {"field": "rule.mitre.id"}}},
+                        ],
+                    }
+                    if after:
+                        composite["after"] = after
+                    body = {
+                        "size": 0, "track_total_hits": True,
+                        "query": {"range": {"@timestamp": {"gte": time_from, "lt": time_to}}},
+                        "aggs": {
+                            "mapped": {"filter": {"exists": {"field": "rule.mitre.id"}}},
+                            "attributed": {
+                                "filter": {"bool": {"filter": [
+                                    {"exists": {"field": "rule.mitre.id"}},
+                                    {"exists": {"field": "agent.id"}},
+                                ]}},
+                                "aggs": {"pairs": {"composite": composite, "aggs": {
+                                    "first": {"min": {"field": "@timestamp", "format": "strict_date_optional_time"}},
+                                    "last": {"max": {"field": "@timestamp", "format": "strict_date_optional_time"}},
+                                    "max_level": {"max": {"field": "rule.level"}},
+                                    "sample": {"top_hits": {"size": 1,
+                                        "sort": [{"rule.level": {"order": "desc"}},
+                                                 {"@timestamp": {"order": "desc"}}],
+                                        "_source": ["agent.name", "rule.id", "rule.description",
+                                                    "rule.level", "rule.mitre", "@timestamp",
+                                                    "data.srcip", "data.src_ip"]}},
+                                }}},
+                            },
+                        },
+                    }
+                    response = await asyncio.wait_for(
+                        self._get_client().post("/wazuh-alerts-4.x-*/_search", json=body),
+                        timeout=45.0,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    if data.get("timed_out") or (data.get("_shards") or {}).get("failed", 0):
+                        raise RuntimeError("Wazuh Indexer devolvió una agregación MITRE parcial")
+                    total = data.get("hits", {}).get("total", {})
+                    total_alerts = int(total.get("value", 0) if isinstance(total, dict) else total or 0)
+                    aggs = data.get("aggregations") or {}
+                    mapped_alerts = int((aggs.get("mapped") or {}).get("doc_count") or 0)
+                    named = aggs.get("attributed") or {}
+                    attributed_alerts = int(named.get("doc_count") or 0)
+                    page = (named.get("pairs") or {})
+                    buckets = page.get("buckets") or []
+                    for bucket in buckets:
+                        key = bucket.get("key") or {}
+                        hits = ((bucket.get("sample") or {}).get("hits") or {}).get("hits") or []
+                        sample_hit = hits[0] if hits else {}
+                        raw = sample_hit.get("_source") or {}
+                        rule = raw.get("rule") or {}
+                        mitre = rule.get("mitre") or {}
+                        ids = mitre.get("id") or []
+                        names = mitre.get("technique") or []
+                        tactics = mitre.get("tactic") or []
+                        if isinstance(ids, str): ids = [ids]
+                        if isinstance(names, str): names = [names]
+                        if isinstance(tactics, str): tactics = [tactics]
+                        technique_id = str(key.get("technique_id") or "")
+                        index = ids.index(technique_id) if technique_id in ids else -1
+                        technique_name = (names[index] if index >= 0 and len(names) == len(ids)
+                                          else names[0] if len(names) == 1 else technique_id)
+                        # Wazuh stores these as arrays. Attribute a tactic to
+                        # one technique only when their positions align, or
+                        # when the alert has a single tactic for every ID.
+                        matched_tactics = ([tactics[index]] if index >= 0 and len(tactics) == len(ids)
+                                           else tactics if len(tactics) == 1 else [])
+                        source = raw.get("data") or {}
+                        pairs.append({
+                            "agent_id": str(key.get("agent_id") or ""),
+                            "agent_name": str((raw.get("agent") or {}).get("name") or key.get("agent_id") or ""),
+                            "technique_id": technique_id,
+                            "technique_name": str(technique_name)[:120],
+                            "tactics": [str(t)[:100] for t in matched_tactics],
+                            "count": int(bucket.get("doc_count") or 0),
+                            "max_level": int((bucket.get("max_level") or {}).get("value") or 0),
+                            "first": (bucket.get("first") or {}).get("value_as_string"),
+                            "last": (bucket.get("last") or {}).get("value_as_string"),
+                            "sample": {"event_id": str(sample_hit.get("_id") or ""),
+                                       "rule_id": str(rule.get("id") or ""),
+                                       "description": str(rule.get("description") or "")[:180],
+                                       "timestamp": raw.get("@timestamp"),
+                                       "source_ip": source.get("srcip") or source.get("src_ip")},
+                        })
+                    if not buckets:
+                        break
+                    after = page.get("after_key")
+                    if not after:
+                        break
+                else:
+                    raise RuntimeError("Demasiadas combinaciones agente/técnica para completar el informe")
+                self._breaker.record_success()
+                return {"period_start": time_from, "period_end": time_to,
+                        "total_alerts": total_alerts, "mapped_alerts": mapped_alerts,
+                        "attributed_alerts": attributed_alerts, "pairs": pairs}
+            except Exception:
+                self._breaker.record_failure()
+                raise
+
     async def get_mitre_summary(self) -> list[dict[str, Any]]:
         """
         Aggregate alerts by MITRE tactic/technique to populate the MITRE matrix.

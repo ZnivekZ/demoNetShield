@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     # Displayed remaining tokens are estimates from NetShield's own usage only.
     groq_tpd_120b: int = 200_000
     groq_tpd_20b: int = 200_000
+    # Ajustar a los TPM reales de Groq Console; sirve para dosificar diagnósticos.
+    groq_tpm_120b: int = 8_000
+    groq_tpm_20b: int = 8_000
     # Si True → genera el digest automáticamente a las 08:00 AM UTC-3 (APScheduler)
     # Si False (default) → solo generación manual desde la UI
     digest_auto_generate: bool = False

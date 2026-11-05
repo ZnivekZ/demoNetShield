@@ -8,6 +8,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 
+import httpx
+from openai import RateLimitError
+
 os.environ.setdefault("JWT_SECRET_KEY", "0123456789abcdef0123456789abcdef")
 
 from services.ai_diagnosis_service import MODELS, _analyze, _router_context, _safe_ai_json, _status
@@ -56,6 +59,13 @@ class DiagnosisEvidenceTests(unittest.TestCase):
                             [{"cve_id": "CVE-2026-12345", "severity": "low", "is_kev": None}],
                             self.alerts)
         self.assertEqual(status, "review")
+
+    def test_fresh_alternate_kernel_version_changes_priority_not_inventory(self):
+        retained = {"cve_id": "CVE-2026-12345", "severity": "critical", "is_kev": True,
+                    "usage_status": "kernel_other_version", "usage_checked_at": datetime.now(timezone.utc).isoformat()}
+        self.assertEqual(_status(self.agent, self.ports, [retained], self.alerts)[0], "review")
+        retained["usage_checked_at"] = "2020-01-01T00:00:00Z"
+        self.assertEqual(_status(self.agent, self.ports, [retained], self.alerts)[0], "attention_high")
 
     def test_router_requires_unique_ip_and_does_not_infer_exposure(self):
         connections = [{"src_address": "10.0.0.10", "dst_address": "8.8.8.8",
@@ -121,6 +131,33 @@ class WazuhAlertAggregationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class GroqDiagnosisTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rate_limit_respects_retry_after_before_retrying(self):
+        attempted = []
+        async def create(**kwargs):
+            attempted.append(kwargs["model"])
+            if len(attempted) == 1:
+                response = httpx.Response(429, headers={"retry-after": "3"},
+                                          request=httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions"))
+                raise RateLimitError("rate limited", response=response, body=None)
+            return SimpleNamespace(
+                usage=SimpleNamespace(total_tokens=100, prompt_tokens=70, completion_tokens=30),
+                choices=[SimpleNamespace(message=SimpleNamespace(content='{"assessment":"Revisar"}'))],
+            )
+        class FakeClient:
+            chat = SimpleNamespace(completions=SimpleNamespace(create=create))
+            async def close(self):
+                pass
+        with patch("services.ai_diagnosis_service.get_settings",
+                   return_value=SimpleNamespace(groq_api_key="test-key")), \
+             patch("openai.AsyncOpenAI", return_value=FakeClient()), \
+             patch("services.ai_diagnosis_service.model_rate_wait", new_callable=AsyncMock, return_value=0), \
+             patch("services.ai_diagnosis_service.asyncio.sleep", new_callable=AsyncMock) as sleep, \
+             patch("services.ai_diagnosis_service.record_usage", new_callable=AsyncMock):
+            ai, model, error, _ = await _analyze({}, MODELS)
+        self.assertEqual(attempted, [MODELS[0], MODELS[0]])
+        self.assertEqual((ai["assessment"], model, error), ("Revisar", MODELS[0], None))
+        sleep.assert_awaited_once_with(3.0)
+
     async def test_fallback_reports_actual_model_and_usage(self):
         attempted = []
         async def create(**kwargs):
@@ -141,6 +178,7 @@ class GroqDiagnosisTests(unittest.IsolatedAsyncioTestCase):
         with patch("services.ai_diagnosis_service.get_settings",
                    return_value=SimpleNamespace(groq_api_key="test-key")), \
              patch("openai.AsyncOpenAI", return_value=FakeClient()), \
+             patch("services.ai_diagnosis_service.model_rate_wait", new_callable=AsyncMock, return_value=0), \
              patch("services.ai_diagnosis_service.record_usage", new_callable=AsyncMock) as record:
             ai, model, error, tokens = await _analyze(payload, MODELS)
         self.assertEqual(attempted, list(MODELS))

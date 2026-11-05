@@ -1,4 +1,4 @@
-"""Group Wazuh's explicitly active CVE findings for the vulnerability view."""
+"""Group current Wazuh inventory findings for the vulnerability view."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def build_active_cve_inventory(
     findings: list[dict[str, Any]],
     kev_entries: dict[str, dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    """Return one row per CVE, with only Active Wazuh evidence per agent/package.
+    """Return one row per CVE found in current inventory per agent/package.
 
     ``kev_entries=None`` means the catalog is unavailable, so KEV membership
     remains unknown instead of being incorrectly reported as false.
@@ -23,7 +23,7 @@ def build_active_cve_inventory(
     evidence_keys: dict[str, set[tuple[str, str, str]]] = {}
 
     for finding in findings:
-        if str(finding.get("status") or "").strip().lower() != "active":
+        if str(finding.get("status") or "").strip().lower() not in ("", "active"):
             continue
         cve_id = str(finding.get("cve_id") or "").strip().upper()
         if not _CVE_ID.fullmatch(cve_id):
@@ -72,9 +72,10 @@ def build_active_cve_inventory(
             "package_name": package_name,
             "package_version": package_version,
             "detected_at": finding.get("detected_at") or None,
+            "published_at": finding.get("published_at") or None,
             "severity": severity,
             "cvss_score": score if score > 0 else None,
-            "status": "active",
+            "status": str(finding.get("status") or "").strip().lower() or None,
         })
 
     for row in grouped.values():

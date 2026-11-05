@@ -85,7 +85,7 @@ function Participants() {
     {query.isLoading && <p className="text-sm text-surface-400">Cargando actividad…</p>}
     {page && <>
       <div className="overflow-x-auto"><table className="data-table w-full">
-        <thead><tr><th>IP interna</th><th>Equipo</th><th>MAC</th><th>Tráfico observado</th><th>Conexiones</th><th>Participación</th></tr></thead>
+        <thead><tr><th>IP interna</th><th>Equipo</th><th>MAC</th><th>Bytes en sesiones activas</th><th>Conexiones</th><th>% de la captura</th></tr></thead>
         <tbody>{page.items.map(row => <tr key={row.ip}>
           <td className="font-mono text-xs">{row.ip}</td>
           <td><Identity value={row.identity} ip={row.ip} /></td>
@@ -95,10 +95,10 @@ function Participants() {
       </table>{page.items.length === 0 && <p className="py-6 text-center text-sm text-surface-500">No hay IPs que coincidan en la actividad actual.</p>}</div>
       {all && <PageControls total={page.total} offset={offset} limit={limit} onChange={setOffset} />}
       <ScopeNote cidr={page.cidr} />
-      <p className="text-xs text-amber-200/80">Estimación: se omiten conexiones ya cerradas; el tráfico entre dos IPs internas se atribuye a ambas. El porcentaje usa la suma atribuida a todos los equipos observados. Para historial más completo: Traffic Flow/IPFIX y verificar tráfico procesado por hardware.</p>
+      <p className="text-xs text-amber-200/80">Estos bytes son acumulados de sesiones aún activas: no indican velocidad actual ni consumo de un período. Se omiten conexiones cerradas; entre dos IPs internas se atribuyen bytes a ambas. Para historial más completo: Traffic Flow/IPFIX y verificar tráfico procesado por hardware.</p>
       <p className="text-xs text-surface-500">La MAC ayuda a comparar DHCP, ARP y GLPI, pero no confirma tipo ni modelo. Una base OUI puede sugerir fabricante; el inventario GLPI actualizado permite identificar el equipo.</p>
       {page.sources && (!page.sources.arp || !page.sources.dhcp) && <p className="text-xs text-amber-200/80">Identificación incompleta: no se pudo leer {[!page.sources.arp ? 'ARP' : null, !page.sources.dhcp ? 'DHCP' : null].filter(Boolean).join(' y ')}. Revisar permisos de lectura y disponibilidad del MikroTik.</p>}
-      {!page.glpi_ip_available && <p className="text-xs text-amber-200/80">Sin mapa de IPs de GLPI disponible. Para cruces confiables: acceso a IP/MAC de GLPI (API clásica con App Token y User Token) e inventario actualizado. DHCP y MAC sirven como pistas.</p>}
+      {!page.glpi_ip_available && <p className="text-xs text-amber-200/80">GLPI sin mapa de IPs: {page.sources?.glpi_assets === false ? 'el inventario aún no está sincronizado.' : page.sources?.glpi_legacy_configured === false ? 'falta configurar App Token y User Token para leer IPs por la API clásica.' : 'la API clásica no devolvió IPs; revisar sus permisos y los puertos de red registrados.'} La MAC solo cruza con detalles GLPI ya disponibles.</p>}
     </>}
   </section>;
 }

@@ -44,22 +44,22 @@ export function CisaKevAlert({ matches, status, totalChecked, generatedAt }: Pro
             <p className="text-sm text-surface-300 mt-1">
               {verified
                 ? count
-                  ? `Al generarlo, Wazuh informaba ${count} CVE${count === 1 ? '' : 's'} activo${count === 1 ? '' : 's'} de CISA KEV en ${agents} agente${agents === 1 ? '' : 's'}.`
-                  : 'Al generarlo, Wazuh no informaba CVEs activos de CISA KEV.'
+                  ? `Al generarlo, el inventario Wazuh incluía ${count} CVE${count === 1 ? '' : 's'} de CISA KEV en ${agents} agente${agents === 1 ? '' : 's'}.`
+                  : 'Al generarlo, el inventario Wazuh no incluía CVE de CISA KEV.'
                 : status === 'needs_regeneration'
                   ? 'Este Digest usa un método anterior. Regeneralo para obtener una comparación válida.'
                   : 'No se pudo comprobar CISA KEV al generar este Digest.'}
             </p>
             <p className="text-xs text-surface-500 mt-2">
               {time ? `Foto del ${time} (Argentina). ` : 'Foto del momento de generación. '}
-              {verified ? `${totalChecked.toLocaleString('es-AR')} CVEs del catálogo consultados. ` : ''}
-              Revisá la vista actual para saber qué sigue activo.
+              {verified ? `${totalChecked.toLocaleString('es-AR')} CVE del catálogo consultado${totalChecked === 1 ? '' : 's'}. ` : ''}
+              Revisá el inventario actual para ver qué sigue informado.
             </p>
           </div>
         </div>
         <Link to="/wazuh/vulnerabilities?kev=1"
           className="btn-secondary inline-flex items-center gap-1.5 text-sm shrink-0">
-          Ver CVEs activos <ArrowUpRight className="w-4 h-4" />
+          Ver CVE en inventario <ArrowUpRight className="w-4 h-4" />
         </Link>
       </div>
     </section>

@@ -253,11 +253,13 @@ class NetworkActivity:
                 if (detail := collector.get_full_detail(raw["id"], raw.get("_itemtype") or "Computer"))
             }
             ip_map = await get_asset_ip_map() if cached_assets else {}
+            settings = get_settings()
             result = build_snapshot(connections, arp_rows, lease_rows, nat_rules,
                                     cached_assets, ip_map, details,
-                                    get_settings().network_activity_cidr)
+                                    settings.network_activity_cidr)
             result["sources"] = {"arp": arp_ok, "dhcp": dhcp_ok, "nat": nat_ok,
-                                 "glpi_assets": bool(cached_assets), "glpi_ip": bool(ip_map)}
+                                 "glpi_assets": bool(cached_assets), "glpi_ip": bool(ip_map),
+                                 "glpi_legacy_configured": bool(settings.glpi_app_token and settings.glpi_user_token)}
             self._snapshot, self._snapshot_at = result, time.monotonic()
             return result
 

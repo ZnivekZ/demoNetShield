@@ -179,7 +179,7 @@ class CisaKevService:
         seen_evidence: set[tuple[str, str, str, str]] = set()
 
         for finding in findings:
-            if str(finding.get("status") or "").strip().lower() != "active":
+            if str(finding.get("status") or "").strip().lower() not in ("", "active"):
                 continue
             cve_id = str(finding.get("cve_id") or "").strip().upper()
             kev = kev_by_cve.get(cve_id)

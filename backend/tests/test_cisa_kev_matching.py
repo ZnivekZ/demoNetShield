@@ -109,6 +109,14 @@ class CisaKevMatchingTests(unittest.TestCase):
             "possible_matches": [], "total_checked": 2,
             "last_updated": "2026-11-03T00:00:00Z",
         })
+        former = DigestService._row_to_dict(row)
+        self.assertEqual(former["cisa_kev_status"], "needs_regeneration")
+        row.cisa_json = json.dumps({
+            "method": "wazuh_current_inventory_v3", "status": "verified",
+            "matches": [{"cve_id": "CVE-2024-1111", "evidence": []}],
+            "possible_matches": [], "total_checked": 2,
+            "last_updated": "2026-11-03T00:00:00Z",
+        })
         current = DigestService._row_to_dict(row)
         self.assertEqual(len(current["cisa_kev_matches"]), 1)
         self.assertEqual(current["cisa_kev_status"], "verified")
@@ -166,8 +174,9 @@ class WazuhFindingFetchTests(unittest.IsolatedAsyncioTestCase):
              patch.object(indexer, "_request_lock", None):
             findings = await indexer.get_current_vulnerability_findings()
 
-        self.assertEqual([f["cve_id"] for f in findings], ["CVE-2024-1111"])
+        self.assertEqual([f["cve_id"] for f in findings], ["CVE-2024-1111", "CVE-2024-3333"])
         self.assertEqual((findings[0]["status"], findings[0]["severity"], findings[0]["cvss_score"]), ("active", "high", 8.1))
+        self.assertEqual(findings[1]["status"], "")
         self.assertTrue(fake_client.cleared)
 
 
@@ -182,13 +191,14 @@ class ActiveInventoryTests(unittest.TestCase):
         findings = [first, first, second, {**first, "cve_id": "CVE-2024-2222", "status": "Solved"},
                     {**first, "cve_id": "CVE-2024-3333", "status": ""}]
         rows = build_active_cve_inventory(findings, {"CVE-2024-1111": {"product": "Example App"}})
-        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["severity"], "critical")
         self.assertEqual(rows[0]["agent_count"], 2)
         self.assertEqual(len(rows[0]["agents"]), 2)
         self.assertEqual({item["severity"] for item in rows[0]["agents"]}, {"high", "critical"})
         self.assertTrue(rows[0]["is_kev"])
         self.assertEqual(rows[0]["kev_product"], "Example App")
+        self.assertIsNone(next(row for row in rows if row["cve_id"] == "CVE-2024-3333")["agents"][0]["status"])
         self.assertIsNone(build_active_cve_inventory([first], None)[0]["is_kev"])
 
 

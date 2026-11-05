@@ -51,6 +51,9 @@ class AgentAlertDetail(BaseModel):
     level:           int
     today_count:     int
     yesterday_count: int
+    last_seen_today: str | None = None
+    last_seen_yesterday: str | None = None
+    source_ips: list[str] = Field(default_factory=list)
 
 class DigestDelta(BaseModel):
     """Deterministic metrics calculated from two 24h windows."""
@@ -70,10 +73,15 @@ class DigestDelta(BaseModel):
     critical_delta:       int
 
     # Vulnerabilities
-    new_cves_today:       list[dict[str, Any]]   # CVEs detected today not seen yesterday
-    resolved_cves:        list[dict[str, Any]]   # CVEs no longer present
+    new_cves_today:       list[dict[str, Any]]   # Current findings first detected in this window
+    resolved_cves:        list[dict[str, Any]]   # Kept for old digests; no remediation inferred from absence
     total_cves_today:     int
     total_cves_yesterday: int
+    cves_period_available: bool = False
+    current_cves_available: bool = False
+    current_cves_checked_at: str | None = None
+    current_cves_total: int = 0
+    previous_cves_total: int | None = None
 
     # Agents
     agents_active:        int
@@ -101,8 +109,16 @@ class DigestAgent(BaseModel):
     alert_details:  list[AgentAlertDetail] = Field(default_factory=list)
 
     new_cves:        int
+    current_cves: int = 0
+    current_cves_available: bool = False
+    current_cves_checked_at: str | None = None
+    current_cve_details: list[dict[str, Any]] = Field(default_factory=list)
+    new_since_previous: list[str] | None = None
+    no_longer_reported: list[str] | None = None
     new_packages:    int               # packages installed/upgraded today
     port_changes:    list[dict[str, Any]]  # [{port, protocol, state, change_type}]
+    ports_available: bool = False
+    ports_scanned_at: str | None = None
     last_syscheck:   str | None
     last_rootcheck:  str | None
     last_keep_alive: str | None = None

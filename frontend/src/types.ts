@@ -52,10 +52,28 @@ export interface ActivityPage<T> {
   connection_count?: number;
   total_attributed_bytes?: number;
   glpi_ip_available?: boolean;
-  sources?: { arp: boolean; dhcp: boolean; nat: boolean; glpi_assets: boolean; glpi_ip: boolean };
+  sources?: { arp: boolean; dhcp: boolean; nat: boolean; glpi_assets: boolean; glpi_ip: boolean; glpi_legacy_configured: boolean };
 }
 
 export type DiagnosisStatus = 'attention_high' | 'review' | 'no_indications' | 'unassessed';
+export type CveUsageStatus = 'kernel_running' | 'kernel_other_version' | 'process_match' | 'unknown';
+
+export interface CurrentCveFinding {
+  cve_id: string;
+  severity: string;
+  package: string;
+  version: string;
+  detected_at: string | null;
+  published_at?: string | null;
+  wazuh_status?: string | null;
+  status?: string | null;
+  description?: string;
+  scanner_condition?: string;
+  is_kev?: boolean | null;
+  usage_status?: CveUsageStatus;
+  usage_evidence?: string;
+  usage_checked_at?: string | null;
+}
 
 export interface DiagnosisRun {
   id: number;
@@ -99,8 +117,9 @@ export interface AgentDiagnosis {
     ports_truncated: boolean;
     fim_last_scan: string | null;
     rootcheck_last_scan: string | null;
-    cves: { cve_id: string; severity: string; package: string; version: string; detected_at: string | null; is_kev: boolean | null }[];
+    cves: CurrentCveFinding[];
     cves_available: boolean;
+    cves_checked_at?: string | null;
     alerts: { observed_count: number; truncated: boolean; max_level: number; top_rules: {
       rule_id: string; description: string; level: number; count: number; latest: string; source_ips: string[];
     }[]; highlights: { rule_id: string; description: string; level: number; timestamp: string;
@@ -123,7 +142,8 @@ export interface GroqUsageStatus {
   window: string;
   note: string;
   models: { model: string; limit_24h_configured: number; used_24h_local: number;
-    remaining_24h_estimated: number | null }[];
+    remaining_24h_estimated: number | null; limit_tpm_configured?: number;
+    used_1m_local?: number; remaining_1m_estimated?: number | null }[];
 }
 
 /* ── MikroTik Types ─────────────────────────────────────────── */
@@ -629,7 +649,11 @@ export interface ActiveCveAgentEvidence {
   detected_at: string | null;
   severity: CveSeverity;
   cvss_score: number | null;
-  status: 'active';
+  status: string | null;
+  published_at?: string | null;
+  usage_status?: CveUsageStatus;
+  usage_evidence?: string;
+  usage_checked_at?: string | null;
 }
 
 export interface ActiveCve {
@@ -659,6 +683,7 @@ export interface ActiveCveFilters {
   search?: string;
   agent_id?: string;
   kev_only?: boolean;
+  include_usage?: boolean;
 }
 
 export interface MitreTechnique {
@@ -690,7 +715,7 @@ export interface WazuhStatsSummary {
   low_alerts_24h: number;
   active_agents: number;
   total_agents: number;
-  vulnerabilities_total: number;
+  vulnerabilities_total: number | null;
   vulnerabilities_critical: number;
   top_mitre_tactics: { tactic_id: string; tactic_name: string; count: number }[];
   not_available?: boolean;
@@ -2277,6 +2302,11 @@ export interface DigestDelta {
   resolved_cves:        Record<string, unknown>[];
   total_cves_today:     number;
   total_cves_yesterday: number;
+  cves_period_available?: boolean;
+  current_cves_available?: boolean;
+  current_cves_checked_at?: string | null;
+  current_cves_total?: number;
+  previous_cves_total?: number | null;
   agents_active:        number;
   agents_disconnected:  number;
   transient_incidents:  TransientIncident[];
@@ -2300,10 +2330,21 @@ export interface DigestAgent {
     level: number;
     today_count: number;
     yesterday_count: number;
+    last_seen_today?: string | null;
+    last_seen_yesterday?: string | null;
+    source_ips?: string[];
   }[];
   new_cves:         number;
+  current_cves?: number;
+  current_cves_available?: boolean;
+  current_cves_checked_at?: string | null;
+  current_cve_details?: CurrentCveFinding[];
+  new_since_previous?: string[] | null;
+  no_longer_reported?: string[] | null;
   new_packages:     number;
   port_changes:     Record<string, unknown>[];
+  ports_available?: boolean;
+  ports_scanned_at?: string | null;
   last_syscheck:    string | null;
   last_rootcheck:   string | null;
   last_keep_alive?: string | null;

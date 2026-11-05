@@ -1,4 +1,4 @@
-/** Current CVEs explicitly marked Active by the Wazuh vulnerability index. */
+/** CVEs currently present in the Wazuh vulnerability inventory. */
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -8,6 +8,7 @@ import {
 import { useActiveCveInventory } from '../../hooks/useWazuh';
 import { formatDateTime } from '../utils/time';
 import type { ActiveCve, CveSeverity } from '../../types';
+import { CveUsageContext } from './CveUsageStatus';
 
 const PAGE_SIZE = 20;
 const SEVERITIES: Array<{ value: CveSeverity | ''; label: string }> = [
@@ -37,6 +38,11 @@ function formatArgentina(isoTimestamp: string): string {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
+}
+
+function calendarDate(value: string): string {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
 }
 
 export function WazuhVulnerabilitiesPage() {
@@ -73,15 +79,18 @@ export function WazuhVulnerabilitiesPage() {
         <div>
           <div className="flex items-center gap-2">
             <Bug className="w-5 h-5 text-amber-400" />
-            <h1 className="text-2xl font-bold text-surface-100">CVEs activos en Wazuh</h1>
+            <h1 className="text-2xl font-bold text-surface-100">CVE en inventario Wazuh</h1>
             {pagination && <span className="text-sm text-surface-400">({pagination.total.toLocaleString('es-AR')})</span>}
           </div>
           <p className="text-sm text-surface-400 mt-1">
-            Vulnerabilidades que Wazuh informa como activas en sus agentes.
+            Vulnerabilidades presentes en el inventario vigente de Wazuh, agrupadas por ID de CVE.
           </p>
           <p className="text-xs text-surface-500 mt-1">
             {checkedAt ? `Consultado: ${checkedAt} (Argentina)` : 'Estado actual del índice de Wazuh'}
             {' · '}La detección no demuestra que el equipo haya sido explotado.
+          </p>
+          <p className="text-xs text-surface-500 mt-1">
+            Uso según el último escaneo de Syscollector. Un proceso coincidente no confirma la versión cargada; verificá el componente en el equipo.
           </p>
         </div>
         <button className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50"
@@ -107,7 +116,7 @@ export function WazuhVulnerabilitiesPage() {
 
       {data && !data.kev_available && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-200">
-          El catálogo CISA KEV no está disponible. Se muestran los CVEs activos; su pertenencia a KEV queda sin determinar.
+          El catálogo CISA KEV no está disponible. Se muestran los CVE del inventario; su pertenencia a KEV queda sin determinar.
         </div>
       )}
 
@@ -157,9 +166,9 @@ export function WazuhVulnerabilitiesPage() {
         <div className="glass-card p-10 text-center">
           <Bug className="w-9 h-9 text-surface-600 mx-auto mb-2" />
           <p className="text-sm text-surface-300">
-            {hasFilters ? 'No hay CVEs activos con estos filtros' : 'Wazuh no informa CVEs activos en este momento'}
+            {hasFilters ? 'No hay CVE de inventario con estos filtros' : 'Wazuh no informa CVE en el inventario consultado'}
           </p>
-          <p className="text-xs text-surface-500 mt-1">La consulta solo incluye hallazgos con estado Active.</p>
+          <p className="text-xs text-surface-500 mt-1">Se excluyen estados explícitos no activos; algunos documentos vigentes no incluyen el campo status.</p>
         </div>
       ) : data ? (
         <div className="space-y-2">{items.map(item => <CveRow key={item.cve_id} cve={item} />)}</div>
@@ -214,7 +223,7 @@ function CveRow({ cve }: { cve: ActiveCve }) {
           </span>
           <span className="font-mono text-sm font-bold text-surface-100">{cve.cve_id}</span>
           {cve.is_kev && <span className="rounded border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-xs font-semibold text-red-300">CISA KEV</span>}
-          <span className="rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-xs text-cyan-200">Activo según Wazuh</span>
+          <span className="rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-xs text-cyan-200">Presente en inventario Wazuh</span>
           <ChevronDown className={`ml-auto w-4 h-4 text-surface-400 transition-transform ${open ? 'rotate-180' : ''}`} />
         </div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-surface-400">
@@ -226,7 +235,7 @@ function CveRow({ cve }: { cve: ActiveCve }) {
       </button>
       {open && (
         <div className="border-t border-surface-800 px-4 py-3 space-y-3">
-          <p className="text-xs text-surface-400">Wazuh mantiene este CVE como activo en los siguientes agentes y paquetes:</p>
+          <p className="text-xs text-surface-400">Hallazgos presentes en el inventario Wazuh, por agente y paquete:</p>
           {cve.agents.map((evidence, index) => (
             <div key={`${evidence.agent_id}-${evidence.package_name}-${evidence.package_version}-${index}`}
               className="rounded-lg border border-surface-800 bg-surface-900/40 px-3 py-2 text-xs">
@@ -248,7 +257,9 @@ function CveRow({ cve }: { cve: ActiveCve }) {
                 <span className={`rounded border px-1.5 py-0.5 ${SEVERITY_COLOR[evidence.severity]}`}>
                   {SEVERITY_LABEL[evidence.severity]}{evidence.cvss_score !== null ? ` · CVSS ${evidence.cvss_score.toFixed(1)}` : ''}
                 </span>
-                <span className="text-cyan-300">Activo</span>
+                <span className="text-surface-400">status: {evidence.status || 'no informado'}</span>
+                <CveUsageContext status={evidence.usage_status} evidence={evidence.usage_evidence} checkedAt={evidence.usage_checked_at} />
+                {evidence.published_at && <span className="text-surface-400">Publicado: {calendarDate(evidence.published_at)}</span>}
               </div>
             </div>
           ))}

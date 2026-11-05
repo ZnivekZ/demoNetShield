@@ -962,6 +962,50 @@ class WazuhService:
             result["packages"] = []
         return result
 
+    async def get_agent_cve_usage_context(
+        self, agent_id: str, *, include_processes: bool = True,
+    ) -> dict[str, Any]:
+        """Read-only Syscollector evidence for CVE use, independent of package listing.
+
+        A limited process page can establish a positive name match. No match is
+        inconclusive, including when the process inventory is incomplete.
+        """
+        result: dict[str, Any] = {
+            "kernel_release": "", "os_scanned_at": None,
+            "processes": [], "process_scanned_at": None,
+        }
+        try:
+            os_response = await asyncio.wait_for(
+                self._api_request("GET", f"/syscollector/{agent_id}/os"), timeout=7.0,
+            )
+            os_items = (os_response.get("data") or {}).get("affected_items") or []
+            if os_items:
+                os_item = os_items[0]
+                result["kernel_release"] = str(os_item.get("release") or "")
+                result["os_scanned_at"] = (os_item.get("scan") or {}).get("time") or os_item.get("scan_time")
+        except Exception as exc:
+            logger.debug("wazuh_cve_os_context_unavailable", agent_id=agent_id, error=str(exc)[:120])
+
+        if include_processes:
+            try:
+                process_response = await asyncio.wait_for(
+                    self._api_request(
+                        "GET", f"/syscollector/{agent_id}/processes", params={"limit": 500},
+                    ), timeout=7.0,
+                )
+                process_items = (process_response.get("data") or {}).get("affected_items") or []
+                result["processes"] = [
+                    {"name": item.get("name") or item.get("cmd") or "",
+                     "scanned_at": (item.get("scan") or {}).get("time") or item.get("scan_time")}
+                    for item in process_items if isinstance(item, dict)
+                ]
+                result["process_scanned_at"] = next(
+                    (item["scanned_at"] for item in result["processes"] if item["scanned_at"]), None,
+                )
+            except Exception as exc:
+                logger.debug("wazuh_cve_process_context_unavailable", agent_id=agent_id, error=str(exc)[:120])
+        return result
+
     async def get_mitre_matrix(self) -> dict:
         """
         [Wazuh Indexer] Get MITRE ATT&CK matrix (tactics → techniques → count).

@@ -20,6 +20,7 @@ to avoid blocking the async event loop.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import time
 from contextlib import contextmanager
 from typing import Any
@@ -32,6 +33,24 @@ from services import routeros_compat  # noqa: F401  # parchea la decodificación
 from services.resilience import make_resilience
 
 logger = structlog.get_logger(__name__)
+
+
+def _connection_endpoint(address: Any, port: Any = None) -> tuple[str, str]:
+    """RouterOS may return the port separately or append it to the IPv4 address."""
+    value = str(address or "")
+    explicit_port = str(port) if port is not None and port != "" else ""
+    try:
+        ipaddress.ip_address(value)
+        return value, explicit_port
+    except ValueError:
+        host, separator, embedded_port = value.rpartition(":")
+        if separator and embedded_port.isdecimal():
+            try:
+                ipaddress.ip_address(host)
+                return host, explicit_port or embedded_port
+            except ValueError:
+                pass
+    return value, explicit_port
 
 
 class MikroTikReadOnlyError(Exception):
@@ -316,11 +335,11 @@ class MikroTikService:
             connections = await self._api_call("/ip/firewall/connection")
             result = []
             for conn in connections:
-                src = conn.get("src-address", "")
-                dst = conn.get("dst-address", "")
-                # Split port from address if present (format: ip:port)
-                src_ip, src_port = (src.rsplit(":", 1) + [""])[:2] if ":" in src else (src, "")
-                dst_ip, dst_port = (dst.rsplit(":", 1) + [""])[:2] if ":" in dst else (dst, "")
+                src_ip, src_port = _connection_endpoint(conn.get("src-address"), conn.get("src-port"))
+                dst_ip, dst_port = _connection_endpoint(conn.get("dst-address"), conn.get("dst-port"))
+                reply_src_ip, reply_src_port = _connection_endpoint(
+                    conn.get("reply-src-address"), conn.get("reply-src-port")
+                )
                 result.append({
                     "id": conn.get(".id", ""),
                     "src_address": src_ip,
@@ -335,11 +354,8 @@ class MikroTikService:
                     "seen_reply": str(conn.get("seen-reply", "false")).lower() in ("true", "yes"),
                     "tcp_state": conn.get("tcp-state", ""),
                     "dstnat": str(conn.get("dstnat", "false")).lower() in ("true", "yes"),
-                    "reply_src_address": (conn.get("reply-src-address") or "").rsplit(":", 1)[0],
-                    "reply_src_port": conn.get("reply-src-port") or (
-                        (conn.get("reply-src-address") or "").rsplit(":", 1)[-1]
-                        if ":" in (conn.get("reply-src-address") or "") else ""
-                    ),
+                    "reply_src_address": reply_src_ip,
+                    "reply_src_port": reply_src_port,
                 })
             logger.debug("mikrotik_connections_fetched", count=len(result))
             return result

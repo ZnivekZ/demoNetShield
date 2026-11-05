@@ -506,6 +506,7 @@ export const wazuhApiExtended = {
       if (filters.agent_id) params.agent_id = filters.agent_id;
       if (filters.search) params.search = filters.search;
       if (filters.kev_only) params.kev_only = true;
+      if (filters.include_usage === false) params.include_usage = false;
       return (await api.get<APIResponse<ActiveCveInventory>>('/wazuh/vulnerabilities/active', { params })).data;
     } catch {
       return notAvailableResponse<ActiveCveInventory>('getActiveCveInventory');
@@ -560,7 +561,7 @@ export const wazuhApiExtended = {
         wazuhApi.getAlerts(500, undefined, 0, 'now-24h'),
         wazuhApi.getAgentsSummary(),
         wazuhApi.getMitreSummary(),
-        wazuhApiExtended.getVulnerabilities({ page: 1, page_size: 1 }),
+        wazuhApiExtended.getActiveCveInventory({ page: 1, page_size: 1, include_usage: false }),
       ]);
 
       const alerts = alertsRes.data ?? [];
@@ -585,7 +586,7 @@ export const wazuhApiExtended = {
           low_alerts_24h: low24h,
           active_agents: summaryRes.data?.active ?? 0,
           total_agents: summaryRes.data?.total ?? 0,
-          vulnerabilities_total: vulnPayload?.pagination?.total ?? 0,
+          vulnerabilities_total: vulnRes.success ? (vulnPayload?.pagination?.total ?? null) : null,
           vulnerabilities_critical: vulnPayload?.summary?.critical ?? 0,
           top_mitre_tactics: topTactics,
         },
@@ -600,6 +601,7 @@ export const wazuhApiExtended = {
 /* ── Helpers ────────────────────────────────────────────────────── */
 
 function notAvailableResponse<T>(_endpoint: string): APIResponse<T> {
+  void _endpoint;
   return {
     success: false,
     data: null,

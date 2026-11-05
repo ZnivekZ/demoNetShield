@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { DigestAgent, DigestDelta } from '../../types';
+import { CveUsageContext } from '../wazuh/CveUsageStatus';
 
 interface Props {
   agent: DigestAgent;
@@ -51,6 +52,10 @@ function alertSeverity(level: number): { label: string; color: string } {
   return { label: 'Baja', color: '#94a3b8' };
 }
 
+function cveSeverity(value?: string | null): string {
+  return ({ critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja' } as Record<string, string>)[String(value || '').toLowerCase()] || 'Sin clasificar';
+}
+
 function formatPeriod(start: string, end: string): string {
   const format = (value: string) => new Date(value).toLocaleString('es-AR', {
     timeZone: 'America/Argentina/Buenos_Aires',
@@ -59,11 +64,16 @@ function formatPeriod(start: string, end: string): string {
   return `${format(start)} → ${format(end)}`;
 }
 
+function calendarDate(value?: string | null): string {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : 'sin fecha';
+}
+
 function AlertGroup({ title, items }: { title: string; items: AlertDetail[] }) {
   const [showAll, setShowAll] = useState(false);
   return (
     <div className="rounded-lg border border-surface-800 bg-surface-900/40 p-3">
-      <p className="text-xs font-semibold text-surface-200 mb-2">{title} <span className="text-surface-500">({items.length} tipos)</span></p>
+      <p className="text-xs font-semibold text-surface-200 mb-2">{title} <span className="text-surface-500">({items.length} tipo{items.length === 1 ? '' : 's'})</span></p>
       {items.length === 0 ? (
         <p className="text-xs text-surface-500">Ninguno</p>
       ) : (
@@ -80,6 +90,8 @@ function AlertGroup({ title, items }: { title: string; items: AlertDetail[] }) {
                 </div>
                 <p className="text-[11px] text-surface-500 mt-1">
                   {item.rule_id ? `Regla ${item.rule_id} · ` : ''}{item.today_count} hoy · {item.yesterday_count} ayer
+                  {item.source_ips?.length ? ` · origen: ${item.source_ips.join(', ')}` : ''}
+                  {(item.last_seen_today || item.last_seen_yesterday) ? ` · última: ${new Date(item.last_seen_today || item.last_seen_yesterday || '').toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}` : ''}
                 </p>
               </div>
             );
@@ -109,6 +121,7 @@ function keepAliveLabel(agent: DigestAgent): string {
 
 export const AgentDeltaTable: React.FC<Props> = ({ agent, period }) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [cvesOpen, setCvesOpen] = useState(false);
   const alertDelta = agent.alerts_today - agent.alerts_yesterday;
   const alertDetails = agent.alert_details ?? [];
   const newTypes = alertDetails.filter(item => item.today_count > 0 && item.yesterday_count === 0);
@@ -159,7 +172,10 @@ export const AgentDeltaTable: React.FC<Props> = ({ agent, period }) => {
         <tbody>
           {[
             { kind: 'alerts', label: '🔔 Alertas', yesterday: agent.alerts_yesterday, today: agent.alerts_today },
-            { kind: 'cves', label: '🐛 CVEs detectadas', yesterday: null, today: agent.new_cves },
+            { kind: 'cves', label: '🐛 CVE en inventario', yesterday: null,
+              today: agent.current_cves_available ? agent.current_cves ?? 0 : 'Sin datos' },
+            { kind: 'detected', label: '🔎 Detectados en esta ventana', yesterday: null,
+              today: period.cves_period_available ? agent.new_cves : 'Sin datos' },
           ].map((row, i) => (
             <tr
               key={i}
@@ -174,18 +190,20 @@ export const AgentDeltaTable: React.FC<Props> = ({ agent, period }) => {
               <td className="px-3.5 py-2.5">
                 {row.kind === 'alerts'
                   ? <DeltaBadge val={alertDelta} expanded={detailsOpen} onClick={() => setDetailsOpen(open => !open)} controls={detailsId} />
-                  : <span className="text-surface-500">—</span>}
+                  : row.kind === 'cves' && agent.current_cves_available && (agent.current_cve_details?.length ?? 0) > 0
+                    ? <button type="button" onClick={() => setCvesOpen(open => !open)} className="text-cyan-400 hover:underline" aria-expanded={cvesOpen}>Ver CVE</button>
+                    : <span className="text-surface-500">—</span>}
               </td>
             </tr>
           ))}
 
-          {/* Port changes */}
-          {agent.port_changes && agent.port_changes.length > 0 && (
+          {/* Port inventory snapshot */}
+          {(agent.ports_available || (agent.port_changes?.length ?? 0) > 0) && (
             <tr className="border-b border-surface-800/40">
-              <td className="px-3.5 py-2.5 text-surface-200">🔌 Cambios de puertos</td>
+              <td className="px-3.5 py-2.5 text-surface-200">🔌 Puertos en escucha</td>
               <td colSpan={3} className="px-3.5 py-2.5">
                 <div className="flex gap-1.5 flex-wrap">
-                  {agent.port_changes.map((p, j) => (
+                  {(agent.port_changes ?? []).slice(0, 8).map((p, j) => (
                     <span
                       key={j}
                       className="text-xs rounded px-1.5 py-px"
@@ -195,10 +213,13 @@ export const AgentDeltaTable: React.FC<Props> = ({ agent, period }) => {
                         border: '1px solid rgba(249,115,22,0.2)',
                       }}
                     >
-                      {String(p.port ?? '?')}/{String(p.protocol ?? '?')}
+                      {String(p.local_port ?? p.port ?? '?')}/{String(p.protocol ?? '?')}
                     </span>
                   ))}
+                  {agent.port_changes.length > 8 && <span className="text-surface-500">y {agent.port_changes.length - 8} más</span>}
+                  {agent.port_changes.length === 0 && <span className="text-surface-500">Ninguno informado en el escaneo</span>}
                 </div>
+                <p className="text-[11px] text-surface-500 mt-1">Instantánea Wazuh{agent.ports_scanned_at ? `: ${new Date(agent.ports_scanned_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}` : ' · fecha no informada'}. No confirma exposición externa.</p>
               </td>
             </tr>
           )}
@@ -225,6 +246,20 @@ export const AgentDeltaTable: React.FC<Props> = ({ agent, period }) => {
           </tr>
         </tbody>
       </table>
+      {cvesOpen && <div className="border-t border-amber-400/20 bg-amber-500/5 px-4 py-4">
+        <p className="text-sm font-semibold text-surface-100">CVE en inventario Wazuh</p>
+        <p className="text-xs text-surface-500 mt-1">{agent.current_cves} CVE único{agent.current_cves === 1 ? '' : 's'} · {agent.current_cve_details?.length ?? 0} hallazgo{(agent.current_cve_details?.length ?? 0) === 1 ? '' : 's'} por paquete · consultado {agent.current_cves_checked_at ? new Date(agent.current_cves_checked_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }) : 'sin fecha'}</p>
+        <div className="grid gap-2 mt-3 md:grid-cols-2">{(agent.current_cve_details ?? []).slice(0, 8).map((item, index) => <div key={`${item.cve_id}-${item.package}-${index}`} className="rounded-lg border border-surface-800 bg-surface-900/40 p-3 text-xs">
+          <p className="font-semibold text-surface-200">{item.cve_id} · {cveSeverity(item.severity)}</p>
+          <p className="text-surface-400 mt-1">{item.package || 'Paquete no informado'} {item.version || ''}</p>
+          {item.description && <p className="text-surface-300 mt-1">{item.description}</p>}
+          <p className="text-surface-500 mt-1">status: {item.status || 'no informado'} · publicado: {calendarDate(item.published_at)} · detectado: {item.detected_at ? new Date(item.detected_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }) : 'sin fecha'}</p>
+          <p className="mt-1"><CveUsageContext status={item.usage_status} evidence={item.usage_evidence} checkedAt={item.usage_checked_at} /></p>
+          {item.scanner_condition && <p className="text-surface-500 mt-1">Condición: {item.scanner_condition}</p>}
+        </div>)}</div>
+        {(agent.current_cve_details?.length ?? 0) > 8 && <p className="text-xs text-surface-500 mt-2">Se muestran 8 hallazgos. El inventario completo está en Wazuh → Vulnerabilidades.</p>}
+        {agent.new_since_previous && <p className="text-xs text-surface-400 mt-3">Desde el Digest anterior: {agent.new_since_previous.length} CVE ahora informados · {agent.no_longer_reported?.length ?? 0} ya no informados. Esto último no confirma una corrección.</p>}
+      </div>}
       {detailsOpen && (
         <div id={detailsId} className="border-t border-indigo-400/20 bg-indigo-500/5 px-4 py-4">
           <p className="text-sm font-semibold text-surface-100">Qué cambió en las alertas</p>
@@ -242,10 +277,10 @@ export const AgentDeltaTable: React.FC<Props> = ({ agent, period }) => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
               <AlertGroup title="Nuevos hoy" items={newTypes} />
               <AlertGroup title="Ya vistos ayer" items={recurringTypes} />
-              <AlertGroup title="Solo ayer" items={onlyYesterday} />
+              <AlertGroup title="No observados en el último período" items={onlyYesterday} />
             </div>
           )}
-          <p className="text-[11px] text-surface-500 mt-3">Criticidad estimada a partir del nivel de la regla de Wazuh (0–16).</p>
+          <p className="text-[11px] text-surface-500 mt-3">Que una regla deje de observarse no prueba que la causa esté solucionada. Criticidad estimada por nivel Wazuh (0–16).</p>
         </div>
       )}
     </div>

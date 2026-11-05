@@ -19,6 +19,7 @@ from schemas.common import APIResponse
 from schemas.wazuh import ActiveResponseRequest
 from services.wazuh_service import WazuhService, get_wazuh_service
 from services.active_cve_inventory import build_active_cve_inventory
+from services.cve_usage import classify_cve_usage, get_usage_contexts
 from services.cisa_kev_service import get_cisa_kev_service
 from services.wazuh_indexer import get_indexer_client
 
@@ -444,8 +445,10 @@ async def get_active_cve_inventory(
     search: str | None = Query(None),
     agent_id: str | None = Query(None),
     kev_only: bool = Query(False),
+    include_usage: bool = Query(True),
+    service: WazuhService = Depends(get_service),
 ) -> APIResponse:
-    """All current Active Wazuh CVEs, grouped by CVE and filterable by agent."""
+    """Current Wazuh CVE inventory, grouped by ID and filterable by agent."""
     try:
         findings = await get_indexer_client().get_current_vulnerability_findings()
     except Exception as e:
@@ -497,8 +500,14 @@ async def get_active_cve_inventory(
     total_pages = max(1, (total + page_size - 1) // page_size)
     page = min(page, total_pages)
     start = (page - 1) * page_size
+    page_items = items[start:start + page_size]
+    if include_usage:
+        evidence = [entry for row in page_items for entry in row["agents"]]
+        contexts = await get_usage_contexts(service, evidence)
+        for entry in evidence:
+            entry.update(classify_cve_usage(entry, contexts.get(entry["agent_id"])))
     return APIResponse.ok({
-        "items": items[start:start + page_size],
+        "items": page_items,
         "summary": summary,
         "pagination": {
             "page": page,

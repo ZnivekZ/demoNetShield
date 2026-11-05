@@ -28,11 +28,19 @@ from typing import Any
 import structlog
 
 from config import get_settings
+from services.cve_usage import classify_cve_usage, get_usage_contexts
 
 logger = structlog.get_logger(__name__)
 
 # ── UTC-3 timezone (Argentina / ART) ──────────────────────────────────────────
 ART = timezone(timedelta(hours=-3))
+
+
+def _stored_utc_iso(value: datetime | None) -> str:
+    """SQLite drops tzinfo from DateTime values; persisted Digest times are UTC."""
+    if value is None:
+        return ""
+    return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
 
 # ── Agent category pattern matching ───────────────────────────────────────────
 # Patterns are checked in order; first match wins.
@@ -235,9 +243,19 @@ def _summarize_alert_types(today: list[dict], yesterday: list[dict]) -> list[dic
                 "level": level,
                 "today_count": 0,
                 "yesterday_count": 0,
+                "last_seen_today": None,
+                "last_seen_yesterday": None,
+                "source_ips": [],
             })
             item[period] += 1
             item["level"] = max(item["level"], level)
+            stamp = str(alert.get("timestamp") or "")
+            stamp_key = "last_seen_today" if period == "today_count" else "last_seen_yesterday"
+            if stamp and (not item[stamp_key] or stamp > item[stamp_key]):
+                item[stamp_key] = stamp
+            source_ip = str(alert.get("src_ip") or "").strip()
+            if source_ip and source_ip not in item["source_ips"] and len(item["source_ips"]) < 3:
+                item["source_ips"].append(source_ip)
             if item["description"] == "Alerta sin descripción" and description != item["description"]:
                 item["description"] = description
     return sorted(grouped.values(), key=lambda item: (-item["level"], -item["today_count"], item["rule_id"]))
@@ -260,14 +278,14 @@ def _calculate_risk_score(
     kev_count = len(cisa_matches)
     if kev_count:
         score += min(kev_count * 30, 60)
-        reasons.append(f"⚠️ {kev_count} CVE(s) de CISA KEV detectadas por Wazuh")
+        reasons.append(f"⚠️ {kev_count} CVE de CISA KEV en el inventario Wazuh")
 
     # Critical alerts
     crit = delta.get("critical_today", 0)
     crit_delta = delta.get("critical_delta", 0)
     if crit_delta > 0:
         score += min(crit_delta * 8, 32)
-        reasons.append(f"{crit_delta} alerta(s) crítica(s) nueva(s) hoy (total: {crit})")
+        reasons.append(f"{crit_delta} alerta{'s' if crit_delta != 1 else ''} crítica{'s' if crit_delta != 1 else ''} más que ayer (total: {crit})")
 
     # Alert volume delta
     pct = delta.get("alerts_delta_percent", 0.0)
@@ -281,7 +299,7 @@ def _calculate_risk_score(
         score += 4
         reasons.append(f"Volumen de alertas +{pct:.0f}% vs ayer")
 
-    # New CVEs
+    # First detections in the latest window, distinct per agent and CVE.
     new_cves: list[dict] = delta.get("new_cves_today", [])
     for cve in new_cves:
         sev = (cve.get("severity") or "low").lower()
@@ -290,7 +308,7 @@ def _calculate_risk_score(
         elif sev == "high":
             score += 3
     if new_cves:
-        reasons.append(f"{len(new_cves)} CVE(s) nueva(s) detectada(s)")
+        reasons.append(f"{len(new_cves)} detección{'es' if len(new_cves) != 1 else ''} de CVE vigente{'s' if len(new_cves) != 1 else ''} en la ventana")
 
     # Transient incidents
     incidents: list[dict] = delta.get("transient_incidents", [])
@@ -389,7 +407,7 @@ class DigestService:
         for row in rows:
             delta = json.loads(row.delta_json or "{}")
             cisa  = json.loads(row.cisa_json or "[]")
-            is_current = isinstance(cisa, dict) and cisa.get("method") == "wazuh_active_cve_id_v2"
+            is_current = isinstance(cisa, dict) and cisa.get("method") == "wazuh_current_inventory_v3"
             confirmed = cisa.get("matches", []) if is_current else []
             risk_score, risk_level, _ = (
                 (row.risk_score, row.risk_level, row.risk_reasoning)
@@ -407,7 +425,7 @@ class DigestService:
                 "new_cves":         len(delta.get("new_cves_today", [])),
                 "cisa_matches":     len(confirmed),
                 "ai_is_mock":       row.ai_is_mock,
-                "generated_at":     row.generated_at.isoformat() if row.generated_at else "",
+                "generated_at":     _stored_utc_iso(row.generated_at),
                 "generation_method": row.generation_method,
             })
         return history
@@ -486,7 +504,7 @@ class DigestService:
             alerts_data = {"today": [], "yesterday": []}
         if isinstance(cves_data, Exception):
             logger.warning("digest_cves_failed", error=str(cves_data))
-            cves_data = {"today": [], "yesterday": []}
+            cves_data = {"today": [], "yesterday": [], "current": None, "checked_at": None}
         if isinstance(agents_data, Exception):
             logger.warning("digest_agents_failed", error=str(agents_data))
             agents_data = {"agents": [], "scan_status": []}
@@ -511,11 +529,23 @@ class DigestService:
         crit_yest  = sum(1 for a in alerts_yesterday if a.get("rule", {}).get("level", 0) >= 12
                          or a.get("rule_level", 0) >= 12)
 
-        # CVE delta: new = today CVEs whose cve_id wasn't in yesterday
-        yest_cve_ids = {c.get("cve_id", "") for c in cves_yesterday}
-        new_cves     = [c for c in cves_today if c.get("cve_id", "") not in yest_cve_ids]
-        today_cve_ids = {c.get("cve_id", "") for c in cves_today}
-        resolved_cves = [c for c in cves_yesterday if c.get("cve_id", "") not in today_cve_ids]
+        # Detection dates are first-observed timestamps, not current state
+        # transitions. Never infer remediation from absence in a later window.
+        def unique_detections(items: list[dict]) -> list[dict]:
+            seen: set[tuple[str, str]] = set()
+            distinct: list[dict] = []
+            for item in items:
+                key = (str(item.get("agent_id") or ""), str(item.get("cve_id") or ""))
+                if not all(key) or key in seen:
+                    continue
+                seen.add(key)
+                distinct.append(item)
+            return distinct
+
+        new_cves = unique_detections(cves_today)
+        current_findings = cves_data.get("current")
+        cves_available = current_findings is not None
+        checked_at = cves_data.get("checked_at")
 
         agents          = agents_data.get("agents", [])
         scan_status     = agents_data.get("scan_status", [])
@@ -539,9 +569,14 @@ class DigestService:
             "critical_yesterday":   crit_yest,
             "critical_delta":       crit_today - crit_yest,
             "new_cves_today":       new_cves[:20],   # cap to avoid huge payloads
-            "resolved_cves":        resolved_cves[:10],
-            "total_cves_today":     len(cves_today),
-            "total_cves_yesterday": len(cves_yesterday),
+            "resolved_cves":        [],
+            "total_cves_today":     len(new_cves),
+            "total_cves_yesterday": len(unique_detections(cves_yesterday)),
+            "cves_period_available": cves_available,
+            "current_cves_available": cves_available,
+            "current_cves_checked_at": checked_at,
+            "current_cves_total": len({(c.get("agent_id"), c.get("cve_id")) for c in (current_findings or [])
+                                       if c.get("agent_id") and c.get("cve_id")}),
             "agents_active":        agents_active,
             "agents_disconnected":  agents_disc,
             "transient_incidents":  incidents if not isinstance(incidents, Exception) else [],
@@ -563,10 +598,10 @@ class DigestService:
             if kev.is_loaded():
                 cisa_total   = kev.catalog_size()
                 cisa_updated = kev.last_updated()
-                from services.wazuh_indexer import get_indexer_client
                 try:
-                    findings = await get_indexer_client().get_current_vulnerability_findings()
-                    cisa_matches = kev.match_confirmed_vulnerabilities(findings)
+                    if current_findings is None:
+                        raise RuntimeError("Inventario de vulnerabilidades no disponible")
+                    cisa_matches = kev.match_confirmed_vulnerabilities(current_findings)
                     cisa_status = "verified"
                 except Exception as e:
                     cisa_status = "vulnerability_data_unavailable"
@@ -583,10 +618,21 @@ class DigestService:
         )
         if cisa_status != "verified":
             risk_reasoning += " | CISA KEV sin verificar (catálogo o Wazuh no disponible)"
+        if not cves_available:
+            risk_reasoning += " | Inventario CVE no disponible; no interpretar 0 como ausencia"
 
         # ── 5. Classify agents by category ────────────────────────────────────
+        previous_date = (today_end.astimezone(ART).date() - timedelta(days=1)).isoformat()
+        previous = await self.get_by_date_from_db(previous_date, db) if db else None
+        previous_delta = (previous or {}).get("delta", {})
+        delta["previous_cves_total"] = (
+            previous_delta.get("current_cves_total")
+            if previous_delta.get("current_cves_available") else None
+        )
+        previous_agents = [a for group in (previous or {}).get("agents_by_category", {}).values() for a in group]
         agents_by_category = await self._classify_agents(
-            agents, alerts_today, alerts_yesterday, cves_today, overrides, scan_status
+            agents, alerts_today, alerts_yesterday, cves_today, overrides, scan_status,
+            current_findings, checked_at, previous_agents,
         )
 
         # ── 6. Build condensed AI payload ─────────────────────────────────────
@@ -663,7 +709,7 @@ class DigestService:
         self,
         today_start: datetime, today_end: datetime,
         yest_start: datetime,  yest_end: datetime,
-    ) -> dict[str, list]:
+    ) -> dict[str, Any]:
         from services.wazuh_indexer import get_indexer_client
         indexer = get_indexer_client()
         if not indexer.is_configured():
@@ -682,20 +728,27 @@ class DigestService:
         self,
         today_start: datetime, today_end: datetime,
         yest_start: datetime,  yest_end: datetime,
-    ) -> dict[str, list]:
+    ) -> dict[str, Any]:
         from services.wazuh_indexer import get_indexer_client
         indexer = get_indexer_client()
-        if not indexer.is_configured():
-            return {"today": [], "yesterday": []}
-        today_cves, yest_cves = await asyncio.gather(
-            indexer.get_vulnerabilities_for_period(
-                today_start.isoformat(), today_end.isoformat()
-            ),
-            indexer.get_vulnerabilities_for_period(
-                yest_start.isoformat(), yest_end.isoformat()
-            ),
-        )
-        return {"today": today_cves, "yesterday": yest_cves}
+        current = await indexer.get_current_vulnerability_findings()
+
+        def detected_in(finding: dict, start: datetime, end: datetime) -> bool:
+            raw = str(finding.get("detected_at") or "")
+            try:
+                when = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                if when.tzinfo is None:
+                    when = when.replace(tzinfo=timezone.utc)
+                return start <= when < end
+            except ValueError:
+                return False
+
+        return {
+            "today": [item for item in current if detected_in(item, today_start, today_end)],
+            "yesterday": [item for item in current if detected_in(item, yest_start, yest_end)],
+            "current": current,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }
 
     async def _fetch_agents_and_scans(self) -> dict[str, Any]:
         from services.wazuh_service import get_wazuh_service
@@ -863,14 +916,19 @@ class DigestService:
         cves_today: list[dict],
         overrides: dict[str, str],
         scan_status: list[dict] | None = None,
+        current_findings: list[dict] | None = None,
+        cves_checked_at: str | None = None,
+        previous_agents: list[dict] | None = None,
     ) -> dict[str, list[dict]]:
         from services.wazuh_service import get_wazuh_service
         wazuh = get_wazuh_service()
+        usage_contexts = await get_usage_contexts(wazuh, current_findings or [])
 
         # Pre-index alerts and CVEs per agent
         alerts_by_agent_today: dict[str, list[dict]] = defaultdict(list)
         alerts_by_agent_yest:  dict[str, list[dict]] = defaultdict(list)
-        cves_by_agent:         dict[str, int] = defaultdict(int)
+        current_by_agent:      dict[str, list[dict]] = defaultdict(list)
+        prior_by_agent = {str(a.get("agent_id") or ""): a for a in (previous_agents or [])}
         scans_by_agent:        dict[str, dict] = {}
 
         if scan_status:
@@ -889,10 +947,10 @@ class DigestService:
             aid   = agent.get("id") or a.get("agent_id", "")
             if aid:
                 alerts_by_agent_yest[aid].append(a)
-        for c in cves_today:
-            aid = c.get("agent_id", "")
+        for finding in current_findings or []:
+            aid = str(finding.get("agent_id") or "")
             if aid:
-                cves_by_agent[aid] += 1
+                current_by_agent[aid].append(finding)
 
         result: dict[str, list] = defaultdict(list)
         for agent in agents:
@@ -918,12 +976,42 @@ class DigestService:
 
             # Ports (best-effort, skip if slow)
             ports: list[dict] = []
+            ports_scanned_at: str | None = None
+            ports_available = False
             try:
-                ports = await asyncio.wait_for(
-                    wazuh.get_agent_ports(agent_id), timeout=5.0
-                )
+                port_snapshot = await asyncio.wait_for(wazuh.get_agent_ports_snapshot(agent_id), timeout=5.0)
+                ports = port_snapshot["ports"]
+                ports_scanned_at = port_snapshot.get("scanned_at") or None
+                ports_available = not port_snapshot.get("truncated", False)
             except Exception:
                 pass
+
+            findings = current_by_agent.get(agent_id, [])
+            usage_context = usage_contexts.get(agent_id)
+            cve_details = []
+            seen_cves: set[tuple[str, str, str]] = set()
+            for finding in findings:
+                cve_id = str(finding.get("cve_id") or "").upper()
+                package = str(finding.get("package_name") or "")
+                version = str(finding.get("package_version") or "")
+                key = (cve_id, package, version)
+                if not cve_id or key in seen_cves:
+                    continue
+                seen_cves.add(key)
+                cve_details.append({
+                    "cve_id": cve_id, "severity": finding.get("severity"),
+                    "package": package, "version": version,
+                    "status": finding.get("status") or None,
+                    "detected_at": finding.get("detected_at") or None,
+                    "published_at": finding.get("published_at") or None,
+                    "description": str(finding.get("description") or finding.get("title") or "")[:260],
+                    "scanner_condition": str(finding.get("scanner_condition") or "")[:180],
+                    **classify_cve_usage(finding, usage_context),
+                })
+            current_ids = {item["cve_id"] for item in cve_details}
+            prior = prior_by_agent.get(agent_id)
+            prior_available = bool(prior and prior.get("current_cves_available"))
+            prior_ids = {str(item.get("cve_id") or "") for item in (prior or {}).get("current_cve_details", [])}
 
             result[cat].append({
                 "agent_id":        agent_id,
@@ -935,9 +1023,18 @@ class DigestService:
                 "alerts_yesterday": a_yest,
                 "alerts_delta":    a_today - a_yest,
                 "alert_details":   _summarize_alert_types(agent_alerts_today, agent_alerts_yest),
-                "new_cves":        cves_by_agent.get(agent_id, 0),
+                "new_cves":        len({str(c.get("cve_id")) for c in cves_today
+                                         if c.get("agent_id") == agent_id and c.get("cve_id")}),
+                "current_cves": len(current_ids),
+                "current_cves_available": current_findings is not None,
+                "current_cves_checked_at": cves_checked_at,
+                "current_cve_details": cve_details,
+                "new_since_previous": sorted(current_ids - prior_ids) if prior_available and current_findings is not None else None,
+                "no_longer_reported": sorted(prior_ids - current_ids) if prior_available and current_findings is not None else None,
                 "new_packages":    0,   # populated by syscollector if needed
                 "port_changes":    ports,
+                "ports_available": ports_available,
+                "ports_scanned_at": ports_scanned_at,
                 "last_syscheck":   last_sys,
                 "last_rootcheck":  last_root,
                 "last_keep_alive": last_keep,
@@ -1002,7 +1099,15 @@ class DigestService:
                 "yesterday": delta.get("critical_yesterday", 0),
                 "delta":     delta.get("critical_delta", 0),
             },
-            "new_cves":            new_cves_summary,
+            "detected_cves_in_window": new_cves_summary,
+            "cve_inventory": {
+                "available": delta.get("current_cves_available", False),
+                "checked_at": delta.get("current_cves_checked_at"),
+                "current_agent_cve_pairs": delta.get("current_cves_total") if delta.get("current_cves_available") else None,
+                "previous_agent_cve_pairs": delta.get("previous_cves_total"),
+                "detected_in_window": delta.get("total_cves_today") if delta.get("cves_period_available") else None,
+                "resolved_confirmed": 0,
+            },
             "transient_incidents": incidents_summary,
             "cisa_kev": {
                 "matches":       len(cisa_matches),
@@ -1066,7 +1171,7 @@ class DigestService:
             delta_json        = json.dumps(delta, default=str),
             agents_json       = json.dumps(agents_by_category, default=str),
             cisa_json         = json.dumps({
-                "method": "wazuh_active_cve_id_v2",
+                "method": "wazuh_current_inventory_v3",
                 "status": cisa_status,
                 "matches": cisa_matches,
                 "possible_matches": [],
@@ -1100,7 +1205,7 @@ class DigestService:
         delta  = json.loads(row.delta_json  or "{}")
         agents = json.loads(row.agents_json or "{}")
         cisa   = json.loads(row.cisa_json   or "[]")
-        if isinstance(cisa, dict) and cisa.get("method") == "wazuh_active_cve_id_v2":
+        if isinstance(cisa, dict) and cisa.get("method") == "wazuh_current_inventory_v3":
             cisa_matches = cisa.get("matches", [])
             cisa_possible = []
             cisa_status = cisa.get("status", "vulnerability_data_unavailable")
@@ -1141,7 +1246,7 @@ class DigestService:
             "ai_generated_at":       row.ai_generated_at,
             "detector_healthy":      row.detector_healthy,
             "detector_last_scan":    row.detector_last_scan,
-            "generated_at":          row.generated_at.isoformat() if row.generated_at else "",
+            "generated_at":          _stored_utc_iso(row.generated_at),
             "generation_method":     row.generation_method,
         }
 

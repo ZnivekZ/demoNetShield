@@ -139,8 +139,8 @@ export function WazuhDashboard() {
         />
         <KpiMini
           icon={<Bug className="w-4 h-4" />}
-          label="Vulnerabilidades"
-          value={stats?.vulnerabilities_total ?? 0}
+          label="CVE en inventario"
+          value={stats?.vulnerabilities_total ?? '—'}
           color="text-amber-400"
           to="/wazuh/vulnerabilities"
         />

@@ -63,7 +63,8 @@ export const AiDiagnosticCard: React.FC<Props> = ({
 }) => {
   const [payloadOpen, setPayloadOpen] = useState(false);
   const missingKey = aiIsMock && aiModelUsed === 'mock';
-  const groqFailed = aiIsMock && !missingKey;
+  const labSimulation = aiIsMock && aiModelUsed === 'simulado';
+  const groqFailed = aiIsMock && !missingKey && !labSimulation;
 
   const formattedDate = aiGeneratedAt
     ? new Date(aiGeneratedAt).toLocaleString('es-AR', {
@@ -102,7 +103,7 @@ export const AiDiagnosticCard: React.FC<Props> = ({
                 border: '1px solid #f9731633',
               }}
             >
-              {missingKey ? '📋 SIMULACIÓN — Sin API key Groq' : '⚠️ Groq no generó el análisis'}
+              {labSimulation ? '📋 SIMULACIÓN LOCAL' : missingKey ? '📋 SIMULACIÓN — Sin API key Groq' : '⚠️ Groq no generó el análisis'}
             </span>
           ) : (
             <span
@@ -125,7 +126,7 @@ export const AiDiagnosticCard: React.FC<Props> = ({
           style={{ background: 'rgba(120,53,15,0.12)', color: '#fbbf24' }}
         >
           <span className="mt-0.5">💡</span>
-          {missingKey ? (
+          {labSimulation ? <span>Datos y respuesta simulados para comprobar la interfaz.</span> : missingKey ? (
             <span>
               Para análisis real, agregá{' '}
               <code className="bg-surface-900 text-surface-300 px-1.5 py-0.5 rounded text-[11px]">GROQ_API_KEY=gsk_...</code>{' '}

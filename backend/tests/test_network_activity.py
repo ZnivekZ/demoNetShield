@@ -2,10 +2,12 @@
 
 import os
 import unittest
+from unittest.mock import AsyncMock
 
 os.environ.setdefault("JWT_SECRET_KEY", "012345789abcdef0123456789abcdef0")
 
 from services.network_activity import build_snapshot
+from services.mikrotik_service import MikroTikService, _connection_endpoint
 
 
 class NetworkActivityTests(unittest.TestCase):
@@ -57,6 +59,26 @@ class NetworkActivityTests(unittest.TestCase):
         snapshot = build_snapshot(connections, [], [], [], [], {}, {}, "10.2.0.0/16")
         self.assertEqual(snapshot["accesses"]["outbound"], [])
         self.assertEqual(snapshot["accesses"]["internal"][0]["target_ip"], "10.2.1.20")
+
+
+class ConnectionPortTests(unittest.IsolatedAsyncioTestCase):
+    async def test_routeros_separate_ports_reach_activity_rows(self):
+        mikrotik = object.__new__(MikroTikService)
+        mikrotik._api_call = AsyncMock(return_value=[{
+            "src-address": "10.2.111.32", "src-port": "54321",
+            "dst-address": "1.1.1.1", "dst-port": "53",
+            "protocol": "udp", "orig-bytes": "100", "repl-bytes": "200",
+            "seen-reply": "true",
+        }])
+        connections = await mikrotik.get_connections()
+        self.assertEqual((connections[0]["src_port"], connections[0]["dst_port"]), ("54321", "53"))
+        snapshot = build_snapshot(connections, [], [], [], [], {}, {}, "10.2.0.0/16")
+        self.assertEqual(snapshot["accesses"]["outbound"][0]["destination_port"], "53")
+
+    async def test_embedded_port_fallback_and_ipv6_address(self):
+        self.assertEqual(_connection_endpoint("10.2.1.10:1234"), ("10.2.1.10", "1234"))
+        self.assertEqual(_connection_endpoint("10.2.1.10:1234", 4321), ("10.2.1.10", "4321"))
+        self.assertEqual(_connection_endpoint("2001:db8::1", 443), ("2001:db8::1", "443"))
 
 
 if __name__ == "__main__":

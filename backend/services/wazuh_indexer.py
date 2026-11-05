@@ -643,9 +643,11 @@ class WazuhIndexerClient:
     # ── Vulnerabilities ────────────────────────────────────────
 
     async def get_current_vulnerability_findings(self) -> list[dict[str, Any]]:
-        """Read every finding explicitly marked Active by Wazuh.
+        """Read current vulnerability inventory, excluding explicit non-active states.
 
-        Scroll avoids the 500-result cap of the dashboard listing endpoint.
+        Wazuh inventory documents commonly omit vulnerability.status; that field
+        is present on vulnerability events. Presence in this state index is the
+        current finding when status is absent. Scroll avoids the 500-result cap.
         Failures raise so the digest never describes an incomplete scan as clean.
         """
         if not self.is_configured() or self._breaker.is_open():
@@ -682,7 +684,7 @@ class WazuhIndexerClient:
                     for hit in hits:
                         raw = hit.get("_source", {})
                         status = str((raw.get("vulnerability") or {}).get("status") or "").strip().lower()
-                        if status != "active":
+                        if status not in ("", "active"):
                             continue
                         findings.append(self._normalize_vuln(raw))
                     if not scroll_id:
@@ -759,8 +761,8 @@ class WazuhIndexerClient:
         mitre = rule.get("mitre", {}) or {}
         data = raw.get("data", {}) or {}
 
-        # Extract IP from data.srcip / data.dstip / agent.ip (fallback chain)
-        src_ip = data.get("srcip") or data.get("src_ip") or agent.get("ip", "")
+        # A missing source IP must never be replaced by the monitored agent's IP.
+        src_ip = data.get("srcip") or data.get("src_ip") or raw.get("src_ip") or ""
 
         return {
             "id": raw.get("id", ""),
@@ -824,6 +826,7 @@ class WazuhIndexerClient:
             "cvss_score": score_val,
             "status": str(v.get("status") or "").lower(),
             "published_at": v.get("published_at", ""),
+            "scanner_condition": (v.get("scanner") or {}).get("condition", "") if isinstance(v.get("scanner"), dict) else "",
             "package_name": package.get("name", ""),
             "package_version": package.get("version", ""),
             "package_arch": package.get("architecture", ""),

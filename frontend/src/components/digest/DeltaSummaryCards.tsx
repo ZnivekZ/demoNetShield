@@ -104,16 +104,21 @@ function buildDetail(key: CardKey, delta: DigestDelta, agents: DigestAgent[]): C
   if (key === 'cves') {
     const examples = (delta.new_cves_today ?? []).slice(0, 3);
     return {
-      title: 'Detecciones CVE',
-      intro: 'Hallazgos cuya fecha de detección cae en cada período de 24 horas.',
-      facts: [`${delta.total_cves_today} hallazgos en el último período`, `${delta.total_cves_yesterday} en el anterior`],
+      title: 'CVE en inventario',
+      intro: 'CVE vigentes por agente al generar el Digest; las detecciones de la ventana se muestran aparte.',
+      facts: [delta.current_cves_available
+        ? `${delta.current_cves_total ?? 0} pares agente/CVE en inventario`
+        : 'Inventario CVE no disponible',
+        delta.cves_period_available ? `${delta.total_cves_today} par${delta.total_cves_today === 1 ? '' : 'es'} agente/CVE detectado${delta.total_cves_today === 1 ? '' : 's'} en la ventana` : 'Detecciones de la ventana sin datos',
+        ...(delta.previous_cves_total != null ? [`${delta.previous_cves_total} en el Digest anterior`] : [])],
       items: examples.map(item => ({
         title: textValue(item.cve_id, 'CVE sin ID'),
         meta: [textValue(item.agent_name, ''), textValue(item.package_name, '')].filter(Boolean).join(' · ') || undefined,
         badge: cveSeverity(item),
       })),
-      empty: 'No hay ejemplos de CVEs que aparezcan solo en el último período.',
-      note: '“Nuevo” significa ausente en el período anterior. Este contador no representa el inventario activo ni una remediación.',
+      empty: 'No hubo primeras detecciones de CVE vigentes en esta ventana.',
+      note: 'La ausencia de una detección nueva no indica que el CVE esté solucionado. La diferencia entre inventarios no confirma remediación.',
+      isSnapshot: true,
     };
   }
 
@@ -122,7 +127,7 @@ function buildDetail(key: CardKey, delta: DigestDelta, agents: DigestAgent[]): C
     return {
       title: 'Estado de agentes',
       intro: 'Estado consultado al generar el Digest; no es una comparación de 24 horas.',
-      facts: [`${delta.agents_active} activos`, `${delta.agents_disconnected} desconectados`],
+      facts: [`${delta.agents_active} activo${delta.agents_active === 1 ? '' : 's'}`, `${delta.agents_disconnected} desconectado${delta.agents_disconnected === 1 ? '' : 's'}`],
       items: disconnected.slice(0, 4).map(agent => ({ title: agent.agent_name, meta: `Agente ${agent.agent_id}`, badge: 'Desconectado' })),
       empty: delta.agents_disconnected > 0
         ? 'Hay agentes desconectados, pero este Digest no guardó sus nombres.'
@@ -233,11 +238,11 @@ export const DeltaSummaryCards: React.FC<Props> = ({ delta, agentsByCategory, ge
         <MetricCard title="Alertas críticas" today={delta.critical_today} yesterday={delta.critical_yesterday}
           delta={delta.critical_delta} icon="🚨" accentColor="#ef4444"
           selected={active === 'critical'} onClick={() => open('critical')} />
-        <MetricCard title="Detecciones CVE" today={delta.total_cves_today} yesterday={delta.total_cves_yesterday}
-          delta={delta.total_cves_today - delta.total_cves_yesterday} icon="🐛" accentColor="#f59e0b"
-          note="Por fecha de detección" selected={active === 'cves'} onClick={() => open('cves')} />
+        <MetricCard title="CVE en inventario" today={delta.current_cves_available ? delta.current_cves_total ?? 0 : 'Sin datos'}
+          icon="🐛" accentColor="#f59e0b" note={delta.cves_period_available ? `${delta.total_cves_today} detección${delta.total_cves_today === 1 ? '' : 'es'} en la ventana` : 'Detecciones sin datos'}
+          selected={active === 'cves'} onClick={() => open('cves')} />
         <MetricCard title="Agentes activos" today={delta.agents_active}
-          icon="🖥️" accentColor="#22c55e" note={`${delta.agents_disconnected} desconectados · foto al generar`}
+          icon="🖥️" accentColor="#22c55e" note={`${delta.agents_disconnected} desconectado${delta.agents_disconnected === 1 ? '' : 's'} · foto al generar`}
           selected={active === 'agents'} onClick={() => open('agents')} />
         <MetricCard title="Top táctica MITRE" today={delta.top_tactic ?? '—'}
           icon="🎯" accentColor="#8b5cf6" note={`${delta.new_techniques_today?.length ?? 0} técnicas nuevas vs ayer`}

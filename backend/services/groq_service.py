@@ -18,9 +18,11 @@ Design:
 
 from __future__ import annotations
 
+import asyncio
 import structlog
 
 from config import get_settings
+from services.groq_usage import model_rate_wait, model_request_lock, record_usage
 
 logger = structlog.get_logger(__name__)
 
@@ -48,6 +50,11 @@ Reglas:
   nunca describirlo como inventario limpio.
 - Las coincidencias cisa_kev.possible_by_name no son vulnerabilidades confirmadas.
 - Si hay CISA KEV matches confirmados, marcarlo como URGENTE al inicio.
+- cve_inventory.current_agent_cve_pairs es el inventario vigente al generar el Digest;
+  detected_cves_in_window son detecciones en la ventana. Cero detecciones
+  no significa cero CVE vigentes. Si available es false, declarar falta de datos.
+- No llames resuelto a un CVE o alerta por no reaparecer en otra ventana.
+- Si un documento Wazuh no trae status, eso no significa Solved.
 - Usa markdown básico (negrita, listas) para legibilidad.
 - Termina con una línea: "*Análisis generado automáticamente — verificar contra datos fuente.*"
 """
@@ -61,7 +68,7 @@ _MOCK_SUMMARY_TEMPLATE = """## 🟠 Resumen de Seguridad — {date}
 
 1. **Variación de alertas** — {alerts_today} alertas hoy vs {alerts_yesterday} ayer \
 ({alerts_delta:+d}, {alerts_delta_pct:+.0f}%). {critical_line}
-2. **Vulnerabilidades** — {new_cves_count} CVE(s) nueva(s) detectada(s). \
+2. **Vulnerabilidades** — {current_cves_line}; {new_cves_count} detección(es) en la ventana. \
 {cisa_line}
 3. **Agentes** — {agents_active} activos, {agents_disc} desconectados. \
 {incidents_line}
@@ -96,7 +103,10 @@ def _build_mock_summary(payload: dict) -> str:
     risk_level = payload.get("risk_level", "yellow")
     reasoning  = payload.get("risk_reasoning", "")
     cisa       = payload.get("cisa_kev", {})
-    new_cves   = payload.get("new_cves", [])
+    new_cves   = payload.get("detected_cves_in_window", [])
+    inventory  = payload.get("cve_inventory", {})
+    current_cves_line = (f"{inventory.get('current_agent_cve_pairs', 0)} pares agente/CVE vigentes en inventario"
+                         if inventory.get("available") else "inventario CVE no disponible")
     incidents  = payload.get("transient_incidents", [])
     agents_info = payload.get("agents", {})
 
@@ -139,6 +149,7 @@ def _build_mock_summary(payload: dict) -> str:
         ),
         critical_line   = critical_line,
         new_cves_count  = len(new_cves),
+        current_cves_line = current_cves_line,
         cisa_line       = cisa_line,
         agents_active   = agents_info.get("active", 0),
         agents_disc     = agents_info.get("disconnected", 0),
@@ -192,6 +203,8 @@ class GroqService:
         client = AsyncOpenAI(
             api_key=self._api_key,
             base_url=GROQ_BASE_URL,
+            timeout=45.0,
+            max_retries=0,
         )
 
         user_content = (
@@ -216,30 +229,44 @@ class GroqService:
                 logger.warning("groq_models_list_failed", error=str(e))
 
             for model in models_to_try:
-                try:
-                    logger.info("groq_calling_model", model=model)
-                    response = await client.chat.completions.create(
-                        model=model,
-                        messages=[
-                            {"role": "system", "content": SYSTEM_PROMPT},
-                            {"role": "user",   "content": user_content},
-                        ],
-                        max_completion_tokens=1200,
-                        reasoning_effort="low",
-                        temperature=0.3,
-                    )
-                    summary = response.choices[0].message.content or ""
-                    if not summary.strip():
-                        raise ValueError("Groq devolvió una respuesta vacía")
-                    tokens = getattr(response.usage, "total_tokens", None)
-                    logger.info("groq_success", model=model, tokens=tokens)
-                    from services.groq_usage import record_usage
-                    await record_usage(model, "daily_digest", response.usage)
-                    return summary, model, False
-                except RateLimitError:
-                    logger.warning("groq_rate_limited", model=model)
-                except Exception as e:
-                    logger.error("groq_model_failed", model=model, error=str(e))
+                async with model_request_lock(model):
+                    for attempt in range(2):
+                        try:
+                            projected = (len(SYSTEM_PROMPT) + len(user_content)) // 4 + 1200
+                            wait_seconds = await model_rate_wait(model, projected)
+                            if wait_seconds:
+                                await asyncio.sleep(wait_seconds)
+                            logger.info("groq_calling_model", model=model)
+                            response = await client.chat.completions.create(
+                                model=model,
+                                messages=[
+                                    {"role": "system", "content": SYSTEM_PROMPT},
+                                    {"role": "user", "content": user_content},
+                                ],
+                                max_completion_tokens=1200,
+                                reasoning_effort="low",
+                                temperature=0.3,
+                            )
+                            summary = response.choices[0].message.content or ""
+                            if not summary.strip():
+                                raise ValueError("Groq devolvió una respuesta vacía")
+                            tokens = getattr(response.usage, "total_tokens", None)
+                            logger.info("groq_success", model=model, tokens=tokens)
+                            await record_usage(model, "daily_digest", response.usage)
+                            return summary, model, False
+                        except RateLimitError as exc:
+                            headers = exc.response.headers if exc.response else {}
+                            try:
+                                retry_after = max(float(headers.get("retry-after", "")), 1.0)
+                            except ValueError:
+                                retry_after = 10.0
+                            logger.warning("groq_rate_limited", model=model, retry_after=retry_after)
+                            if attempt or retry_after > 120:
+                                break
+                            await asyncio.sleep(retry_after)
+                        except Exception as e:
+                            logger.error("groq_model_failed", model=model, error=str(e))
+                            break
 
             logger.warning("groq_all_models_exhausted", models=models_to_try)
             return None, "groq_error", True

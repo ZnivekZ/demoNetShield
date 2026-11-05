@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 import structlog
@@ -17,6 +18,42 @@ MODEL_LIMIT_SETTING = {
     "openai/gpt-oss-120b": "groq_tpd_120b",
     "openai/gpt-oss-20b": "groq_tpd_20b",
 }
+MODEL_TPM_SETTING = {
+    "openai/gpt-oss-120b": "groq_tpm_120b",
+    "openai/gpt-oss-20b": "groq_tpm_20b",
+}
+_MODEL_REQUEST_LOCKS = {model: asyncio.Lock() for model in MODEL_LIMIT_SETTING}
+
+
+def model_request_lock(model: str) -> asyncio.Lock:
+    """Serialize token-consuming calls from Digest and Diagnosis for one model."""
+    return _MODEL_REQUEST_LOCKS.setdefault(model, asyncio.Lock())
+
+
+async def model_rate_wait(model: str, projected_tokens: int) -> float:
+    """Seconds until local rolling-minute use has room for another request."""
+    setting = MODEL_TPM_SETTING.get(model)
+    if not setting:
+        return 0.0
+    limit = max(0, int(getattr(get_settings(), setting, 0)))
+    if not limit:
+        return 0.0
+    now = utc_now()
+    async with async_session_factory() as db:
+        rows = (await db.execute(
+            select(GroqUsage.created_at, GroqUsage.total_tokens)
+            .where(GroqUsage.model == model, GroqUsage.created_at >= now - timedelta(minutes=1))
+            .order_by(GroqUsage.created_at)
+        )).all()
+    remaining = sum(int(tokens or 0) for _, tokens in rows)
+    reservation = min(max(projected_tokens, 1), limit)
+    if remaining + reservation <= limit:
+        return 0.0
+    for created_at, tokens in rows:
+        remaining -= int(tokens or 0)
+        if remaining + reservation <= limit:
+            return max(0.0, (created_at + timedelta(minutes=1) - now).total_seconds() + 0.5)
+    return 60.0
 
 
 async def record_usage(model: str, feature: str, usage: object | None) -> None:
@@ -35,22 +72,27 @@ async def record_usage(model: str, feature: str, usage: object | None) -> None:
 
 
 async def get_usage_status() -> dict:
-    cutoff = utc_now() - timedelta(hours=24)
+    now = utc_now()
+    cutoff = now - timedelta(hours=24)
     settings = get_settings()
     async with async_session_factory() as db:
         rows = (await db.execute(
-            select(GroqUsage.model, func.sum(GroqUsage.total_tokens))
+            select(GroqUsage.model, func.sum(GroqUsage.total_tokens),
+                   func.sum(GroqUsage.total_tokens).filter(GroqUsage.created_at >= now - timedelta(minutes=1)))
             .where(GroqUsage.created_at >= cutoff)
             .group_by(GroqUsage.model)
         )).all()
-    used = {model: int(total or 0) for model, total in rows}
+    used = {model: (int(total or 0), int(minute or 0)) for model, total, minute in rows}
     models = []
     for model, setting in MODEL_LIMIT_SETTING.items():
         limit = max(0, int(getattr(settings, setting)))
-        count = used.get(model, 0)
+        count, minute = used.get(model, (0, 0))
+        tpm = max(0, int(getattr(settings, MODEL_TPM_SETTING[model])))
         models.append({"model": model, "limit_24h_configured": limit,
                        "used_24h_local": count,
-                       "remaining_24h_estimated": max(0, limit - count) if limit else None})
+                       "remaining_24h_estimated": max(0, limit - count) if limit else None,
+                       "limit_tpm_configured": tpm, "used_1m_local": minute,
+                       "remaining_1m_estimated": max(0, tpm - minute) if tpm else None})
     return {"models": models, "window": "rolling_24h_utc", "estimated": True,
             "configured": bool(settings.groq_api_key.strip()),
             "note": "No incluye uso de otras aplicaciones o claves de la organización."}

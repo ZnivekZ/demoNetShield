@@ -616,6 +616,109 @@ class WazuhIndexerClient:
                 self._breaker.record_failure()
                 raise
 
+    async def get_mitre_period_metrics(self, time_from: str, time_to: str) -> dict[str, Any]:
+        """Exact alert counts and agent IDs for current/prior report KPIs."""
+        if not self.is_configured() or self._breaker.is_open():
+            raise RuntimeError("Wazuh Indexer no disponible para métricas MITRE")
+        body = {
+            "size": 0, "track_total_hits": True,
+            "query": {"range": {"@timestamp": {"gte": time_from, "lt": time_to}}},
+            "aggs": {
+                "mapped": {"filter": {"exists": {"field": "rule.mitre.id"}}},
+                "mapped_high": {"filter": {"bool": {"filter": [
+                    {"exists": {"field": "rule.mitre.id"}},
+                    {"range": {"rule.level": {"gte": 8}}},
+                ]}}},
+                "high": {"filter": {"range": {"rule.level": {"gte": 8}}},
+                         "aggs": {"agents": {"terms": {"field": "agent.id", "size": 5000},
+                                              "aggs": {"max_level": {"max": {"field": "rule.level"}}}}}},
+                "max_level": {"max": {"field": "rule.level"}},
+            },
+        }
+        async with self._get_request_lock():
+            response = await asyncio.wait_for(
+                self._get_client().post("/wazuh-alerts-4.x-*/_search", json=body), timeout=45.0)
+            response.raise_for_status()
+            data = response.json()
+            if data.get("timed_out") or (data.get("_shards") or {}).get("failed", 0):
+                raise RuntimeError("Wazuh Indexer devolvió métricas MITRE parciales")
+            aggs = data.get("aggregations") or {}
+            high = aggs.get("high") or {}
+            agents = high.get("agents") or {}
+            if agents.get("sum_other_doc_count", 0):
+                raise RuntimeError("El conteo de agentes con alertas altas está truncado")
+            buckets = agents.get("buckets") or []
+            total = data.get("hits", {}).get("total", {})
+            return {
+                "total_alerts": int(total.get("value", 0) if isinstance(total, dict) else total or 0),
+                "mapped_alerts": int((aggs.get("mapped") or {}).get("doc_count") or 0),
+                "mapped_high_alerts": int((aggs.get("mapped_high") or {}).get("doc_count") or 0),
+                "high_alerts": int(high.get("doc_count") or 0),
+                "high_agent_ids": [str(b.get("key")) for b in buckets],
+                "critical_agent_ids": [str(b.get("key")) for b in buckets
+                                       if (b.get("max_level") or {}).get("value", 0) >= 12],
+                "max_level": int((aggs.get("max_level") or {}).get("value") or 0),
+            }
+
+    async def get_mitre_agent_evidence(self, agent_id: str, time_from: str,
+                                       time_to: str, limit: int = 30) -> dict[str, Any]:
+        """Return selected high-priority mapped events with available process context."""
+        if not self.is_configured() or self._breaker.is_open():
+            raise RuntimeError("Wazuh Indexer no disponible para evidencia MITRE")
+        body = {
+            "size": min(max(limit, 1), 50), "track_total_hits": True,
+            "query": {"bool": {
+                "filter": [
+                    {"term": {"agent.id": agent_id}},
+                    {"range": {"@timestamp": {"gte": time_from, "lt": time_to}}},
+                    {"exists": {"field": "rule.mitre.id"}},
+                ],
+                "should": [
+                    {"range": {"rule.level": {"gte": 8}}},
+                    {"terms": {"rule.mitre.tactic": ["Persistence", "Impact"]}},
+                ],
+                "minimum_should_match": 1,
+            }},
+            "sort": [{"rule.level": {"order": "desc"}}, {"@timestamp": {"order": "desc"}}],
+            "_source": ["@timestamp", "rule", "agent.ip", "data", "syscheck.path"],
+        }
+        async with self._get_request_lock():
+            response = await asyncio.wait_for(
+                self._get_client().post("/wazuh-alerts-4.x-*/_search", json=body), timeout=45.0)
+            response.raise_for_status()
+            data = response.json()
+            if data.get("timed_out") or (data.get("_shards") or {}).get("failed", 0):
+                raise RuntimeError("Wazuh Indexer devolvió evidencia MITRE parcial")
+            total = data.get("hits", {}).get("total", {})
+            events = []
+            for hit in (data.get("hits") or {}).get("hits") or []:
+                raw = hit.get("_source") or {}
+                rule = raw.get("rule") or {}
+                mitre = rule.get("mitre") or {}
+                fields = raw.get("data") or {}
+                win = (fields.get("win") or {}).get("eventdata") or {}
+                if not isinstance(win, dict):
+                    win = {}
+                def first(*values: Any) -> str | None:
+                    return next((str(v)[:180] for v in values if v is not None and str(v).strip()), None)
+                ids = mitre.get("id") or []
+                if isinstance(ids, str): ids = [ids]
+                events.append({
+                    "timestamp": raw.get("@timestamp"), "event_id": str(hit.get("_id") or ""),
+                    "rule_id": str(rule.get("id") or ""),
+                    "rule_description": str(rule.get("description") or "")[:180],
+                    "level": int(rule.get("level") or 0), "mitre_ids": ids[:8],
+                    "process": first(win.get("image"), fields.get("process"), fields.get("process_name")),
+                    "parent_process": first(win.get("parentImage"), win.get("parentimage"), fields.get("parent_process")),
+                    "command": first(win.get("commandLine"), win.get("commandline"), fields.get("command")),
+                    "user": first(win.get("user"), win.get("targetUserName"), fields.get("srcuser"), fields.get("user")),
+                    "source_ip": first(fields.get("srcip"), fields.get("src_ip"), win.get("ipAddress")),
+                    "destination_ip": first(fields.get("dstip"), fields.get("dst_ip")),
+                })
+            events.sort(key=lambda item: item.get("timestamp") or "")
+            return {"total_qualifying": int(total.get("value", 0) if isinstance(total, dict) else total or 0),
+                    "events": events}
+
     async def get_mitre_summary(self) -> list[dict[str, Any]]:
         """
         Aggregate alerts by MITRE tactic/technique to populate the MITRE matrix.

@@ -3,7 +3,7 @@
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("JWT_SECRET_KEY", "0123456789abcdef0123456789abcdef")
 
@@ -11,6 +11,13 @@ from services.groq_service import FALLBACK_MODELS, GroqService
 
 
 class GroqServiceTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # Model selection tests do not exercise the separate SQLite quota ledger.
+        for target in ("model_rate_wait", "record_usage"):
+            patcher = patch(f"services.groq_service.{target}", new_callable=AsyncMock, return_value=0)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     async def test_skips_models_not_available_to_the_key(self):
         attempted = []
 

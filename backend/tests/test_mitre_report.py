@@ -12,6 +12,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "0123456789abcdef0123456789abcdef")
 
 from services.mitre_report_service import _safe_mitre_ai, build_report
 from services.mitre_report_service import MitreReportService
+from services.mitre_report_formats import technical_markdown, executive_markdown
 from models.ai_diagnosis import MitreReportRun
 from services.wazuh_indexer import WazuhIndexerClient
 
@@ -38,6 +39,36 @@ def page(buckets: list[dict], after: dict | None = None) -> dict:
 
 
 class MitreAggregationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_period_metrics_and_evidence_keep_alert_counts_separate(self):
+        indexer = WazuhIndexerClient.__new__(WazuhIndexerClient)
+        indexer.is_configured = lambda: True
+        indexer._breaker = SimpleNamespace(is_open=lambda: False)
+        indexer._get_request_lock = lambda: asyncio.Lock()
+        responses = [
+            SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+                "_shards": {"failed": 0}, "hits": {"total": {"value": 11}},
+                "aggregations": {"mapped": {"doc_count": 5}, "mapped_high": {"doc_count": 2},
+                    "high": {"doc_count": 3, "agents": {"sum_other_doc_count": 0,
+                        "buckets": [{"key": "001", "max_level": {"value": 12}}]}},
+                    "max_level": {"value": 12}}}),
+            SimpleNamespace(raise_for_status=lambda: None, json=lambda: {
+                "_shards": {"failed": 0}, "hits": {"total": {"value": 4}, "hits": [{
+                    "_id": "evt-1", "_source": {"@timestamp": "2026-11-04T10:00:00Z",
+                    "rule": {"id": "5710", "level": 12, "description": "Authentication failure",
+                             "mitre": {"id": ["T1110"]}},
+                    "data": {"srcip": "10.0.0.8", "win": {"eventdata": {
+                        "image": "C:\\ssh.exe", "parentImage": "C:\\cmd.exe", "user": "operator"}}}}}]}}),
+        ]
+        client = SimpleNamespace(post=AsyncMock(side_effect=responses))
+        indexer._get_client = lambda: client
+        metrics = await indexer.get_mitre_period_metrics("a", "b")
+        evidence = await indexer.get_mitre_agent_evidence("001", "a", "b")
+        self.assertEqual((metrics["total_alerts"], metrics["mapped_alerts"], metrics["high_alerts"]), (11, 5, 3))
+        self.assertEqual(metrics["critical_agent_ids"], ["001"])
+        self.assertEqual(evidence["total_qualifying"], 4)
+        self.assertEqual(evidence["events"][0]["parent_process"], "C:\\cmd.exe")
+        self.assertEqual(evidence["events"][0]["source_ip"], "10.0.0.8")
+
     async def test_pages_all_agent_technique_pairs_and_counts_coverage(self):
         indexer = WazuhIndexerClient.__new__(WazuhIndexerClient)
         indexer.is_configured = lambda: True
@@ -63,13 +94,22 @@ class MitreAggregationTests(unittest.IsolatedAsyncioTestCase):
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with engine.begin() as conn:
             await conn.run_sync(MitreReportRun.__table__.create)
-        raw = {"period_start": "a", "period_end": "b", "total_alerts": 1,
+        raw = {"period_start": "2026-11-04T12:00:00+00:00",
+               "period_end": "2026-11-05T12:00:00+00:00", "total_alerts": 1,
                "mapped_alerts": 0, "attributed_alerts": 0, "pairs": []}
-        fake_indexer = SimpleNamespace(get_mitre_report_data=AsyncMock(return_value=raw))
+        metrics = {"total_alerts": 1, "mapped_alerts": 0, "mapped_high_alerts": 0,
+                   "high_alerts": 0, "high_agent_ids": [], "critical_agent_ids": [], "max_level": 0}
+        fake_indexer = SimpleNamespace(get_mitre_report_data=AsyncMock(return_value=raw),
+                                       get_mitre_period_metrics=AsyncMock(return_value=metrics))
+        fake_wazuh = SimpleNamespace(get_agents=AsyncMock(return_value=[{
+            "id": "001", "name": "secret-host", "status": "active", "ip": "10.0.0.1",
+            "os_name": "Debian", "os_version": "13",
+        }]))
         service = MitreReportService()
         try:
             with patch("services.mitre_report_service.async_session_factory", factory), \
                  patch("services.mitre_report_service.get_indexer_client", return_value=fake_indexer), \
+                 patch("services.mitre_report_service.get_wazuh_service", return_value=fake_wazuh), \
                  patch("services.mitre_report_service._analyze_report", new_callable=AsyncMock,
                        return_value=({"summary": "Sin mapeos", "findings": [], "limitations": []},
                                      "openai/gpt-oss-120b", 100, None)) as ai:
@@ -80,8 +120,19 @@ class MitreAggregationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(row.status, "completed")
                     self.assertEqual(row.period_hours, 24)
                     self.assertIn('"unmapped_alerts": 1', row.report_json)
+                    self.assertIn("## 5. Acciones inmediatas", row.report_json)
                     self.assertIn("Sin mapeos", row.ai_json)
-                ai.assert_awaited_once()
+                    self.assertIn("secret-host", row.report_json)
+                executive_id = await asyncio.wait_for(service.start(168, "executive"), timeout=3)
+                await asyncio.wait_for(service._task, timeout=3)
+                async with factory() as db:
+                    executive = await db.get(MitreReportRun, executive_id)
+                    self.assertEqual(executive.status, "completed")
+                    self.assertIn('"format": "executive"', executive.report_json)
+                    self.assertIn("## 5. Decisiones", executive.report_json)
+                    self.assertNotIn("secret-host", executive.report_json)
+                    self.assertNotIn("10.0.0.1", executive.report_json)
+                self.assertEqual(ai.await_count, 2)
         finally:
             await engine.dispose()
 
@@ -106,6 +157,25 @@ class MitreReportTests(unittest.TestCase):
         ai = _safe_mitre_ai('{"summary":"Revisar", "findings":[{"technique_id":"T9999"}, '
                             '{"technique_id":"T1110","interpretation":"Hay alertas"}]}', {"T1110"})
         self.assertEqual([f["technique_id"] for f in ai["findings"]], ["T1110"])
+
+    def test_both_formats_preserve_evidence_limits(self):
+        report = build_report({"period_start": "2026-11-04T12:00:00+00:00",
+                               "period_end": "2026-11-05T12:00:00+00:00",
+                               "total_alerts": 10, "mapped_alerts": 3,
+                               "attributed_alerts": 3, "pairs": []})
+        report["metrics"] = {"mapped_high_alerts": 0, "high_alerts": 2,
+                             "high_agent_ids": ["001"], "critical_agent_ids": [], "max_level": 8}
+        report["previous_metrics"] = None
+        report["fleet"] = {"available": False}
+        report["critical_agents"] = []
+        technical = technical_markdown(report, None)
+        executive = executive_markdown(report, None)
+        for heading in ("## 1.", "## 2.", "## 3.", "## 4.", "## 5."):
+            self.assertIn(heading, technical)
+            self.assertIn(heading, executive)
+        self.assertIn("N/D", executive)
+        self.assertIn("No verificada", executive)
+        self.assertNotIn("100% operativo", executive)
 
 
 if __name__ == "__main__":

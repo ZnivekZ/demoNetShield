@@ -152,10 +152,13 @@ export interface GroqUsageStatus {
 export interface MitreReportRun {
   id: number;
   status: 'running' | 'completed' | 'failed';
+  format: 'technical' | 'executive' | 'legacy';
   period_hours: number;
   started_at: string;
   finished_at: string | null;
   report: {
+    format?: 'technical' | 'executive';
+    markdown?: string;
     period_start: string;
     period_end: string;
     total_alerts: number;
@@ -187,6 +190,7 @@ export interface MitreReportRun {
 
 export interface MitreReportHistoryItem {
   id: number; status: 'running' | 'completed' | 'failed'; period_hours: number; started_at: string;
+  format: 'technical' | 'executive' | 'legacy';
 }
 
 /* ── MikroTik Types ─────────────────────────────────────────── */

@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { Target, RefreshCw } from 'lucide-react';
+import { Target, RefreshCw, Download } from 'lucide-react';
 import { aiDiagnosisApi } from '../../services/api';
+import ReportMarkdown from './ReportMarkdown';
 
 const fmt = (value: string | null | undefined) => {
   if (!value) return 'sin fecha';
@@ -14,7 +15,7 @@ const fmt = (value: string | null | undefined) => {
 
 export default function MitreReportPanel() {
   const queryClient = useQueryClient();
-  const [hours, setHours] = useState(24);
+  const [hours, setHours] = useState(168);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const latest = useQuery({ queryKey: ['ai-diagnosis-mitre-latest'], queryFn: aiDiagnosisApi.mitreLatest,
     refetchInterval: query => query.state.data?.data?.status === 'running' ? 2500 : false });
@@ -38,6 +39,16 @@ export default function MitreReportPanel() {
   }, [latestId, latestStatus, queryClient]);
   const run = selectedId === null ? latest.data?.data : selected.data?.data;
   const report = run?.status === 'completed' ? run.report : null;
+  const download = () => {
+    if (!report?.markdown || !run) return;
+    const blob = new Blob([report.markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `informe-mitre-${run.format}-${run.started_at.slice(0, 10)}.md`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
 
   return <section className="glass-card p-4 sm:p-5 space-y-4" aria-labelledby="mitre-report-title">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -45,19 +56,21 @@ export default function MitreReportPanel() {
         <h2 id="mitre-report-title" className="text-lg font-semibold text-surface-100 flex items-center gap-2">
           <Target className="w-5 h-5 text-indigo-400" /> Informe MITRE del entorno
         </h2>
-        <p className="text-xs text-surface-400 mt-1">Único informe consolidado. Se genera solo al solicitarlo; el detalle por agente aparece únicamente donde hubo alertas con mapeo MITRE.</p>
+        <p className="text-xs text-surface-400 mt-1">Dos formatos independientes, generados solo al solicitarlos. El técnico incluye triage por agente; el ejecutivo muestra métricas y decisiones.</p>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <label htmlFor="mitre-period" className="sr-only">Período MITRE</label>
         <select id="mitre-period" value={hours} onChange={event => setHours(Number(event.target.value))}
           className="bg-surface-900 border border-surface-700 text-surface-200 rounded-lg px-2 py-2 text-sm">
           <option value={24}>Últimas 24 h</option><option value={168}>Últimos 7 días</option>
         </select>
-        <button type="button" onClick={() => start.mutate(hours)} disabled={start.isPending || latestStatus === 'running'}
+        <button type="button" onClick={() => start.mutate({ periodHours: hours, format: 'technical' })} disabled={start.isPending || latestStatus === 'running'}
           className="flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-3 py-2 text-sm font-medium">
           <RefreshCw className={`w-4 h-4 ${latestStatus === 'running' ? 'animate-spin' : ''}`} />
-          {latestStatus === 'running' ? 'Generando…' : 'Generar informe MITRE'}
+          {latestStatus === 'running' ? 'Generando…' : 'Informe técnico'}
         </button>
+        <button type="button" onClick={() => start.mutate({ periodHours: hours, format: 'executive' })} disabled={start.isPending || latestStatus === 'running'}
+          className="rounded-lg bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 text-white px-3 py-2 text-sm font-medium">Informe ejecutivo</button>
       </div>
     </div>
 
@@ -67,18 +80,27 @@ export default function MitreReportPanel() {
         className="bg-surface-900 border border-surface-700 text-surface-200 rounded px-2 py-1">
         <option value="">Último informe</option>
         {history.data?.data?.filter(item => item.id !== latestId).map(item => <option key={item.id} value={item.id}>
-          {fmt(item.started_at)} · {item.period_hours === 24 ? '24 h' : '7 días'} · {item.status}
+          {fmt(item.started_at)} · {item.format === 'executive' ? 'Ejecutivo' : item.format === 'technical' ? 'Técnico' : 'Anterior'} · {item.period_hours === 24 ? '24 h' : '7 días'} · {item.status}
         </option>)}
       </select>
     </div>}
 
-    {!run && !latest.isLoading && <p className="text-sm text-surface-400">Todavía no hay un informe MITRE. Elegí un período y pulsá «Generar informe MITRE».</p>}
+    {!run && !latest.isLoading && <p className="text-sm text-surface-400">Todavía no hay informes MITRE. Elegí un período y generá el formato que necesitás.</p>}
     {run?.status === 'running' && <p role="status" className="text-sm text-cyan-300">Consultando todas las alertas mapeadas del período y preparando el informe…</p>}
     {run?.status === 'failed' && <p role="alert" className="text-sm text-red-300">Informe interrumpido: {run.error || 'error no especificado'}</p>}
     {start.isError && <p role="alert" className="text-sm text-red-300">No se pudo iniciar el informe: {(start.error as Error).message}</p>}
     {(latest.isError || selected.isError) && <p role="alert" className="text-sm text-red-300">No se pudo leer el informe MITRE.</p>}
 
-    {report && <>
+    {report?.markdown ? <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-surface-500">{run?.format === 'executive' ? 'Informe ejecutivo' : 'Informe técnico'} · {fmt(report.period_start)} → {fmt(report.period_end)} · generado {fmt(run?.started_at)}</p>
+        <button type="button" onClick={download} className="flex items-center gap-1.5 rounded-lg border border-surface-700 px-3 py-1.5 text-xs text-cyan-300 hover:bg-surface-800">
+          <Download className="w-3.5 h-3.5" /> Descargar Markdown
+        </button>
+      </div>
+      {run?.ai_error && <p className="text-xs text-amber-300">Groq: {run.ai_error}. El informe mantiene las métricas verificadas de Wazuh.</p>}
+      <ReportMarkdown markdown={report.markdown} />
+    </div> : report && <>
       <p className="text-xs text-surface-500">{fmt(report.period_start)} → {fmt(report.period_end)} (Argentina) · generado {fmt(run?.started_at)}</p>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
         {[

@@ -1471,7 +1471,8 @@ export const aiDiagnosisApi = {
   mitreLatest: () => api.get<APIResponse<MitreReportRun | null>>('/ai-diagnosis/mitre-reports/latest').then(r => r.data),
   mitreById: (id: number) => api.get<APIResponse<MitreReportRun>>(`/ai-diagnosis/mitre-reports/${id}`).then(r => r.data),
   mitreHistory: () => api.get<APIResponse<MitreReportHistoryItem[]>>('/ai-diagnosis/mitre-reports/history').then(r => r.data),
-  mitreStart: (periodHours: number) => api.post<APIResponse<{ id: number; status: string }>>('/ai-diagnosis/mitre-reports', null,
-    { params: { period_hours: periodHours } }).then(r => r.data),
+  mitreStart: ({ periodHours, format }: { periodHours: number; format: 'technical' | 'executive' }) =>
+    api.post<APIResponse<{ id: number; status: string }>>('/ai-diagnosis/mitre-reports', null,
+      { params: { period_hours: periodHours, report_format: format } }).then(r => r.data),
 };
 

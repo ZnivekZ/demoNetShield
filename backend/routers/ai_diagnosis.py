@@ -45,9 +45,12 @@ async def groq_usage() -> APIResponse:
 
 
 @router.post("/mitre-reports")
-async def start_mitre_report(period_hours: int = Query(24, description="24 or 168 hours")) -> APIResponse:
+async def start_mitre_report(
+    period_hours: int = Query(168, description="24 or 168 hours"),
+    report_format: str = Query("technical", description="technical or executive"),
+) -> APIResponse:
     try:
-        run_id = await mitre_service.start(period_hours)
+        run_id = await mitre_service.start(period_hours, report_format)
         return APIResponse.ok({"id": run_id, "status": "running"})
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

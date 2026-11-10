@@ -1,194 +1,377 @@
-/** CVEs currently present in the Wazuh vulnerability inventory. */
-import { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+/**
+ * VulnerabilitiesPage.tsx — Wazuh vulnerability scanner browser.
+ *
+ * Route: /wazuh/vulnerabilities
+ *
+ * Layout:
+ *   ┌─ Header (total + Actualizar) + severity tabs ─────────────────────────┐
+ *   ├─ Summary (counts by severity, from backend over the FULL set) ────────┤
+ *   ├─ Filter bar: severity + search ───────────────────────────────────────┤
+ *   ├─ Compact vulnerability rows (CVE, package, CVSS, agent, detected) ────┤
+ *   └─ Pagination ──────────────────────────────────────────────────────────┘
+ */
+import { useEffect, useState } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import {
-  Bug, Search, X, ChevronDown, ChevronLeft, ChevronRight,
-  RefreshCw, Server, Package, Clock, ShieldAlert,
+  Bug, Search, Filter, X, ChevronLeft, ChevronRight,
+  ShieldAlert, Package, RefreshCw, Server, Clock, Download,
 } from 'lucide-react';
-import { useActiveCveInventory } from '../../hooks/useWazuh';
+import { useWazuhVulnerabilities } from '../../hooks/useWazuh';
+import { wazuhApiExtended } from '../../services/api';
+import { useAgentsList } from '../../hooks/useWazuhSummary';
 import { formatDateTime } from '../utils/time';
-import type { ActiveCve, CveSeverity } from '../../types';
-import { CveUsageContext } from './CveUsageStatus';
+import type { WazuhVulnerability, WazuhVulnerabilitiesFilters } from '../../types';
 
 const PAGE_SIZE = 20;
-const SEVERITIES: Array<{ value: CveSeverity | ''; label: string }> = [
-  { value: '', label: 'Todas' },
-  { value: 'critical', label: 'Críticas' },
-  { value: 'high', label: 'Altas' },
-  { value: 'medium', label: 'Medias' },
-  { value: 'low', label: 'Bajas' },
-  { value: 'unknown', label: 'Sin clasificar' },
+
+type SeverityFilter = WazuhVulnerabilitiesFilters['severity'];
+
+const SEVERITY_TABS: { value: SeverityFilter | ''; label: string; color: string }[] = [
+  { value: '', label: 'Todas', color: 'text-surface-300' },
+  { value: 'critical', label: 'Críticas', color: 'text-red-400' },
+  { value: 'high', label: 'Altas', color: 'text-orange-400' },
+  { value: 'medium', label: 'Medias', color: 'text-amber-400' },
+  { value: 'low', label: 'Bajas', color: 'text-blue-400' },
 ];
-const SEVERITY_LABEL: Record<CveSeverity, string> = {
-  critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja', unknown: 'Sin clasificar',
-};
-const SEVERITY_COLOR: Record<CveSeverity, string> = {
-  critical: 'text-red-300 bg-red-500/15 border-red-500/40',
-  high: 'text-orange-300 bg-orange-500/15 border-orange-500/40',
-  medium: 'text-amber-300 bg-amber-500/15 border-amber-500/40',
-  low: 'text-blue-300 bg-blue-500/15 border-blue-500/40',
-  unknown: 'text-slate-300 bg-slate-500/15 border-slate-500/40',
-};
-
-function formatArgentina(isoTimestamp: string): string {
-  const date = new Date(isoTimestamp);
-  if (Number.isNaN(date.getTime())) return isoTimestamp;
-  return date.toLocaleString('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires',
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
-
-function calendarDate(value: string): string {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
-}
 
 export function WazuhVulnerabilitiesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const rawSeverity = searchParams.get('severity') || '';
-  const severity = SEVERITIES.some(option => option.value === rawSeverity)
-    ? rawSeverity as CveSeverity | '' : '';
-  const search = searchParams.get('search') || '';
-  const agentId = searchParams.get('agent') || '';
-  const kevOnly = searchParams.get('kev') === '1';
-  const rawPage = Number(searchParams.get('page'));
-  const page = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1;
-  const updateFilters = (changes: Record<string, string>) => {
-    const next = new URLSearchParams(searchParams);
-    Object.entries(changes).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
-    if (!('page' in changes)) next.delete('page');
-    setSearchParams(next, { replace: true });
+
+  const [page, setPage] = useState<number>(Number(searchParams.get('page')) || 1);
+  const [severity, setSeverity] = useState<SeverityFilter | ''>(
+    (searchParams.get('severity') as SeverityFilter) || ''
+  );
+  const [search, setSearch] = useState<string>(searchParams.get('search') || '');
+  const [pageSize, setPageSize] = useState<number>(Number(searchParams.get('size')) || PAGE_SIZE);
+  const [agent, setAgent] = useState<string>(searchParams.get('agent') || '');
+  const [showFilters, setShowFilters] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+
+  useEffect(() => {
+    const params: Record<string, string> = {};
+    if (page > 1) params.page = String(page);
+    if (severity) params.severity = severity;
+    if (search) params.search = search;
+    if (agent) params.agent = agent;
+    if (pageSize !== PAGE_SIZE) params.size = String(pageSize);
+    setSearchParams(params, { replace: true });
+  }, [page, severity, search, agent, pageSize, setSearchParams]);
+
+  const filters: WazuhVulnerabilitiesFilters = {
+    page,
+    page_size: pageSize,
+    severity: severity || undefined,
+    agent_id: agent || undefined,
+    search: search || undefined,
   };
 
-  const { data, isLoading, isFetching, refetch } = useActiveCveInventory({
-    page, page_size: PAGE_SIZE, severity: severity || undefined,
-    search: search || undefined, agent_id: agentId || undefined, kev_only: kevOnly,
-  });
+  const { data: agents = [] } = useAgentsList();
+  const sortedAgents = [...agents].sort((a, b) => a.name.localeCompare(b.name));
+  const selectedAgent = agents.find(a => a.id === agent);
+
+  const { data, isLoading, isFetching, refetch } = useWazuhVulnerabilities(filters);
+  // El hook hace select: r => r.data → data ya es el payload paginado.
+  // null = el backend devolvió no_disponible (notAvailableResponse).
+  const isBackendUnavailable = data === null;
+
   const items = data?.items ?? [];
-  const summary = data?.summary;
   const pagination = data?.pagination;
-  const hasFilters = !!(search || severity || agentId || kevOnly);
-  const unavailable = !isLoading && data === null;
-  const checkedAt = data?.checked_at ? formatArgentina(data.checked_at) : null;
+  const hasFilters = !!(severity || search || agent);
+
+  // Severity counts come from the backend (computed over the FULL filtered set,
+  // not just the current page) so "Todas" and "Altas" stay consistent.
+  const summary = data?.summary ?? { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };
+  const unknownCount = summary.unknown ?? 0;
+  const summaryTotal = summary.critical + summary.high + summary.medium + summary.low + unknownCount;
+
+  const handleExport = async () => {
+    setExporting(true);
+    setExportError('');
+    try {
+      const blob = await wazuhApiExtended.exportVulnerabilities(filters);
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+      const tag = agent ? `agente-${agent}` : 'todos';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `vulnerabilidades_${tag}_${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setExportError((e as Error).message || 'No se pudo exportar');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const applyFilters = () => {
+    setPage(1);
+    setShowFilters(false);
+  };
+
+  const clearAll = () => {
+    setSeverity('');
+    setSearch('');
+    setAgent('');
+    setPage(1);
+  };
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="space-y-4">
+      {/* ── Header ──────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 mb-1">
             <Bug className="w-5 h-5 text-amber-400" />
-            <h1 className="text-2xl font-bold text-surface-100">CVE en inventario Wazuh</h1>
-            {pagination && <span className="text-sm text-surface-400">({pagination.total.toLocaleString('es-AR')})</span>}
+            <h1 className="text-2xl font-bold text-surface-100">Vulnerabilidades</h1>
+            {pagination && (
+              <span className="text-sm text-surface-400 ml-1">
+                ({pagination.total.toLocaleString()} total)
+              </span>
+            )}
+            {isFetching && !isLoading && (
+              <span className="text-xs text-cyan-400 ml-1 animate-pulse">actualizando…</span>
+            )}
           </div>
-          <p className="text-sm text-surface-400 mt-1">
-            Vulnerabilidades presentes en el inventario vigente de Wazuh, agrupadas por ID de CVE.
-          </p>
-          <p className="text-xs text-surface-500 mt-1">
-            {checkedAt ? `Consultado: ${checkedAt} (Argentina)` : 'Estado actual del índice de Wazuh'}
-            {' · '}La detección no demuestra que el equipo haya sido explotado.
-          </p>
-          <p className="text-xs text-surface-500 mt-1">
-            Uso según el último escaneo de Syscollector. Un proceso coincidente no confirma la versión cargada; verificá el componente en el equipo.
+          <p className="text-sm text-surface-400">
+            CVEs detectados por el módulo Vulnerability Detector de Wazuh
           </p>
         </div>
-        <button className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50"
-          onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
-          {isFetching ? 'Actualizando…' : 'Actualizar'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            title="Traer datos actualizados de Wazuh"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+            {isFetching ? 'Actualizando…' : 'Actualizar'}
+          </button>
+          <button
+            className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50"
+            onClick={handleExport}
+            disabled={exporting || items.length === 0}
+            title="Descargar las vulnerabilidades con los filtros activos (CSV)"
+          >
+            {exporting ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Download className="w-3.5 h-3.5" />
+            )}
+            {exporting ? 'Exportando…' : 'Exportar CSV'}
+          </button>
+          <button
+            className={`btn-secondary flex items-center gap-2 text-sm ${
+              hasFilters ? 'border-amber-500/50 text-amber-300' : ''
+            }`}
+            onClick={() => setShowFilters(!showFilters)}
+          >
+            <Filter className="w-4 h-4" />
+            Filtros {hasFilters && '(activos)'}
+          </button>
+        </div>
       </div>
 
-      {unavailable && (
-        <div className="glass-card p-5 border-amber-500/30 bg-amber-500/5 flex gap-3">
-          <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-amber-300">No se pudo comprobar el estado actual</p>
-            <p className="text-xs text-surface-400 mt-1">
-              {kevOnly
-                ? 'Revisá la conexión con Wazuh o quitá el filtro CISA KEV si el catálogo no está disponible.'
-                : 'Revisá la conexión con Wazuh Indexer y volvé a consultar.'}
-            </p>
+      {exportError && (
+        <div className="glass-card px-4 py-2 text-xs text-red-300 border-red-500/30 bg-red-500/5">
+          No se pudo exportar: {exportError}
+        </div>
+      )}
+
+      {/* ── Backend unavailable notice ──────────────────────────────── */}
+      {isBackendUnavailable && (
+        <div className="glass-card p-6 border-amber-500/30 bg-amber-500/5">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-semibold text-amber-300">
+                Pendiente de integración backend
+              </h3>
+              <p className="text-xs text-surface-400 mt-1 leading-relaxed">
+                El backend no pudo devolver vulnerabilidades en este momento. Verificá que el
+                módulo Vulnerability Detector de Wazuh esté activo y que el Indexer sea accesible.
+              </p>
+            </div>
           </div>
         </div>
       )}
 
-      {data && !data.kev_available && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-200">
-          El catálogo CISA KEV no está disponible. Se muestran los CVE del inventario; su pertenencia a KEV queda sin determinar.
+      {/* ── Severity tabs ───────────────────────────────────────────── */}
+      <div className="flex items-center gap-1 border-b border-surface-800/60 overflow-x-auto">
+        {SEVERITY_TABS.map(tab => (
+          <button
+            key={tab.value || 'all'}
+            onClick={() => { setSeverity(tab.value); setPage(1); }}
+            className={`px-4 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+              severity === tab.value
+                ? 'border-amber-400 text-amber-300'
+                : 'border-transparent text-surface-400 hover:text-surface-200'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Severity summary (from backend, full-set counts) ────────── */}
+      {!isBackendUnavailable && pagination && pagination.total > 0 && (
+        <div className={`grid grid-cols-2 gap-2 ${unknownCount > 0 ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
+          <SevCount label="Críticas" count={summary.critical} color="red" />
+          <SevCount label="Altas" count={summary.high} color="orange" />
+          <SevCount label="Medias" count={summary.medium} color="amber" />
+          <SevCount label="Bajas" count={summary.low} color="blue" />
+          {unknownCount > 0 && <SevCount label="Sin clasificar" count={unknownCount} color="slate" />}
         </div>
       )}
 
-      <div className="glass-card p-4 space-y-4">
-        <div className="flex flex-wrap gap-2 border-b border-surface-800/70 pb-3">
-          {SEVERITIES.map(option => (
-            <button key={option.value || 'all'}
-              onClick={() => updateFilters({ severity: option.value })}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold border transition-colors ${severity === option.value
-                ? 'border-amber-400/50 bg-amber-500/15 text-amber-200'
-                : 'border-surface-700/60 text-surface-400 hover:text-surface-200'}`}>
-              {option.label}{summary && option.value ? ` ${summary[option.value]}` : ''}
-            </button>
-          ))}
-        </div>
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(160px,230px)_auto] items-end">
-          <SearchBox key={search} value={search} onSubmit={value => updateFilters({ search: value })} />
+      {/* ── Filters panel ───────────────────────────────────────────── */}
+      {showFilters && (
+        <div className="glass-card p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="cve-agent" className="block text-xs text-surface-400 mb-1">Agente</label>
-            <select id="cve-agent" className="input-sm w-full" value={agentId}
-              onChange={event => updateFilters({ agent: event.target.value })}>
-              <option value="">Todos los agentes</option>
-              {(data?.agents ?? []).map(agent =>
-                <option key={agent.id} value={agent.id}>{agent.name || agent.id}</option>
-              )}
+            <label className="text-xs text-surface-400 mb-1 block">Severidad</label>
+            <select
+              className="input-sm w-full"
+              value={severity || ''}
+              onChange={e => setSeverity(e.target.value as SeverityFilter | '')}
+            >
+              {SEVERITY_TABS.map(o => (
+                <option key={o.value || 'all'} value={o.value || ''}>
+                  {o.label}
+                </option>
+              ))}
             </select>
           </div>
-          <label className="inline-flex items-center gap-2 text-xs text-surface-300 min-h-9 cursor-pointer">
-            <input type="checkbox" checked={kevOnly} disabled={data?.kev_available === false}
-              onChange={event => updateFilters({ kev: event.target.checked ? '1' : '' })} />
-            Solo CISA KEV
-          </label>
+          <div>
+            <label className="text-xs text-surface-400 mb-1 flex items-center gap-1">
+              <Server className="w-3 h-3" /> Equipo (agente)
+            </label>
+            <select
+              className="input-sm w-full"
+              value={agent}
+              onChange={e => { setAgent(e.target.value); setPage(1); }}
+            >
+              <option value="">Todos los equipos</option>
+              {sortedAgents.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({a.id}){a.status !== 'active' ? ` · ${a.status}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-surface-400 mb-1 flex items-center gap-1">
+              <Search className="w-3 h-3" /> Buscar (CVE, paquete, agente)
+            </label>
+            <input
+              className="input-sm w-full"
+              placeholder="ej: CVE-2024-1234"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="sm:col-span-2 flex justify-end gap-2">
+            <button className="btn-secondary text-sm" onClick={() => setShowFilters(false)}>
+              Cancelar
+            </button>
+            <button className="btn-primary text-sm" onClick={applyFilters}>
+              Aplicar filtros
+            </button>
+          </div>
         </div>
-        {hasFilters && (
-          <button className="text-xs text-surface-400 hover:text-surface-200 inline-flex items-center gap-1"
-            onClick={() => setSearchParams({}, { replace: true })}>
-            <X className="w-3 h-3" /> Limpiar filtros
-          </button>
-        )}
-      </div>
+      )}
 
-      {isLoading ? (
-        <div className="glass-card p-6 space-y-3">{Array.from({ length: 5 }, (_, i) =>
-          <div key={i} className="h-16 rounded bg-surface-800/40 animate-pulse" />
-        )}</div>
-      ) : data && items.length === 0 ? (
-        <div className="glass-card p-10 text-center">
-          <Bug className="w-9 h-9 text-surface-600 mx-auto mb-2" />
-          <p className="text-sm text-surface-300">
-            {hasFilters ? 'No hay CVE de inventario con estos filtros' : 'Wazuh no informa CVE en el inventario consultado'}
-          </p>
-          <p className="text-xs text-surface-500 mt-1">Se excluyen estados explícitos no activos; algunos documentos vigentes no incluyen el campo status.</p>
+      {/* ── Active chips ────────────────────────────────────────────── */}
+      {hasFilters && (
+        <div className="flex flex-wrap items-center gap-2">
+          {severity && (
+            <Chip onRemove={() => setSeverity('')}>
+              Severidad: {SEVERITY_TABS.find(t => t.value === severity)?.label}
+            </Chip>
+          )}
+          {agent && (
+            <Chip onRemove={() => { setAgent(''); setPage(1); }}>
+              Equipo: {selectedAgent ? `${selectedAgent.name} (${selectedAgent.id})` : agent}
+            </Chip>
+          )}
+          {search && <Chip onRemove={() => setSearch('')}>“{search}”</Chip>}
+          <button
+            className="text-xs text-surface-500 hover:text-surface-300 underline"
+            onClick={clearAll}
+          >
+            Limpiar todo
+          </button>
         </div>
-      ) : data ? (
-        <div className="space-y-2">{items.map(item => <CveRow key={item.cve_id} cve={item} />)}</div>
+      )}
+
+      {/* ── Vulnerability list ──────────────────────────────────────── */}
+      {isLoading ? (
+        <div className="glass-card p-6 space-y-3">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-16 bg-surface-800/40 rounded animate-pulse" />
+          ))}
+        </div>
+      ) : items.length === 0 && !isBackendUnavailable ? (
+        <div className="glass-card p-12 text-center">
+          <Bug className="w-10 h-10 text-surface-700 mx-auto mb-2" />
+          <p className="text-surface-400 text-sm">No hay vulnerabilidades con los filtros actuales</p>
+          {hasFilters && (
+            <button className="btn-secondary text-sm mt-3" onClick={clearAll}>
+              Limpiar filtros
+            </button>
+          )}
+        </div>
+      ) : !isBackendUnavailable ? (
+        <div className="space-y-2">
+          {items.map(v => <VulnRow key={v.cve_id + v.agent_id} vuln={v} />)}
+        </div>
       ) : null}
 
+      {/* ── Summary footer + Pagination ─────────────────────────────── */}
       {pagination && pagination.total > 0 && (
-        <div className="glass-card px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="glass-card flex flex-wrap items-center justify-between gap-3 px-4 py-3">
           <p className="text-xs text-surface-400">
-            {Math.min((pagination.page - 1) * pagination.page_size + 1, pagination.total)}–
-            {Math.min(pagination.page * pagination.page_size, pagination.total)} de {pagination.total.toLocaleString('es-AR')} CVEs
+            Mostrando{' '}
+            <span className="text-surface-200 font-medium">
+              {(pagination.page - 1) * pagination.page_size + 1}-
+              {Math.min(pagination.page * pagination.page_size, pagination.total)}
+            </span>{' '}
+            de <span className="text-surface-200 font-medium">{pagination.total.toLocaleString()}</span>
+            {!severity && summaryTotal > 0 && (
+              <span className="text-surface-500"> · {summaryTotal} con severidad clasificada</span>
+            )}
           </p>
-          <div className="flex items-center gap-2 text-xs text-surface-400">
-            <button className="btn-secondary disabled:opacity-30" disabled={!pagination.has_prev}
-              onClick={() => updateFilters({ page: String(pagination.page - 1) })} aria-label="Página anterior">
-              <ChevronLeft className="w-4 h-4" />
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-surface-500 flex items-center gap-1">
+              Por página
+              <select
+                className="input-sm text-xs"
+                value={pageSize}
+                onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+              >
+                {[20, 50, 100, 200].map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="btn-secondary text-xs flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
+              disabled={!pagination.has_prev}
+              onClick={() => setPage(pagination.page - 1)}
+            >
+              <ChevronLeft className="w-3.5 h-3.5" /> Anterior
             </button>
-            Página {pagination.page} / {pagination.total_pages}
-            <button className="btn-secondary disabled:opacity-30" disabled={!pagination.has_next}
-              onClick={() => updateFilters({ page: String(pagination.page + 1) })} aria-label="Página siguiente">
-              <ChevronRight className="w-4 h-4" />
+            <span className="text-xs text-surface-400 px-3">
+              Página <span className="text-surface-100 font-medium">{pagination.page}</span> / {pagination.total_pages}
+            </span>
+            <button
+              className="btn-secondary text-xs flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
+              disabled={!pagination.has_next}
+              onClick={() => setPage(pagination.page + 1)}
+            >
+              Siguiente <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -197,75 +380,118 @@ export function WazuhVulnerabilitiesPage() {
   );
 }
 
-function SearchBox({ value, onSubmit }: { value: string; onSubmit: (value: string) => void }) {
-  const [draft, setDraft] = useState(value);
+// ── Vulnerability row (compact) ────────────────────────────────────
+
+const CVSS_PILL: Record<string, string> = {
+  critical: 'bg-red-500/15 text-red-300 border-red-500/40',
+  high: 'bg-orange-500/15 text-orange-300 border-orange-500/40',
+  medium: 'bg-amber-500/15 text-amber-300 border-amber-500/40',
+  low: 'bg-blue-500/15 text-blue-300 border-blue-500/40',
+  unknown: 'bg-slate-500/15 text-slate-300 border-slate-500/40',
+};
+
+function VulnRow({ vuln }: { vuln: WazuhVulnerability }) {
+  const [expanded, setExpanded] = useState(false);
+  const desc = (vuln.description || vuln.title || '').trim();
+  const descLong = desc.length > 240;
+  const shownDesc = expanded || !descLong ? desc : `${desc.slice(0, 240).trimEnd()}…`;
+
   return (
-    <form onSubmit={event => { event.preventDefault(); onSubmit(draft.trim()); }}>
-      <label htmlFor="cve-search" className="block text-xs text-surface-400 mb-1">CVE, paquete o agente</label>
-      <div className="flex gap-2">
-        <input id="cve-search" className="input-sm w-full" placeholder="Buscar CVE-2026-…"
-          value={draft} onChange={event => setDraft(event.target.value)} />
-        <button type="submit" className="btn-secondary" aria-label="Buscar"><Search className="w-4 h-4" /></button>
+    <div className="glass-card px-4 py-3 hover:border-amber-500/30 transition-colors wazuh-vuln-row">
+      {/* Línea 1: severidad · CVE · paquete · CVSS */}
+      <div className="flex items-center gap-2.5 flex-wrap">
+        <span className={`wazuh-sev-badge wazuh-sev-${vuln.severity} shrink-0`}>
+          {vuln.severity}
+        </span>
+        <span className="text-xs font-mono font-semibold text-amber-300/90 tracking-tight shrink-0">
+          {vuln.cve_id}
+        </span>
+        {vuln.package_name && (
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-surface-300 bg-surface-800/60 border border-surface-700/50 px-2 py-0.5 rounded-full min-w-0">
+            <Package className="w-3 h-3 text-surface-400 shrink-0" />
+            <span className="truncate max-w-[220px]" title={vuln.package_name}>
+              {vuln.package_name}
+            </span>
+            {vuln.package_version && (
+              <span className="text-surface-500 shrink-0">@{vuln.package_version}</span>
+            )}
+          </span>
+        )}
+        <span className="ml-auto inline-flex items-center gap-1.5 shrink-0">
+          <span className="text-[9px] uppercase tracking-wider text-surface-500">CVSS</span>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded border ${CVSS_PILL[vuln.severity] || CVSS_PILL.low}`}>
+            {vuln.cvss_score && vuln.cvss_score > 0 ? vuln.cvss_score.toFixed(1) : '—'}
+          </span>
+        </span>
       </div>
-    </form>
+
+      {/* Línea 2 (opcional): descripción */}
+      {desc && (
+        <p className="mt-2 text-xs text-surface-400 leading-relaxed">
+          {shownDesc}
+          {descLong && !expanded && (
+            <button
+              onClick={() => setExpanded(true)}
+              className="ml-1.5 text-amber-400/90 hover:text-amber-300 text-[11px] align-baseline"
+            >
+              ver más
+            </button>
+          )}
+          {expanded && (
+            <button
+              onClick={() => setExpanded(false)}
+              className="ml-1.5 text-surface-500 hover:text-surface-300 text-[11px] align-baseline"
+            >
+              ver menos
+            </button>
+          )}
+        </p>
+      )}
+
+      {/* Línea 3: agente · detectado */}
+      <div className="mt-2.5 flex items-center gap-x-4 gap-y-1 text-[11px] text-surface-500 flex-wrap">
+        <span className="inline-flex items-center gap-1 min-w-0">
+          <Server className="w-3 h-3 shrink-0" />
+          <Link
+            to={`/wazuh/agents/${encodeURIComponent(vuln.agent_id)}`}
+            className="text-cyan-400 hover:text-cyan-300 truncate"
+            title={`Ver agente ${vuln.agent_id}`}
+          >
+            {vuln.agent_name || vuln.agent_id}
+          </Link>
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <Clock className="w-3 h-3 shrink-0" />
+          {vuln.detected_at ? formatDateTime(vuln.detected_at) : '—'}
+        </span>
+      </div>
+    </div>
   );
 }
 
-function CveRow({ cve }: { cve: ActiveCve }) {
-  const [open, setOpen] = useState(false);
+function SevCount({ label, count, color }: { label: string; count: number; color: 'red' | 'orange' | 'amber' | 'blue' | 'slate' }) {
+  const colorMap = {
+    red: 'text-red-400 bg-red-500/10 border-red-500/30',
+    orange: 'text-orange-400 bg-orange-500/10 border-orange-500/30',
+    amber: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+    blue: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+    slate: 'text-slate-300 bg-slate-500/10 border-slate-500/30',
+  };
   return (
-    <article className="glass-card overflow-hidden">
-      <button type="button" className="w-full px-4 py-3 text-left hover:bg-surface-800/20"
-        onClick={() => setOpen(value => !value)} aria-expanded={open}>
-        <div className="flex flex-wrap items-center gap-2">
-          <span title="Mayor severidad informada entre los agentes" className={`rounded border px-2 py-0.5 text-xs font-semibold ${SEVERITY_COLOR[cve.severity]}`}>
-            {SEVERITY_LABEL[cve.severity]}
-          </span>
-          <span className="font-mono text-sm font-bold text-surface-100">{cve.cve_id}</span>
-          {cve.is_kev && <span className="rounded border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-xs font-semibold text-red-300">CISA KEV</span>}
-          <span className="rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-xs text-cyan-200">Presente en inventario Wazuh</span>
-          <ChevronDown className={`ml-auto w-4 h-4 text-surface-400 transition-transform ${open ? 'rotate-180' : ''}`} />
-        </div>
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-surface-400">
-          <span>{cve.agent_count} agente{cve.agent_count === 1 ? '' : 's'}</span>
-          <span>CVSS {cve.cvss_score !== null ? cve.cvss_score.toFixed(1) : 'no informado'}</span>
-          {cve.is_kev && cve.kev_product && <span>KEV: {cve.kev_product}</span>}
-        </div>
-        {cve.description && <p className="mt-2 text-xs text-surface-400 line-clamp-2">{cve.description}</p>}
+    <div className={`glass-card px-3 py-2 flex items-center justify-between border ${colorMap[color]}`}>
+      <span className="text-[10px] uppercase tracking-wider">{label}</span>
+      <span className="text-lg font-bold">{count}</span>
+    </div>
+  );
+}
+
+function Chip({ children, onRemove }: { children: React.ReactNode; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+      {children}
+      <button onClick={onRemove} className="hover:text-amber-100" aria-label="Quitar filtro">
+        <X className="w-3 h-3" />
       </button>
-      {open && (
-        <div className="border-t border-surface-800 px-4 py-3 space-y-3">
-          <p className="text-xs text-surface-400">Hallazgos presentes en el inventario Wazuh, por agente y paquete:</p>
-          {cve.agents.map((evidence, index) => (
-            <div key={`${evidence.agent_id}-${evidence.package_name}-${evidence.package_version}-${index}`}
-              className="rounded-lg border border-surface-800 bg-surface-900/40 px-3 py-2 text-xs">
-              <div className="flex flex-wrap gap-x-5 gap-y-1">
-                <span className="inline-flex items-center gap-1 text-surface-200 font-semibold">
-                  <Server className="w-3.5 h-3.5 text-cyan-400" />
-                  {evidence.agent_id
-                    ? <Link to={`/wazuh/agents/${encodeURIComponent(evidence.agent_id)}`} className="text-cyan-300 hover:underline">{evidence.agent_name || evidence.agent_id}</Link>
-                    : evidence.agent_name}
-                </span>
-                <span className="inline-flex items-center gap-1 text-surface-300">
-                  <Package className="w-3.5 h-3.5 text-surface-500" />
-                  {evidence.package_name || 'Paquete no informado'}{evidence.package_version ? ` ${evidence.package_version}` : ''}
-                </span>
-                <span className="inline-flex items-center gap-1 text-surface-400">
-                  <Clock className="w-3.5 h-3.5 text-surface-500" />
-                  Detectado: {evidence.detected_at ? formatDateTime(evidence.detected_at) : 'fecha no informada'}
-                </span>
-                <span className={`rounded border px-1.5 py-0.5 ${SEVERITY_COLOR[evidence.severity]}`}>
-                  {SEVERITY_LABEL[evidence.severity]}{evidence.cvss_score !== null ? ` · CVSS ${evidence.cvss_score.toFixed(1)}` : ''}
-                </span>
-                <span className="text-surface-400">status: {evidence.status || 'no informado'}</span>
-                <CveUsageContext status={evidence.usage_status} evidence={evidence.usage_evidence} checkedAt={evidence.usage_checked_at} />
-                {evidence.published_at && <span className="text-surface-400">Publicado: {calendarDate(evidence.published_at)}</span>}
-              </div>
-            </div>
-          ))}
-          {cve.is_kev && <p className="text-xs text-surface-500">CISA KEV señala explotación conocida de esta vulnerabilidad, no explotación de estos equipos.</p>}
-        </div>
-      )}
-    </article>
+    </span>
   );
 }

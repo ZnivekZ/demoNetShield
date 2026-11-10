@@ -464,7 +464,7 @@ class WazuhService:
 
             result.append({
                 "id": alert.get("id", ""),
-                "timestamp": alert.get("timestamp", ""),
+                "timestamp": alert.get("@timestamp") or alert.get("timestamp", ""),
                 "agent_id": agent.get("id", ""),
                 "agent_name": agent.get("name", ""),
                 "agent_ip": agent.get("ip", ""),
@@ -473,8 +473,8 @@ class WazuhService:
                 "rule_description": rule.get("description", ""),
                 "rule_groups": rule.get("groups", []),
                 "full_log": alert.get("full_log", ""),
-                "src_ip": data.get("srcip", ""),
-                "dst_ip": data.get("dstip", ""),
+                "src_ip": data.get("srcip") or data.get("src_ip") or alert.get("src_ip") or "",
+                "dst_ip": data.get("dstip") or data.get("dst_ip") or alert.get("dst_ip") or "",
                 "location": alert.get("location", ""),
                 "mitre_technique": mitre_technique,
                 "mitre_id": mitre_id,
@@ -823,6 +823,52 @@ class WazuhService:
         }
 
     # ── Extended Security Endpoints (for new Wazuh UI module) ───────────
+
+    async def get_vulnerabilities_page(
+        self,
+        agent_id: str | None = None,
+        severity: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 25,
+    ) -> dict:
+        """[Indexer] Vulnerabilidades paginadas con total exacto y resumen por agregación."""
+        from services.wazuh_indexer import get_indexer_client
+
+        return await get_indexer_client().get_vulnerabilities_page(
+            agent_id=agent_id, severity=severity, search=search, page=page, page_size=page_size
+        )
+
+    async def get_alerts_page(
+        self,
+        page: int = 1,
+        page_size: int = 25,
+        level_min: int | None = None,
+        agent_id: str | None = None,
+        rule_id: str | None = None,
+        search: str | None = None,
+        time_from: str | None = None,
+        to_date: str | None = None,
+    ) -> dict:
+        """[Indexer] Alertas paginadas con total exacto (filtros en el query)."""
+        from services.wazuh_indexer import get_indexer_client
+
+        result = await get_indexer_client().get_alerts_page(
+            page=page,
+            page_size=page_size,
+            level_min=level_min,
+            agent_id=agent_id,
+            rule_id=rule_id,
+            search=search,
+            time_from=time_from,
+            to_date=to_date,
+        )
+        # El Indexer devuelve el formato anidado (agent.name, rule.level); el
+        # dashboard consume el esquema plano (agent_name, rule_level, ...).
+        return {
+            "items": self._normalize_alerts(result["items"]),
+            "total": result["total"],
+        }
 
     async def get_vulnerabilities(
         self,

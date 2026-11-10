@@ -6,11 +6,14 @@ Prefix: /api/wazuh
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 from datetime import datetime, timezone
 
 import structlog
-from fastapi import APIRouter, Depends, Query
+
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -48,7 +51,7 @@ async def get_agents(
 @router.get("/alerts/paginated")
 async def get_alerts_paginated(
     page: int = Query(1, ge=1),
-    page_size: int = Query(25, ge=1, le=100),
+    page_size: int = Query(25, ge=1, le=500),
     level_min: int | None = Query(None, ge=1, le=15),
     agent_id: str | None = Query(None),
     rule_id: str | None = Query(None),
@@ -64,31 +67,21 @@ async def get_alerts_paginated(
     Filters: level_min, agent_id, rule_id, search (description/agent/rule), from_date/to_date.
     """
     try:
-        # Fetch a bounded recent window (up to 500 from the Indexer, last 7d by
-        # default) then filter + paginate client-side. The Indexer query already
-        # narrows by level_min / agent_id / time window.
+        # Paginación y filtros resueltos en el Indexer: total exacto, sin
+        # ventana de 500 y sin filtrar en memoria.
         time_from = from_date or ("now-7d" if not to_date else None)
-        data = await service.get_alerts(
-            limit=500, level_min=level_min, agent_id=agent_id, time_from=time_from
+        result = await service.get_alerts_page(
+            page=page,
+            page_size=page_size,
+            level_min=level_min,
+            agent_id=agent_id,
+            rule_id=rule_id,
+            search=search,
+            time_from=time_from,
+            to_date=to_date,
         )
-        # Client-side filters the Indexer query can't express
-        if rule_id:
-            data = [a for a in data if a.get("rule_id") == rule_id]
-        if search:
-            q = search.lower()
-            data = [
-                a for a in data
-                if q in (a.get("rule_description") or "").lower()
-                or q in (a.get("agent_name") or "").lower()
-                or q in (a.get("rule_id") or "").lower()
-                or q in (a.get("mitre_id") or "").lower()
-                or q in (a.get("mitre_technique") or "").lower()
-            ]
-        if to_date:
-            data = [a for a in data if (a.get("timestamp") or "") <= to_date]
-        total = len(data)
-        start = (page - 1) * page_size
-        page_items = data[start:start + page_size]
+        page_items = result["items"]
+        total = result["total"]
         total_pages = max(1, (total + page_size - 1) // page_size)
         return APIResponse.ok({
             "items": page_items,
@@ -377,10 +370,29 @@ async def get_stats_summary(
         return APIResponse.fail(f"Failed to fetch Wazuh stats: {str(e)}")
 
 
+def _apply_vuln_filters(
+    items: list[dict], severity: str | None, search: str | None
+) -> list[dict]:
+    """Filtro de severidad + búsqueda, compartido por la lista y el export."""
+    out = items
+    if severity:
+        out = [v for v in out if v.get("severity") == severity.lower()]
+    if search:
+        q = search.lower()
+        out = [
+            v for v in out
+            if q in (v.get("cve_id") or "").lower()
+            or q in (v.get("package_name") or "").lower()
+            or q in (v.get("agent_name") or "").lower()
+            or q in (v.get("title") or "").lower()
+        ]
+    return out
+
+
 @router.get("/vulnerabilities")
 async def get_vulnerabilities(
     page: int = Query(1, ge=1),
-    page_size: int = Query(25, ge=1, le=100),
+    page_size: int = Query(25, ge=1, le=500),
     severity: str | None = Query(None),
     search: str | None = Query(None),
     agent_id: str | None = Query(None),
@@ -392,33 +404,18 @@ async def get_vulnerabilities(
     {items: [...], pagination: {page, page_size, total, total_pages, has_next, has_prev}}.
     """
     try:
-        items = await service.get_vulnerabilities(agent_id=agent_id, limit=500)
-        # Normalize severity: Wazuh uses '-' / '' for unclassified CVEs. Map them
-        # to an explicit "unknown" bucket so the summary always sums to the total.
-        for v in items:
-            sev_raw = (v.get("severity") or "").strip().lower()
-            v["severity"] = sev_raw if sev_raw in ("critical", "high", "medium", "low") else "unknown"
-        # Client-side filter + paginate (bounded dataset; switch to server-side
-        # query when the index grows past ~thousands of CVEs)
-        if severity:
-            items = [v for v in items if v.get("severity") == severity.lower()]
-        if search:
-            q = search.lower()
-            items = [
-                v for v in items
-                if q in (v.get("cve_id") or "").lower()
-                or q in (v.get("package_name") or "").lower()
-                or q in (v.get("agent_name") or "").lower()
-                or q in (v.get("title") or "").lower()
-            ]
-        total = len(items)
-        # Severity breakdown over the FULL filtered set (not just the page) so the
-        # UI tabs/summary stay consistent with the totals.
-        severity_summary = {"critical": 0, "high": 0, "medium": 0, "low": 0, "unknown": 0}
-        for v in items:
-            severity_summary[v["severity"]] += 1
-        start = (page - 1) * page_size
-        page_items = items[start:start + page_size]
+        # Paginación, filtros y resumen se resuelven EN el Indexer: el total es
+        # exacto (hits.total.value) y deja de estar capeado en 500.
+        result = await service.get_vulnerabilities_page(
+            agent_id=agent_id,
+            severity=severity,
+            search=search,
+            page=page,
+            page_size=page_size,
+        )
+        page_items = result["items"]
+        total = result["total"]
+        severity_summary = result["summary"]
         total_pages = max(1, (total + page_size - 1) // page_size)
         return APIResponse.ok({
             "items": page_items,
@@ -521,6 +518,78 @@ async def get_active_cve_inventory(
         "kev_available": kev_available,
         "agents": [{"id": id_, "name": name} for id_, name in agents],
     })
+
+
+@router.get("/vulnerabilities/export")
+async def export_vulnerabilities(
+    severity: str | None = Query(None),
+    search: str | None = Query(None),
+    agent_id: str | None = Query(None),
+    fmt: str = Query("csv", alias="format", pattern="^(csv)$"),
+    service: WazuhService = Depends(get_service),
+) -> Response:
+    """Export the filtered vulnerability rows shown by the last branch UI."""
+    try:
+        from services.wazuh_indexer import MAX_FETCH
+
+        page_size = 500
+        first = await service.get_vulnerabilities_page(
+            agent_id=agent_id, severity=severity, search=search,
+            page=1, page_size=page_size,
+        )
+        total = first["total"]
+        if total > MAX_FETCH:
+            return Response(
+                content=json.dumps({"success": False, "error": f"La exportación supera el límite de {MAX_FETCH} filas; acotá los filtros."}),
+                media_type="application/json",
+                status_code=413,
+            )
+        items = list(first["items"])
+        for page in range(2, (total + page_size - 1) // page_size + 1):
+            result = await service.get_vulnerabilities_page(
+                agent_id=agent_id, severity=severity, search=search,
+                page=page, page_size=page_size,
+            )
+            items.extend(result["items"])
+
+        def safe_cell(value: object) -> str:
+            text = "" if value is None else str(value)
+            return "'" + text if text.startswith(("=", "+", "-", "@")) else text
+
+        buf = io.StringIO()
+        writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+        writer.writerow([
+            "CVE", "Severidad", "CVSS", "Paquete", "Version",
+            "Equipo", "Agente ID", "Titulo", "Detectada",
+        ])
+        for v in items:
+            writer.writerow([safe_cell(value) for value in (
+                v.get("cve_id"), v.get("severity"), v.get("cvss_score"),
+                v.get("package_name"), v.get("package_version"),
+                v.get("agent_name"), v.get("agent_id"),
+                " ".join(str(v.get("title") or "").split()), v.get("detected_at"),
+            )])
+
+        stamp = datetime.now().strftime("%Y%m%d-%H%M")
+        tag = f"agente-{agent_id}" if agent_id and agent_id.isalnum() else "todos"
+        filename = f"vulnerabilidades_{tag}_{stamp}.csv"
+
+        logger.info("api_vulns_exported", rows=len(items), agent=agent_id or "todos")
+        return Response(
+            content=buf.getvalue().encode("utf-8-sig"),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
+    except Exception as e:
+        logger.error("api_vulns_export_failed", error=str(e))
+        return Response(
+            content=json.dumps({"success": False, "error": str(e)}),
+            media_type="application/json",
+            status_code=500,
+        )
 
 
 @router.get("/agents/{agent_id}")

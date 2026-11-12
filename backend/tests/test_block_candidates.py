@@ -4,6 +4,9 @@ import os
 import unittest
 from datetime import date, datetime
 from unittest.mock import AsyncMock, patch
+import json
+
+import httpx
 
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-for-candidates-32-chars-long")
 
@@ -54,6 +57,26 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
         windows = service.windows_for_rule(rule, events, start, end)
         self.assertEqual(len(windows), 1)
         self.assertEqual(len(windows[0]), 5)
+
+    async def test_archive_scroll_uses_timestamp_and_reads_all_pages(self):
+        requests = []
+        def handler(request):
+            requests.append((request.method, str(request.url.path), request.content))
+            if request.url.path.endswith('/_search'):
+                body = json.loads(request.content)
+                self.assertIn('timestamp', body['query']['range'])
+                return httpx.Response(200, json={'_scroll_id':'abc', 'hits': {'total': {'value': 2},
+                    'hits': [{'_source': {'id':'one', 'timestamp':'2026-11-11T03:01:00Z', 'data': {'srcip':'198.51.100.7'}}}]}})
+            if request.method == 'DELETE':
+                return httpx.Response(200, json={'succeeded':True})
+            return httpx.Response(200, json={'_scroll_id':'def', 'hits': {'total': {'value': 2},
+                'hits': [{'_source': {'id':'two', 'timestamp':'2026-11-11T03:02:00Z', 'data': {'srcip':'198.51.100.8'}}}]}})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://indexer.test') as client:
+            output = []
+            await service._fetch_scroll_interval(client, 'archives', 'wazuh-archives-*', 'timestamp',
+                                                  datetime(2026, 11, 11, 3), datetime(2026, 11, 11, 4), output)
+        self.assertEqual([event.ip for event in output], ['198.51.100.7', '198.51.100.8'])
+        self.assertEqual([item[0] for item in requests], ['POST', 'POST', 'DELETE'])
 
     async def test_persists_yes_and_technical_no_without_duplicate_scan(self):
         events = [service.Event(str(i), "198.51.100.7", datetime(2026, 11, 11, 3, i + 1),

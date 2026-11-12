@@ -82,6 +82,19 @@ export interface CandidateHistory {
   evaluations: CandidateEvaluation[];
 }
 
+export interface CandidateSource {
+  source: 'alerts' | 'archives';
+  index: string;
+  status: 'receiving' | 'no_recent_events' | 'error';
+  last_15m: number | null;
+  last_24h: number | null;
+  latest_at: string | null;
+  sample_with_ip: number;
+  sample_size: number;
+  sample_agents: string[];
+  error: string | null;
+}
+
 function unpack<T>(response: APIResponse<T>): T {
   if (!response.success || response.data === null || response.data === undefined) {
     throw new Error(response.error || 'Respuesta vacía');
@@ -106,6 +119,7 @@ export const candidateApi = {
   daily: (day: string) => get<CandidateRow[]>('/candidates/daily', { day }),
   history: (ip: string) => get<CandidateHistory>(`/candidates/ip/${encodeURIComponent(ip)}`),
   evaluation: (id: number) => get<CandidateEvaluation>(`/candidates/evaluations/${id}`),
-  scan: (day: string) => post<{ running: boolean; day: string }>('/candidates/scan', {}, { day }),
+  scan: (day: string, recentMinutes?: number) => post<{ running: boolean; day: string }>('/candidates/scan', {}, { day, ...(recentMinutes ? { recent_minutes: String(recentMinutes) } : {}) }),
   scanStatus: () => get<{ running: boolean; result: Record<string, unknown> | null; error: string | null }>('/candidates/scan/status'),
+  sources: () => get<CandidateSource[]>('/candidates/sources'),
 };

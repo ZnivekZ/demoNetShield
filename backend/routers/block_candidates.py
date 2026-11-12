@@ -17,7 +17,7 @@ from database import get_db
 from models.block_candidate import BlockCandidate, CandidateConfig, CandidateEvaluation, CandidateRule
 from schemas.common import APIResponse
 from services.block_candidate_service import (config_dict, loads, manual_scan_status, rule_dict,
-                                              seed, start_manual_scan)
+                                              probe_sources, seed, start_manual_scan)
 
 router = APIRouter(prefix="/api/candidates", tags=["Block candidates experiment"])
 
@@ -149,13 +149,15 @@ async def update_rule(rule_id: int, item: RuleInput, db: AsyncSession = Depends(
 
 
 @router.post("/scan")
-async def start_scan(day: date | None = None) -> APIResponse:
+async def start_scan(day: date | None = None, recent_minutes: int | None = Query(None, ge=5, le=120)) -> APIResponse:
     today = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
     target = day or today
     if target > today:
         raise HTTPException(422, "No se puede analizar un día futuro")
+    if recent_minutes and target != today:
+        raise HTTPException(422, "La lectura rápida solo se aplica al día actual")
     try:
-        return APIResponse.ok(start_manual_scan(target))
+        return APIResponse.ok(start_manual_scan(target, recent_minutes=recent_minutes))
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
 
@@ -163,6 +165,11 @@ async def start_scan(day: date | None = None) -> APIResponse:
 @router.get("/scan/status")
 async def scan_status() -> APIResponse:
     return APIResponse.ok(manual_scan_status())
+
+
+@router.get("/sources")
+async def source_status() -> APIResponse:
+    return APIResponse.ok(await probe_sources())
 
 
 @router.get("/days")

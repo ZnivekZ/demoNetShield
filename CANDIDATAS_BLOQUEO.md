@@ -10,7 +10,9 @@ Ruta web: **Wazuh SIEM → Candidatas (prueba)** (`/wazuh/candidates`).
 4. Groq usa `openai/gpt-oss-120b` y, si falla, `openai/gpt-oss-20b`. La instrucción completa se edita desde la web. Cada evaluación queda en **SI** o **NO**; si no hay respuesta de IA, queda **NO técnico** con la causa. Hay un tope de 100 consultas IA por análisis; las restantes se registran como NO técnico.
 5. Cada evaluación conserva la versión de la regla, la instrucción, el payload preparado y la respuesta de IA. `block_candidates` contiene una fila por IP y día solo si hubo al menos un SI. La web agrupa por día ART (00:00 a 23:59) y permite consultar reincidencia e historial de decisiones, incluidos los NO.
 
-El monitoreo periódico comienza **desactivado**. Se puede hacer un análisis manual de un día desde la web y luego activar la consulta periódica (mínimo 60 segundos). Un análisis manual antiguo puede tardar por el volumen de archives. El sistema fracciona intervalos con más de 10.000 eventos para evitar resultados silenciosamente incompletos.
+El monitoreo periódico comienza **desactivado**. En la vista diaria se muestran, por separado, los eventos recibidos en `alerts` y `archives` durante 15 minutos y 24 horas, la hora del último evento y cuántos de una muestra tienen una IP reconocible. Esto permite distinguir problemas de recepción de la ausencia de reglas cumplidas.
+
+Para probar el flujo sin recorrer todo el día, usá **Probar últimos 20 min**. **Analizar día** recorre el día completo y puede tardar mucho si archives contiene millones de eventos. La lectura usa `timestamp` para archives y una búsqueda paginada con `scroll`, que no depende del límite de 10.000 resultados de `from/size`.
 
 ## Aislamiento
 

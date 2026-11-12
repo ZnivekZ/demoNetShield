@@ -16,7 +16,7 @@ const emptyRule: CandidateRuleInput = {
 };
 
 const formatTime = (value: string | null | undefined) => value
-  ? new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })
+  ? new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })
   : '—';
 
 const json = (value: unknown) => JSON.stringify(value, null, 2);
@@ -44,6 +44,7 @@ export default function BlockCandidatesPage() {
   const history = useQuery({ queryKey: ['candidates', 'history', ip], queryFn: () => candidateApi.history(ip!), enabled: !!ip });
   const evaluation = useQuery({ queryKey: ['candidates', 'evaluation', evaluationId], queryFn: () => candidateApi.evaluation(evaluationId!), enabled: evaluationId !== null });
   const scanStatus = useQuery({ queryKey: ['candidates', 'scan-status'], queryFn: candidateApi.scanStatus, refetchInterval: 5000 });
+  const sources = useQuery({ queryKey: ['candidates', 'sources'], queryFn: candidateApi.sources, refetchInterval: 30_000 });
 
   useEffect(() => {
     if (config.data) {
@@ -63,6 +64,7 @@ export default function BlockCandidatesPage() {
   }, [scanStatus.data?.running, scanStatus.data?.result, qc, ip]);
 
   const scan = useMutation({ mutationFn: () => candidateApi.scan(day), onSuccess: () => { setFormMessage('Análisis iniciado.'); void scanStatus.refetch(); }, onError: (error: Error) => setFormMessage(error.message) });
+  const quickScan = useMutation({ mutationFn: () => candidateApi.scan(todayART(), 20), onSuccess: () => { setDay(todayART()); setFormMessage('Lectura de los últimos 20 minutos iniciada.'); void scanStatus.refetch(); }, onError: (error: Error) => setFormMessage(error.message) });
   const saveConfig = useMutation({ mutationFn: candidateApi.updateConfig, onSuccess: () => { setFormMessage('Configuración guardada.'); void qc.invalidateQueries({ queryKey: ['candidates', 'config'] }); }, onError: (error: Error) => setFormMessage(error.message) });
   const saveRule = useMutation({ mutationFn: (input: CandidateRuleInput) => editingRule === null ? candidateApi.createRule(input) : candidateApi.updateRule(editingRule, input),
     onSuccess: () => { setFormMessage('Regla guardada.'); setEditingRule(null); setRuleDraft(emptyRule); setRuleIdsText(''); void qc.invalidateQueries({ queryKey: ['candidates', 'rules'] }); },
@@ -97,9 +99,22 @@ export default function BlockCandidatesPage() {
       {formMessage && <div role="status" className="text-sm bg-surface-900 border border-surface-700 rounded-lg p-3">{formMessage}</div>}
 
       {tab === 'daily' && <div className="space-y-5">
+        <div className="bg-surface-900 border border-surface-800 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3"><h2 className="font-semibold text-sm">Recepción desde Wazuh Indexer</h2><button onClick={() => void sources.refetch()} className="text-xs text-brand-300 flex items-center gap-1"><RefreshCw size={13} /> Actualizar</button></div>
+          <div className="grid gap-3 md:grid-cols-2">{sources.data?.map(source => <div key={source.source} className="border border-surface-700 rounded-lg p-3 text-sm">
+            <div className="flex justify-between gap-2"><strong className="capitalize">{source.source}</strong><span className={source.status === 'receiving' ? 'text-green-400' : source.status === 'error' ? 'text-red-400' : 'text-amber-300'}>{source.status === 'receiving' ? 'Llegando' : source.status === 'error' ? 'Error' : 'Sin eventos recientes'}</span></div>
+            {source.error ? <p className="text-red-400 text-xs mt-2">{source.error}</p> : <><p className="mt-2">Últimos 15 min: <b>{source.last_15m?.toLocaleString('es-AR') ?? '—'}</b> · Últimas 24 h: <b>{source.last_24h?.toLocaleString('es-AR') ?? '—'}</b></p>
+              <p className="text-xs text-surface-400 mt-1">Último evento: {source.latest_at ? formatTime(source.latest_at) : '—'} · Con IP reconocible en muestra: {source.sample_with_ip}/{source.sample_size}</p>
+              <p className="text-xs text-surface-500 mt-1">Agentes en muestra: {source.sample_agents.join(', ') || '—'}</p></>}
+          </div>)}</div>
+          {sources.isLoading && <p className="text-xs text-surface-400">Consultando el Indexer…</p>}
+          {sources.isError && <p className="text-xs text-red-400">No se pudo consultar el estado de las fuentes.</p>}
+          <p className="text-xs text-surface-500">Estos conteos muestran logs recibidos; la tabla de abajo solo contiene IP con decisión SI.</p>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-sm">Día <input type="date" value={day} max={todayART()} onChange={event => { setDay(event.target.value); setIp(null); setEvaluationId(null); }} className="ml-2 bg-surface-900 border border-surface-700 rounded-lg px-3 py-2 text-surface-100" /></label>
           <button onClick={() => scan.mutate()} disabled={scan.isPending || scanStatus.data?.running} className="flex items-center gap-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 rounded-lg px-4 py-2 text-sm"><RefreshCw size={15} /> Analizar día</button>
+          <button onClick={() => quickScan.mutate()} disabled={quickScan.isPending || scanStatus.data?.running} className="border border-brand-500 text-brand-300 rounded-lg px-4 py-2 text-sm disabled:opacity-50">Probar últimos 20 min</button>
           {scanStatus.data?.running && <span className="text-sm text-brand-300">Analizando eventos…</span>}
           {scanStatus.data?.error && <span className="text-sm text-red-400">{scanStatus.data.error}</span>}
           <form onSubmit={event => { event.preventDefault(); setIp(ipSearch.trim()); setEvaluationId(null); }} className="flex gap-2 ml-auto">
@@ -107,7 +122,7 @@ export default function BlockCandidatesPage() {
             <button className="border border-surface-700 rounded-lg px-3 py-2 text-sm">Buscar</button>
           </form>
         </div>
-        {config.data?.last_error && <p className="text-sm text-red-400">Último error: {config.data.last_error}</p>}
+        {config.data?.last_error && <p className="text-sm text-red-400">Último análisis falló: {config.data.last_error}</p>}
         {Array.isArray(config.data?.last_run?.warnings) && (config.data.last_run.warnings as string[]).map(warning => <p key={warning} className="text-sm text-amber-300">{warning}</p>)}
         <div className="flex flex-wrap gap-2 text-xs">{days.data?.slice(0, 30).map(item => <button key={item.day} onClick={() => setDay(item.day)} className={`px-3 py-1.5 rounded-full border ${day === item.day ? 'border-brand-400 text-brand-300' : 'border-surface-700 text-surface-400'}`}>{item.day} · {item.count}</button>)}</div>
         <div className="bg-surface-900 border border-surface-800 rounded-xl overflow-x-auto">

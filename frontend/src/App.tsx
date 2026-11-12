@@ -50,6 +50,7 @@ import { WazuhAlertsPage } from './components/wazuh/AlertsPage';
 import { WazuhAgentsPage } from './components/wazuh/AgentsPage';
 import { WazuhVulnerabilitiesPage } from './components/wazuh/VulnerabilitiesPage';
 import { WazuhMitrePage } from './components/wazuh/MitrePage';
+import BlockCandidatesPage from './components/wazuh/BlockCandidatesPage';
 import { AgentDetailPage as WazuhAgentDetailPage } from './components/wazuh/AgentDetailPanel';
 import DigestPage from './components/digest/DigestPage';
 import AiDiagnosisPage from './components/diagnosis/AiDiagnosisPage';
@@ -126,6 +127,7 @@ export default function App() {
               <Route path="/wazuh/agents/:agentId" element={<WazuhAgentDetailPage />} />
               <Route path="/wazuh/vulnerabilities" element={<WazuhVulnerabilitiesPage />} />
               <Route path="/wazuh/mitre" element={<WazuhMitrePage />} />
+              <Route path="/wazuh/candidates" element={<BlockCandidatesPage />} />
 
               {/* Daily Security Digest */}
               <Route path="/digest" element={<DigestPage />} />

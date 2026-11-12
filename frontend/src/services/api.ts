@@ -131,7 +131,7 @@ import type {
   } from '../types';
 import { groupMitreTactics, tacticForRow } from './mitre';
 
-const api = axios.create({
+export const api = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,

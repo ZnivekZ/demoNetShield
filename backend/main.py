@@ -42,6 +42,7 @@ from routers import public_tickets as public_tickets_router
 from routers import blocklist as blocklist_router
 from routers import ai_diagnosis as ai_diagnosis_router
 from routers import network_activity as network_activity_router
+from routers import block_candidates as block_candidates_router
 
 from routers import reputation as reputation_router
 from routers import dhcp as dhcp_router
@@ -200,6 +201,8 @@ async def lifespan(app: FastAPI):
     logger.info("netshield_starting", env=settings.app_env)
     await init_db()
     logger.info("database_initialized")
+    from services.block_candidate_service import scheduler as candidate_scheduler
+    app.state.candidate_task = asyncio.create_task(candidate_scheduler(), name="candidate_scheduler")
     from services.ai_diagnosis_service import mark_interrupted_runs
     await mark_interrupted_runs()
     from services.mitre_report_service import mark_interrupted_reports
@@ -314,6 +317,9 @@ async def lifespan(app: FastAPI):
     from services.mitre_report_service import service as mitre_report_service
     await mitre_report_service.stop()
     task = getattr(app.state, "blocklist_task", None)
+    if task:
+        task.cancel()
+    task = getattr(app.state, "candidate_task", None)
     if task:
         task.cancel()
     try:
@@ -467,6 +473,7 @@ app.include_router(reputation_router.router)
 app.include_router(digest_router.router)
 app.include_router(ai_diagnosis_router.router)
 app.include_router(network_activity_router.router)
+app.include_router(block_candidates_router.router)
 
 
 

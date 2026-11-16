@@ -1,6 +1,5 @@
 """
-Report Scheduler - Automated report generation using APScheduler.
-Reuses the APScheduler infrastructure already installed for Telegram.
+Report Scheduler - Automated evidence preparation using APScheduler.
 """
 from __future__ import annotations
 
@@ -99,9 +98,9 @@ class ReportScheduler:
             self._scheduler.remove_job(job_id)
 
     async def execute_schedule(self, schedule_id: int) -> dict:
-        """Execute a scheduled report: generate + save/send according to output config."""
+        """Prepare current evidence and wait for human review before Groq."""
         from database import async_session_factory
-        from models.saved_report import ReportSchedule, SavedReport
+        from models.saved_report import ReportSchedule
         from sqlalchemy import select
         from datetime import datetime, timezone
         import json as _json
@@ -116,58 +115,35 @@ class ReportScheduler:
             if not schedule or not schedule.enabled:
                 return {"skipped": True, "reason": "not found or disabled"}
 
-            # Generate the report
-            from services.ai_service import get_ai_service
-            ai = get_ai_service()
+            from schemas.reports import ReportPrepareRequest
+            from services.report_generation import SOURCE_BY_ID, prepare_report
             data_sources = _json.loads(schedule.data_sources) if schedule.data_sources else []
+            data_sources = [source for source in data_sources if source in SOURCE_BY_ID]
+            if not data_sources:
+                return {"error": "La programación no tiene fuentes disponibles"}
 
             try:
-                report_data = await ai.generate_report(
+                prepared = await prepare_report(ReportPrepareRequest(
                     prompt=schedule.prompt,
                     audience=schedule.audience,
                     data_sources=data_sources,
-                    model_override=schedule.model,
-                )
+                ), session)
+                from models.prepared_report import PreparedReport
+                row = await session.get(PreparedReport, prepared["preparation_id"])
+                configuration = _json.loads(row.request_json)
+                configuration["schedule_id"] = schedule.id
+                configuration["schedule_name"] = schedule.name
+                row.request_json = _json.dumps(configuration, ensure_ascii=False)
             except Exception as e:
-                logger.error("report_schedule_generate_failed", schedule_id=schedule_id, error=str(e))
+                logger.error("report_schedule_prepare_failed", schedule_id=schedule_id, error=str(e))
                 return {"error": str(e)}
-
-            output_modes = schedule.output.split("+")
-
-            # Save to DB if requested
-            saved_id = None
-            if "save" in output_modes:
-                saved = SavedReport(
-                    title=report_data["title"],
-                    html_content=report_data["html_content"],
-                    prompt=schedule.prompt,
-                    audience=schedule.audience,
-                    model_used=report_data.get("model_used", schedule.model),
-                    data_sources=_json.dumps(report_data.get("data_sources_used", [])),
-                    tokens_used=report_data.get("tokens_used", 0),
-                    created_by=f"schedule:{schedule.id}",
-                )
-                session.add(saved)
-                await session.flush()
-                await session.refresh(saved)
-                saved_id = saved.id
-
-            # Send via Telegram if requested
-            if "telegram" in output_modes:
-                try:
-                    from services.telegram_service import get_telegram_service
-                    tg = get_telegram_service()
-                    summary = f"📊 <b>Reporte Automático: {report_data['title']}</b>\n\n{report_data['summary'][:400]}"
-                    await tg.send_message(text=summary, message_type="scheduled_report")
-                except Exception as e:
-                    logger.warning("report_schedule_telegram_failed", error=str(e))
 
             # Update last_run_at
             schedule.last_run_at = datetime.now(timezone.utc)
             await session.commit()
 
-        logger.info("report_schedule_executed", schedule_id=schedule_id, saved_id=saved_id)
-        return {"success": True, "saved_report_id": saved_id, "title": report_data["title"]}
+        logger.info("report_schedule_prepared", schedule_id=schedule_id, preparation_id=prepared["preparation_id"])
+        return {"success": True, "preparation_id": prepared["preparation_id"]}
 
     async def reload_schedule(self, schedule_id: int, enabled: bool, cron_expression: str) -> None:
         """Called after create/update/delete to keep APScheduler in sync."""

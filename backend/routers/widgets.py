@@ -10,7 +10,6 @@ Endpoints:
   GET  /api/widgets/incident-lifecycle       — Timeline de respuesta a incidente [Multi]
   GET  /api/widgets/suricata-asset-correlation — Alertas enriquecidas con activos GLPI
   GET  /api/widgets/world-threat-map         — Score por país para mapa mundial [Multi]
-  POST /api/widgets/generate-view-report     — Genera reporte IA desde vista personalizada
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ from datetime import datetime, timezone
 
 import structlog
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
 
 from schemas.common import APIResponse
 
@@ -29,14 +27,17 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/widgets", tags=["Widgets"])
 
 
-# ── Schemas de Request ────────────────────────────────────────────
-
-class GenerateViewReportRequest(BaseModel):
-    view_id: str
-    widget_ids: list[str]
-    audience: str = "technical"
-    output: str = "pdf"          # pdf | telegram | both
-    report_title: str = "Reporte de vista personalizada"
+@router.get("/report-source/{source_id}")
+async def get_report_source_widget(source_id: str) -> APIResponse:
+    """Expose the same bounded, source-backed snapshot used by report preparation."""
+    from services.report_generation import SOURCE_BY_ID, _fetch_source
+    from schemas.reports import ReportPrepareRequest
+    if source_id not in {"wazuh_cves", "wazuh_kev", "block_candidates", "network_activity", "quarantine_active"}:
+        return APIResponse.fail("Widget no disponible")
+    source = await _fetch_source(source_id, ReportPrepareRequest(prompt="Vista", data_sources=[source_id]))
+    if source["status"] != "ok":
+        return APIResponse.fail(source.get("error") or "Fuente no disponible")
+    return APIResponse.ok(source)
 
 
 # ── Threat Level ──────────────────────────────────────────────────
@@ -111,7 +112,7 @@ async def get_activity_heatmap() -> APIResponse:
         from datetime import datetime, timedelta, timezone
 
         wazuh_svc = get_wazuh_service()
-        alerts = await wazuh_svc.get_alerts(limit=1000)
+        alerts = await wazuh_svc.get_alerts(limit=500, time_from="now-7d")
 
         matrix = [[0] * 24 for _ in range(7)]
         for alert in alerts:
@@ -127,6 +128,7 @@ async def get_activity_heatmap() -> APIResponse:
         return APIResponse.ok({
             "matrix": matrix,
             "labels_day": ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"],
+            "max_value": max(1, *(max(row) for row in matrix)),
             "generated_at": datetime.now(timezone.utc).isoformat(),
         })
 
@@ -460,83 +462,3 @@ async def get_world_threat_map(
     except Exception as e:
         logger.error("widgets.world_threat_map_error", error=str(e))
         return APIResponse.fail(f"Error obteniendo world threat map: {e}")
-
-
-# ── Generate View Report ──────────────────────────────────────────
-
-@router.post("/generate-view-report")
-async def generate_view_report(request: GenerateViewReportRequest) -> APIResponse:
-    """
-    [OpenRouter AI] [Multi] Genera un reporte IA desde los widgets activos en una vista.
-
-    Flujo:
-      1. Para cada widget_id, consulta sus datos usando los mismos endpoints del frontend
-      2. Consolida todos los datos como contexto estructurado
-      3. [OpenRouter AI] Llama al modelo con ese contexto y el system prompt de audiencia
-      4. Si output=pdf: genera PDF con WeasyPrint y lo devuelve como descarga
-      5. Si output=telegram: envía al canal configurado
-      6. Si output=both: genera PDF y envía por Telegram
-
-    Deduplica consultas si varios widgets del mismo servicio están activos.
-    """
-    try:
-        # Real mode: use existing AIService.generate_report() with contextual prompt
-        from services.ai_service import get_ai_service
-
-        # Build contextual prompt from widget IDs
-        context_prompt = (
-            f"Genera un reporte de seguridad titulado '{request.report_title}' "
-            f"basado en los siguientes widgets activos de la vista '{request.view_id}': "
-            f"{', '.join(request.widget_ids)}. "
-            f"Consulta los datos disponibles de cada fuente de seguridad "
-            f"(Wazuh, CrowdSec, Suricata, MikroTik) para construir el análisis."
-        )
-
-        ai_svc = get_ai_service()
-        report = await ai_svc.generate_report(
-            prompt=context_prompt,
-            audience=request.audience,
-            data_sources=["wazuh_alerts", "mikrotik_connections", "firewall_rules"],
-        )
-
-        result: dict = {
-            "success": True,
-            "pdf_url": None,
-            "telegram_sent": False,
-            "report_summary": report.get("summary", ""),
-        }
-
-        if request.output in ("pdf", "both"):
-            from services.pdf_service import PDFService
-            pdf_svc = PDFService()
-            pdf_bytes = await pdf_svc.generate(
-                html_content=report.get("html_content", ""),
-                title=request.report_title,
-                metadata={"audience": request.audience},
-            )
-            import uuid
-            report_id = str(uuid.uuid4())
-            # TODO: persist to DB or temp storage
-            result["pdf_url"] = f"/api/reports/download/{report_id}"
-
-        if request.output in ("telegram", "both"):
-            from services.telegram_service import get_telegram_service
-            tg_svc = get_telegram_service()
-            summary_text = (
-                f"📊 <b>{request.report_title}</b>\n\n"
-                f"<b>Audiencia:</b> {request.audience}\n"
-                f"<b>Widgets:</b> {len(request.widget_ids)}\n\n"
-                f"{report.get('summary', 'Reporte generado exitosamente.')}\n\n"
-                f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
-            )
-            await tg_svc.send_message(
-                text=summary_text,
-                message_type="view_report",
-            )
-            result["telegram_sent"] = True
-
-        return APIResponse.ok(result)
-
-    except Exception as e:
-        logger.error("widgets.generate_view_report_error", error=str(e))
-        return APIResponse.fail(f"Error generando reporte de vista: {e}")

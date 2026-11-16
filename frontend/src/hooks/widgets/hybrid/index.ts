@@ -109,20 +109,6 @@ export function useApplyGeoblockSuggestion() {
   });
 }
 
-/* ── View Report Generator ─────────────────────────────────────── */
-
-export function useViewReportGenerator() {
-  return useMutation({
-    mutationFn: (data: {
-      view_id: string;
-      widget_ids: string[];
-      audience?: string;
-      output?: string;
-      report_title?: string;
-    }) => widgetsApi.generateViewReport(data),
-  });
-}
-
 /* ── Telegram Activity ─────────────────────────────────────────── */
 
 export function useTelegramActivity(limit = 20) {

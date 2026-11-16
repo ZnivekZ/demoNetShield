@@ -10,7 +10,7 @@ Follows the same pattern as crowdsec_service.py:
 
 Design:
  - Outbound: send_message, send_alert, send_summary, send_report
- - Inbound: process_incoming_message → answer_query (delegates to ai_service)
+ - Inbound: paused while the Telegram workflow is revisited
  - Queue: retry_pending_messages runs every 5min via scheduler
 """
 
@@ -282,24 +282,13 @@ class TelegramService:
         # Log inbound
         await self._log_message("inbound", chat_id, "bot_query", text[:200], "sent")
 
-        # Answer using AI
-        response = await self.answer_query(text, chat_id)
-
-        return {"processed": True, "response_sent": True, "query": text[:100]}
+        logger.info("telegram_inbound_paused", chat_id=chat_id)
+        return {"processed": False, "reason": "paused"}
 
     async def answer_query(self, query: str, chat_id: str) -> str:
-        """Answer a query using the AI service and send the response."""
-        try:
-            from services.ai_service import AIService
-            ai = AIService()
-            response = await ai.answer_telegram_query(query, chat_id)
-            await self.send_message(chat_id=chat_id, text=response, message_type="bot_response")
-            return response
-        except Exception as e:
-            error_text = f"❌ Error procesando consulta: {str(e)[:200]}"
-            logger.error("telegram_ai_query_failed", error=str(e), query=query[:100])
-            await self.send_message(chat_id=chat_id, text=error_text, message_type="bot_response")
-            return error_text
+        """Inbound AI replies are paused with Telegram integration."""
+        logger.info("telegram_query_paused", chat_id=chat_id)
+        return "Consultas por Telegram en pausa."
 
     # ── Queue management ──────────────────────────────────────────────────
 

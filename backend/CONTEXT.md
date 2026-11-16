@@ -55,7 +55,7 @@ backend/
 │   ├── glpi_service.py        # Singleton: cliente GLPI REST API, doble token (41KB)
 │   ├── glpi_collector.py      # Singleton: background task que sincroniza assets GLPI cada 5 min (24KB)
 │   ├── portal_service.py      # Singleton: gestión Hotspot MikroTik (50KB)
-│   ├── ai_service.py          # NO singleton: instancia por llamada. Claude function calling (17KB)
+│   ├── report_generation.py   # Preparación de fuentes y generación con Groq
 │   ├── pdf_service.py         # WeasyPrint + Jinja2 para generar PDF (2KB)
 │   ├── telegram_service.py    # Singleton: bot bidireccional outbound + inbound (21KB)
 │   ├── telegram_scheduler.py  # APScheduler para reportes automáticos (9KB)
@@ -228,16 +228,9 @@ backend/
 
 ---
 
-### `ai_service.py` — AIService
+### `report_generation.py` — Informes con Groq
 
-**NO es singleton.** Se crea una instancia por llamada vía `get_ai_service()`.
-**Modelo:** `claude-sonnet-4-20250514`, max 8192 tokens.
-**Mock guard:** `if settings.should_mock_anthropic: return MockData.ai.mock_report`
-**Function calling:** 8 tools: `get_wazuh_alerts`, `get_wazuh_agents`, `get_crowdsec_decisions`, `get_mikrotik_interfaces`, `get_mikrotik_traffic`, `get_suricata_stats`, `get_glpi_assets`, `get_geoip_top_countries`.
-**System prompts:** 4 prompts: `executive`, `technical`, `operational`, `telegram`.
-
-**Funciones públicas:**
-`generate_report(prompt, audience, data_sources)`, `answer_telegram_query(message, chat_id)`, `collect_view_context(widget_types)`.
+`prepare_report` recoge fuentes acotadas y guarda una copia de las filas y de la solicitud exacta. `select_rows` permite excluir evidencia antes de enviar. `generate_report` utiliza esa copia, registra uso de Groq y devuelve HTML editable. Telegram queda en pausa.
 
 ---
 

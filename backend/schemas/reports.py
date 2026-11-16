@@ -4,7 +4,7 @@ Reports schemas - AI report generation and PDF export.
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DateRange(BaseModel):
@@ -41,3 +41,24 @@ class ReportExportRequest(BaseModel):
     html_content: str
     title: str = "NetShield Security Report"
     metadata: dict = {}
+
+
+class ReportPrepareRequest(BaseModel):
+    prompt: str = Field(min_length=3, max_length=4000)
+    audience: str = Field(default="technical", pattern="^(technical|executive|operational)$")
+    data_sources: list[str] = Field(min_length=1, max_length=24)
+    date_range: DateRange | None = None
+    attached_documents: list[str] = Field(default_factory=list, max_length=3)
+
+
+class ReportSelectionRequest(BaseModel):
+    selected_rows: dict[str, list[int]]
+
+
+class ReportGeneratePreparedRequest(BaseModel):
+    preparation_id: str
+
+
+class MitrePrepareRequest(BaseModel):
+    period_hours: int = Field(default=168)
+    report_format: str = Field(default="technical", pattern="^(technical|executive)$")

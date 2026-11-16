@@ -7,6 +7,7 @@ import json
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import uuid4
 
 import structlog
 from sqlalchemy import select, update
@@ -14,7 +15,7 @@ from sqlalchemy import select, update
 from config import get_settings
 from database import async_session_factory
 from models.ai_diagnosis import MitreReportRun, utc_now
-from services.ai_diagnosis_service import _available_models
+from services.ai_diagnosis_service import _available_models, MODELS
 from services.groq_usage import model_rate_wait, model_request_lock, record_usage
 from services.mitre_report_formats import executive_markdown, technical_markdown
 from services.wazuh_indexer import get_indexer_client
@@ -165,7 +166,8 @@ def _safe_mitre_ai(content: str, allowed_ids: set[str]) -> dict[str, Any]:
             "limitations": [str(x)[:240] for x in (limitations if isinstance(limitations, list) else [])[:3]]}
 
 
-async def _analyze_report(report: dict[str, Any], report_format: str = "technical") -> tuple[dict | None, str | None, int | None, str | None]:
+async def _analyze_report(report: dict[str, Any], report_format: str = "technical",
+                          frozen_request: dict[str, Any] | None = None) -> tuple[dict | None, str | None, int | None, str | None]:
     key = get_settings().groq_api_key.strip()
     if not key:
         return None, None, None, "GROQ_API_KEY no configurada"
@@ -176,7 +178,7 @@ async def _analyze_report(report: dict[str, Any], report_format: str = "technica
         from services.groq_service import GROQ_BASE_URL
     except ImportError:
         return None, None, None, "Cliente de Groq no instalado"
-    models = await _available_models()
+    models = (frozen_request["model"],) if frozen_request else await _available_models()
     payload = _ai_input(report, report_format)
     allowed_ids = {t["id"] for t in payload.get("sampled_techniques", [])}
     max_output = 1100 if report_format == "executive" else 2600
@@ -190,13 +192,14 @@ async def _analyze_report(report: dict[str, Any], report_format: str = "technica
                         wait = await model_rate_wait(model, len(json.dumps(payload, ensure_ascii=False)) // 4 + max_output)
                         if wait:
                             await asyncio.sleep(wait)
-                        response = await client.chat.completions.create(
-                            model=model,
-                            messages=[{"role": "system", "content": prompt},
-                                      {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-                            max_completion_tokens=max_output, reasoning_effort="medium", temperature=0.2,
-                            response_format={"type": "json_object"},
-                        )
+                        kwargs = frozen_request or {
+                            "model": model,
+                            "messages": [{"role": "system", "content": prompt},
+                                         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                            "max_completion_tokens": max_output, "reasoning_effort": "medium",
+                            "temperature": 0.2, "response_format": {"type": "json_object"},
+                        }
+                        response = await client.chat.completions.create(**kwargs)
                         await record_usage(model, "mitre_report", response.usage)
                         result = _safe_mitre_ai(response.choices[0].message.content or "", allowed_ids)
                         return result, model, int(getattr(response.usage, "total_tokens", 0) or 0), None
@@ -221,6 +224,65 @@ class MitreReportService:
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+
+    async def prepare(self, period_hours: int, report_format: str = "technical") -> dict[str, Any]:
+        """Collect MITRE evidence once and expose the exact proposed Groq call."""
+        if period_hours not in (24, 168):
+            raise ValueError("Elegí una ventana de 24 horas o 7 días")
+        if report_format not in ("technical", "executive"):
+            raise ValueError("Elegí informe técnico o ejecutivo")
+        report = await self._collect_report(period_hours, report_format)
+        models = await _available_models() if get_settings().groq_api_key.strip() else MODELS
+        if not models:
+            raise ValueError("No hay modelos Groq habilitados")
+        payload = _ai_input(report, report_format)
+        request = {
+            "model": models[0],
+            "messages": [{"role": "system", "content": EXECUTIVE_PROMPT if report_format == "executive" else MITRE_PROMPT},
+                         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+            "max_completion_tokens": 1100 if report_format == "executive" else 2600,
+            "reasoning_effort": "medium", "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+        }
+        from models.prepared_report import PreparedReport
+        row = PreparedReport(id=str(uuid4()), model=models[0],
+                             request_json=json.dumps({"kind": "mitre", "period_hours": period_hours,
+                                                      "format": report_format}),
+                             sources_json=json.dumps(report, ensure_ascii=False, default=str),
+                             selected_json="{}", messages_json=json.dumps(request, ensure_ascii=False))
+        async with async_session_factory() as db:
+            db.add(row)
+            await db.commit()
+        return {"preparation_id": row.id, "created_at": row.created_at.isoformat() + "Z",
+                "period_hours": period_hours, "format": report_format,
+                "configured": bool(get_settings().groq_api_key.strip()),
+                "has_mitre_evidence": bool(report["techniques"]), "request": request}
+
+    async def start_prepared(self, preparation_id: str) -> int:
+        """Generate from the reviewed snapshot, without querying Wazuh again."""
+        from models.prepared_report import PreparedReport, utc_now as prepared_utc_now
+        async with self._lock:
+            if self._task and not self._task.done():
+                raise RuntimeError("Ya hay un informe MITRE en curso")
+            async with async_session_factory() as db:
+                prepared = await db.get(PreparedReport, preparation_id)
+                if not prepared or json.loads(prepared.request_json).get("kind") != "mitre":
+                    raise ValueError("Preparación MITRE no encontrada")
+                if (prepared_utc_now() - prepared.created_at).total_seconds() > 3600:
+                    raise ValueError("La preparación venció; volvé a consultar los datos")
+                info = json.loads(prepared.request_json)
+                report = json.loads(prepared.sources_json)
+                request = json.loads(prepared.messages_json)
+                row = MitreReportRun(status="running", period_hours=info["period_hours"],
+                                     started_at=utc_now(), report_json=json.dumps({"format": info["format"]}))
+                db.add(row)
+                await db.commit()
+                await db.refresh(row)
+                run_id = row.id
+            self._task = asyncio.create_task(
+                self._execute(run_id, info["period_hours"], info["format"], report, request),
+                name=f"mitre-report-{run_id}")
+            return run_id
 
     async def start(self, period_hours: int, report_format: str = "technical") -> int:
         if period_hours not in (24, 168):
@@ -248,58 +310,64 @@ class MitreReportService:
                     setattr(row, key, value)
                 await db.commit()
 
-    async def _execute(self, run_id: int, period_hours: int, report_format: str) -> None:
+    async def _collect_report(self, period_hours: int, report_format: str) -> dict[str, Any]:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(hours=period_hours)
+        prior_start = start - timedelta(hours=period_hours)
+        indexer = get_indexer_client()
+        raw = await indexer.get_mitre_report_data(start.isoformat(), end.isoformat())
+        report = build_report(raw)
+        report["format"] = report_format
+        report["metrics"] = await indexer.get_mitre_period_metrics(start.isoformat(), end.isoformat())
         try:
-            end = datetime.now(timezone.utc)
-            start = end - timedelta(hours=period_hours)
-            prior_start = start - timedelta(hours=period_hours)
-            indexer = get_indexer_client()
-            raw = await indexer.get_mitre_report_data(start.isoformat(), end.isoformat())
-            report = build_report(raw)
-            report["format"] = report_format
-            report["metrics"] = await indexer.get_mitre_period_metrics(start.isoformat(), end.isoformat())
-            try:
-                report["previous_metrics"] = await indexer.get_mitre_period_metrics(
-                    prior_start.isoformat(), start.isoformat())
-            except Exception as exc:
-                logger.warning("mitre_previous_metrics_unavailable", error=str(exc)[:180])
-                report["previous_metrics"] = None
-            try:
-                agents = await get_wazuh_service().get_agents()
-                report["fleet"] = {
-                    "available": True, "total": len(agents),
-                    "active": sum(str(a.get("status") or "").lower() == "active" for a in agents),
-                    "agents": [{"id": str(a.get("id") or ""), "name": str(a.get("name") or ""),
-                                "status": str(a.get("status") or ""), "ip": a.get("ip"),
-                                "os": " ".join(x for x in (a.get("os_name"), a.get("os_version")) if x)}
-                               for a in agents],
-                }
-            except Exception as exc:
-                logger.warning("mitre_fleet_unavailable", error=str(exc)[:180])
-                report["fleet"] = {"available": False}
+            report["previous_metrics"] = await indexer.get_mitre_period_metrics(
+                prior_start.isoformat(), start.isoformat())
+        except Exception as exc:
+            logger.warning("mitre_previous_metrics_unavailable", error=str(exc)[:180])
+            report["previous_metrics"] = None
+        try:
+            agents = await get_wazuh_service().get_agents()
+            report["fleet"] = {
+                "available": True, "total": len(agents),
+                "active": sum(str(a.get("status") or "").lower() == "active" for a in agents),
+                "agents": [{"id": str(a.get("id") or ""), "name": str(a.get("name") or ""),
+                            "status": str(a.get("status") or ""), "ip": a.get("ip"),
+                            "os": " ".join(x for x in (a.get("os_name"), a.get("os_version")) if x)}
+                           for a in agents],
+            }
+        except Exception as exc:
+            logger.warning("mitre_fleet_unavailable", error=str(exc)[:180])
+            report["fleet"] = {"available": False}
 
-            if report_format == "technical":
-                details = {a["id"]: a for a in report["fleet"].get("agents", [])}
-                priority = [a for a in report["agents"] if a["max_level"] >= 8 or
-                            any(tactic.casefold() in ("persistence", "impact")
-                                for t in a["techniques"] for tactic in t.get("tactics", []))]
-                critical_agents = []
-                for agent in priority:
-                    meta = details.get(agent["agent_id"], {})
-                    try:
-                        evidence = await indexer.get_mitre_agent_evidence(
-                            agent["agent_id"], start.isoformat(), end.isoformat())
-                    except Exception as exc:
-                        logger.warning("mitre_agent_evidence_unavailable", agent_id=agent["agent_id"],
-                                       error=str(exc)[:180])
-                        evidence = {"total_qualifying": 0, "events": [], "error": "Evidencia no disponible"}
-                    critical_agents.append({**agent, "ip": meta.get("ip"), "os": meta.get("os"),
-                                            "evidence": evidence})
-                report["critical_agents"] = critical_agents
-            else:
-                report["critical_agents"] = []
+        if report_format == "technical":
+            details = {a["id"]: a for a in report["fleet"].get("agents", [])}
+            priority = [a for a in report["agents"] if a["max_level"] >= 8 or
+                        any(tactic.casefold() in ("persistence", "impact")
+                            for t in a["techniques"] for tactic in t.get("tactics", []))]
+            critical_agents = []
+            for agent in priority:
+                meta = details.get(agent["agent_id"], {})
+                try:
+                    evidence = await indexer.get_mitre_agent_evidence(
+                        agent["agent_id"], start.isoformat(), end.isoformat())
+                except Exception as exc:
+                    logger.warning("mitre_agent_evidence_unavailable", agent_id=agent["agent_id"],
+                                   error=str(exc)[:180])
+                    evidence = {"total_qualifying": 0, "events": [], "error": "Evidencia no disponible"}
+                critical_agents.append({**agent, "ip": meta.get("ip"), "os": meta.get("os"),
+                                        "evidence": evidence})
+            report["critical_agents"] = critical_agents
+        else:
+            report["critical_agents"] = []
 
-            ai, model, tokens, ai_error = await _analyze_report(report, report_format)
+        return report
+
+    async def _execute(self, run_id: int, period_hours: int, report_format: str,
+                       prepared_report: dict[str, Any] | None = None,
+                       frozen_request: dict[str, Any] | None = None) -> None:
+        try:
+            report = prepared_report if prepared_report is not None else await self._collect_report(period_hours, report_format)
+            ai, model, tokens, ai_error = await _analyze_report(report, report_format, frozen_request)
             report["markdown"] = (technical_markdown(report, ai) if report_format == "technical"
                                   else executive_markdown(report, ai))
             if report_format == "executive":

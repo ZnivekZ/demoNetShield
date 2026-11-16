@@ -27,7 +27,6 @@ flowchart LR
     GL[GLPI<br/>glpi.fi.mdp.edu.ar/api.php/v3.0]
     REP[AbuseIPDB y VirusTotal<br/>reputación de IP]
     GR[Groq<br/>diagnóstico y digest]
-    OR[OpenRouter<br/>reportes IA, sin clave local]
     TG[Telegram Bot API<br/>sin token local]
 
     U --> FE
@@ -40,7 +39,7 @@ flowchart LR
     BE -->|inventario y tickets| GL
     BE -->|consulta de reputación| REP
     BE -->|análisis IA| GR
-    BE -.->|reportes si se configura| OR
+    BE -.->|reportes, diagnóstico y digest| GR
     BE -.->|notificaciones si se configura| TG
 ```
 
@@ -62,7 +61,6 @@ Las flechas continuas representan integraciones implementadas y configuradas com
 | AbuseIPDB / VirusTotal | Servicios externos en Internet. | Reputación y contexto de IPs, consultados desde NetShield. | Claves presentes localmente; no se verificaron respuestas. |
 | Groq | Servicio externo en Internet. | Análisis de diagnóstico IA y resumen del digest; el puntaje básico del digest se calcula localmente. | Clave presente localmente; no se verificaron respuestas. |
 | CISA KEV | Feed público externo y caché en `backend/data/cisa_kev.json`. | Cruza CVE de Wazuh con vulnerabilidades explotadas conocidas. | Caché local presente; descarga en vivo no comprobada. |
-| OpenRouter | Servicio externo en Internet. | Generación de reportes con IA y respuestas a Telegram. | Código implementado; sin clave en la configuración local examinada. |
 | Telegram | Bot API externa; scheduler y webhook en el backend. | Envío de alertas/reportes y recepción de consultas. | Código implementado; sin token local, por lo que el bot no puede conectarse con esta configuración. |
 | GeoLite2 | Dos archivos `.mmdb` locales, previstos para el backend y un volumen `netshield-geoip` en Docker. | País/ASN de IPs públicas. | No se encontraron las bases `.mmdb` en el checkout. Sin ellas el servicio devuelve datos vacíos para IPs públicas. |
 | Portal público `/soporte` | Frontend y backend de NetShield, conectado a GLPI. | Alta/consulta de tickets sin login del dashboard. | Implementado, pero deshabilitado por defecto (`PUBLIC_TICKETS_ENABLED=false`). |

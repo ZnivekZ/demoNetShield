@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   DndContext,
@@ -193,19 +193,16 @@ export default function ViewBuilderPage() {
 
 
   // Form state
-  const [name, setName] = useState(existingView?.name ?? '');
-  const [description, setDescription] = useState(existingView?.description ?? '');
-  const [widgets, setWidgets] = useState<WidgetConfig[]>(existingView?.widgets ?? []);
+  const [nameDraft, setName] = useState<string | null>(null);
+  const [descriptionDraft, setDescription] = useState<string | null>(null);
+  const [widgetsDraft, setWidgetsDraft] = useState<WidgetConfig[] | null>(null);
+  const name = nameDraft ?? existingView?.name ?? '';
+  const description = descriptionDraft ?? existingView?.description ?? '';
+  const widgets = widgetsDraft ?? existingView?.widgets ?? [];
+  const setWidgets = (update: (current: WidgetConfig[]) => WidgetConfig[]) =>
+    setWidgetsDraft(current => update(current ?? existingView?.widgets ?? []));
   const [catalogFilter, setCatalogFilter] = useState('');
-
-  // Sincronizar si se cargan los datos de la vista existente
-  useMemo(() => {
-    if (existingView) {
-      setName(existingView.name);
-      setDescription(existingView.description ?? '');
-      setWidgets(existingView.widgets);
-    }
-  }, [existingView]);
+  const [sourceFilter, setSourceFilter] = useState('');
 
   const createView = useCreateView();
   const updateView = useUpdateView();
@@ -266,8 +263,10 @@ export default function ViewBuilderPage() {
 
   // Widgets del tab activo filtrados por búsqueda
   const filteredCategories = catalogFilter.trim() ? search(catalogFilter) : categories;
-  const activeWidgets = filteredCategories.find(c => c.id === activeCategory)?.widgets ?? [];
-  const noResults = filteredCategories.every(c => c.widgets.length === 0);
+  const activeWidgets = (filteredCategories.find(c => c.id === activeCategory)?.widgets ?? [])
+    .filter(item => !sourceFilter || item.source === sourceFilter);
+  const noResults = activeWidgets.length === 0;
+  const sourceOptions = [...new Set(categories.flatMap(category => category.widgets.map(item => item.source)))].sort();
 
   const isSaving = createView.isPending || updateView.isPending;
 
@@ -375,6 +374,13 @@ export default function ViewBuilderPage() {
             </div>
           </div>
 
+          <label className="text-xs text-surface-400 flex items-center gap-2 mt-2">Fuente
+            <select className="input" value={sourceFilter} onChange={event => setSourceFilter(event.target.value)}>
+              <option value="">Todas</option>
+              {sourceOptions.map(source => <option key={source} value={source}>{source}</option>)}
+            </select>
+          </label>
+
           {/* Tabs por categoría */}
           {!catalogFilter.trim() && (
             <div className="catalog-tabs" role="tablist">
@@ -405,7 +411,7 @@ export default function ViewBuilderPage() {
             </div>
           ) : (
             <div className="builder-catalog__grid">
-              {(catalogFilter.trim() ? filteredCategories.flatMap(c => c.widgets) : activeWidgets).map(item => (
+              {activeWidgets.map(item => (
                 <CatalogWidgetCard
                   key={item.type}
                   item={item}

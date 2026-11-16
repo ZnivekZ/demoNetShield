@@ -25,6 +25,10 @@ import type {
   IPLabel,
   IPGroup,
   ReportDraft,
+  ReportSource,
+  PreparedReport,
+  PreparedReportSource,
+  PreparedMitreReport,
   ActionLogEntry,
   VlanInfo,
   VlanTrafficData,
@@ -667,16 +671,43 @@ export const networkApi = {
 /* ── Reports ──────────────────────────────────────────────────── */
 
 export const reportsApi = {
+  mitreLatest: () => api.get<APIResponse<MitreReportRun | null>>('/reports/mitre/latest').then(r => r.data),
+  mitreById: (id: number) => api.get<APIResponse<MitreReportRun>>(`/reports/mitre/${id}`).then(r => r.data),
+  mitreHistory: () => api.get<APIResponse<MitreReportHistoryItem[]>>('/reports/mitre/history').then(r => r.data),
+  prepareMitre: ({ periodHours, format }: { periodHours: number; format: 'technical' | 'executive' }) =>
+    api.post<APIResponse<PreparedMitreReport>>('/reports/mitre/prepare',
+      { period_hours: periodHours, report_format: format }, { timeout: 120000 }).then(r => r.data),
+
+  generateMitre: (preparationId: string) =>
+    api.post<APIResponse<{ id: number; status: string }>>('/reports/mitre/generate',
+      { preparation_id: preparationId }).then(r => r.data),
+
   // ── Generation ──────────────────────────────────────
-  generate: (params: {
+  getSources: () =>
+    api.get<APIResponse<ReportSource[]>>('/reports/sources').then(r => r.data),
+
+  getPrepared: (id: string) =>
+    api.get<APIResponse<PreparedReport>>(`/reports/prepare/${id}`).then(r => r.data),
+
+  listScheduledPreparations: () =>
+    api.get<APIResponse<{ preparation_id: string; schedule_name: string; created_at: string; model: string }[]>>
+      ('/reports/prepare/scheduled').then(r => r.data),
+
+  prepare: (params: {
     prompt: string;
     audience: string;
     attached_documents?: string[];
     data_sources?: string[];
     date_range?: { from_date: string; to_date: string };
-    comparison_range?: { from_date: string; to_date: string };
   }) =>
-    api.post<APIResponse<ReportDraft>>('/reports/generate', params).then(r => r.data),
+    api.post<APIResponse<PreparedReport>>('/reports/prepare', params).then(r => r.data),
+
+  selectRows: (id: string, selectedRows: Record<string, number[]>) =>
+    api.put<APIResponse<PreparedReport>>(`/reports/prepare/${id}/selection`,
+      { selected_rows: selectedRows }).then(r => r.data),
+
+  generate: (preparationId: string) =>
+    api.post<APIResponse<ReportDraft>>('/reports/generate', { preparation_id: preparationId }).then(r => r.data),
 
   exportPdf: (htmlContent: string, title: string, metadata: Record<string, string> = {}) =>
     api.post('/reports/export-pdf', {
@@ -724,6 +755,10 @@ export const reportsApi = {
   // ── Legacy ─────────────────────────────────────────
   getHistory: (limit = 20) =>
     api.get<APIResponse<ActionLogEntry[]>>('/reports/history', { params: { limit } }).then(r => r.data),
+};
+
+export const reportWidgetApi = {
+  source: (id: string) => api.get<APIResponse<PreparedReportSource>>(`/widgets/report-source/${id}`).then(r => r.data),
 };
 
 /* ── Actions ──────────────────────────────────────────────────── */
@@ -1124,7 +1159,7 @@ import type {
   WidgetCatalogResponse,
   ThreatLevelData, ActivityHeatmapData, CorrelationTimelineData,
   ConfirmedThreatsData, IncidentLifecycleData, SuricataAssetCorrelationData,
-  WorldThreatMapData, ViewReportResult,
+  WorldThreatMapData,
   IpReputation, ReputationCapabilities, AbuseCategory, ReportPayload,
 } from '../types';
 
@@ -1195,15 +1230,6 @@ export const widgetsApi = {
   getWorldThreatMap: () =>
     api.get<APIResponse<WorldThreatMapData>>('/widgets/world-threat-map').then(r => r.data),
 
-  /** Genera un reporte IA desde los widgets activos de una vista */
-  generateViewReport: (data: {
-    view_id: string;
-    widget_ids: string[];
-    audience?: string;
-    output?: string;
-    report_title?: string;
-  }) =>
-    api.post<APIResponse<ViewReportResult>>('/widgets/generate-view-report', data).then(r => r.data),
 };
 
 // ── DHCP API ──────────────────────────────────────────────────────────────────
@@ -1479,11 +1505,5 @@ export const aiDiagnosisApi = {
   history: () => api.get<APIResponse<DiagnosisRunHistoryItem[]>>('/ai-diagnosis/runs/history').then(r => r.data),
   start: () => api.post<APIResponse<{ id: number; status: string }>>('/ai-diagnosis/runs').then(r => r.data),
   usage: () => api.get<APIResponse<GroqUsageStatus>>('/ai-diagnosis/groq-usage').then(r => r.data),
-  mitreLatest: () => api.get<APIResponse<MitreReportRun | null>>('/ai-diagnosis/mitre-reports/latest').then(r => r.data),
-  mitreById: (id: number) => api.get<APIResponse<MitreReportRun>>(`/ai-diagnosis/mitre-reports/${id}`).then(r => r.data),
-  mitreHistory: () => api.get<APIResponse<MitreReportHistoryItem[]>>('/ai-diagnosis/mitre-reports/history').then(r => r.data),
-  mitreStart: ({ periodHours, format }: { periodHours: number; format: 'technical' | 'executive' }) =>
-    api.post<APIResponse<{ id: number; status: string }>>('/ai-diagnosis/mitre-reports', null,
-      { params: { period_hours: periodHours, report_format: format } }).then(r => r.data),
 };
 

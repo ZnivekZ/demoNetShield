@@ -65,8 +65,8 @@ _WIDGETS_STANDARD = [
     },
     {
         "type": "wazuh_summary",
-        "title": "Resumen de Seguridad",
-        "description": "Contadores de alertas por severidad",
+        "title": "Estado de agentes Wazuh",
+        "description": "Contadores de agentes activos, desconectados y totales",
         "icon": "BarChart2",
         "source": "wazuh",
         "default_size": "small",
@@ -244,7 +244,7 @@ _WIDGETS_VISUAL = [
     {
         "type": "visual_activity_heatmap",
         "title": "Heatmap de Actividad",
-        "description": "Calendar heatmap 7×24h — actividad de alertas por día y hora",
+        "description": "Muestra de hasta 500 alertas Wazuh de 7 días por día y hora",
         "icon": "Grid",
         "source": "wazuh",
         "category": "visual",
@@ -711,11 +711,35 @@ WIDGET_CATALOG = {
 
 @router.get("/widgets/catalog")
 async def get_widget_catalog() -> APIResponse:
-    """
-    Retorna el catálogo categorizado de widgets con 4 secciones:
-    standard (17), visual (12), technical (15), hybrid (15). Total: 59 widgets.
-    """
-    return APIResponse.ok(WIDGET_CATALOG)
+    """One active catalog. Existing saved views may still contain legacy widgets."""
+    active = {
+        "wazuh_alerts", "wazuh_agents", "wazuh_summary", "traffic_chart", "firewall_rules",
+        "blocked_ips", "mikrotik_health", "glpi_assets", "glpi_tickets", "action_log",
+        "visual_network_pulse", "visual_event_counter", "visual_activity_heatmap",
+        "visual_agents_thermometer", "visual_agent_alert_heatmap", "visual_subnet_usage", "visual_queue_bars",
+        "technical_action_log", "technical_firewall_tree", "technical_live_logs",
+        "technical_critical_assets", "technical_bandwidth_top", "technical_dhcp_leases",
+        "technical_nat_table", "technical_route_table", "hybrid_defense_layers",
+        "hybrid_mitre_matrix", "hybrid_dhcp_discovery",
+    }
+    current = [widget for category in WIDGET_CATALOG["categories"] for widget in category["widgets"]
+               if widget["type"] in active]
+    extra = [
+        ("wazuh_cves", "Vulnerabilidades activas", "CVE del inventario actual", "wazuh"),
+        ("wazuh_kev", "CVE en CISA KEV", "Vulnerabilidades presentes en KEV", "wazuh"),
+        ("block_candidates", "Candidatos de bloqueo", "Candidatos detectados por día", "general"),
+        ("network_activity", "Actividad de red", "Equipos y conexiones actuales", "mikrotik"),
+        ("recent_reports", "Informes recientes", "Últimos informes guardados", "general"),
+        ("create_report_from_view", "Informe desde esta vista", "Abre preparación con fuentes de la vista", "general"),
+        ("quarantine_active", "Cuarentenas activas", "Activos GLPI en cuarentena", "glpi"),
+    ]
+    current.extend({"type": kind, "title": title, "description": desc, "icon": "FileText",
+                    "source": source, "default_size": "medium", "available_sizes": ["medium", "large", "full"],
+                    "preview_color": "#06b6d4", "config_schema": {}}
+                   for kind, title, desc, source in extra)
+    return APIResponse.ok({"categories": [{"id": "standard", "label": "Disponibles",
+                                           "description": "Widgets con fuentes activas", "icon": "LayoutDashboard",
+                                           "widgets": current}]})
 
 
 # ── Views CRUD ────────────────────────────────────────────────────

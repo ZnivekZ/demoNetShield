@@ -5,7 +5,6 @@ import { Bot, Clock3, ExternalLink, RefreshCw, Server, ShieldAlert } from 'lucid
 import { aiDiagnosisApi } from '../../services/api';
 import type { AgentDiagnosis, DiagnosisStatus } from '../../types';
 import { CveUsageContext } from '../wazuh/CveUsageStatus';
-import MitreReportPanel from './MitreReportPanel';
 
 const STATUS: Record<DiagnosisStatus, { label: string; className: string; order: number }> = {
   attention_high: { label: 'Atención alta', className: 'text-red-300 bg-red-500/10 border-red-500/20', order: 0 },
@@ -397,6 +396,5 @@ export default function AiDiagnosisPage() {
         {reports.map(report => <AgentCard key={report.agent_id} report={report} />)}
       </div>
     </div>}
-    <MitreReportPanel />
   </div>;
 }

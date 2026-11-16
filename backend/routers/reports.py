@@ -7,21 +7,25 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from services.audit_service import log_action
 from schemas.common import APIResponse
-from schemas.reports import ReportExportRequest, ReportGenerateRequest
+from schemas.reports import (ReportExportRequest, ReportGeneratePreparedRequest, MitrePrepareRequest,
+                             ReportPrepareRequest, ReportSelectionRequest)
 from schemas.saved_report import (
     SavedReportCreate, SavedReportUpdate,
     ReportScheduleCreate, ReportScheduleUpdate,
 )
-from services.ai_service import AIService, get_ai_service, REPORT_TEMPLATES
+from services.report_generation import (REPORT_TEMPLATES, SOURCE_CATALOG,
+                                        prepare_report, select_rows, _public,
+                                        generate_report as generate_prepared)
 from services.pdf_service import PDFService, get_pdf_service
 
 logger = structlog.get_logger(__name__)
@@ -37,30 +41,109 @@ async def get_report_templates() -> APIResponse:
     return APIResponse.ok(REPORT_TEMPLATES)
 
 
+@router.get("/sources")
+async def get_report_sources() -> APIResponse:
+    return APIResponse.ok(SOURCE_CATALOG)
+
+
+@router.post("/mitre/prepare")
+async def prepare_mitre_report(request: MitrePrepareRequest) -> APIResponse:
+    from services.mitre_report_service import service
+    try:
+        return APIResponse.ok(await service.prepare(request.period_hours, request.report_format))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/mitre/generate")
+async def generate_mitre_report(request: ReportGeneratePreparedRequest) -> APIResponse:
+    from services.mitre_report_service import service
+    try:
+        run_id = await service.start_prepared(request.preparation_id)
+        return APIResponse.ok({"id": run_id, "status": "running"})
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/mitre/latest")
+async def latest_mitre_report() -> APIResponse:
+    from services.mitre_report_service import get_report
+    return APIResponse.ok(await get_report())
+
+
+@router.get("/mitre/history")
+async def mitre_report_history() -> APIResponse:
+    from services.mitre_report_service import get_report_history
+    return APIResponse.ok(await get_report_history())
+
+
+@router.get("/mitre/{run_id}")
+async def read_mitre_report(run_id: int) -> APIResponse:
+    from services.mitre_report_service import get_report
+    report = await get_report(run_id)
+    if report is None:
+        raise HTTPException(404, "Informe MITRE no encontrado")
+    return APIResponse.ok(report)
+
+
+@router.post("/prepare")
+async def prepare_report_request(request: ReportPrepareRequest, db: AsyncSession = Depends(get_db)) -> APIResponse:
+    return APIResponse.ok(await prepare_report(request, db))
+
+
+@router.get("/prepare/scheduled")
+async def list_scheduled_preparations(db: AsyncSession = Depends(get_db)) -> APIResponse:
+    from sqlalchemy import select
+    from models.prepared_report import PreparedReport, utc_now
+    rows = (await db.scalars(select(PreparedReport)
+                             .where(PreparedReport.created_at >= utc_now() - timedelta(days=7))
+                             .order_by(PreparedReport.created_at.desc()).limit(100))).all()
+    pending = []
+    for row in rows:
+        info = json.loads(row.request_json)
+        if info.get("schedule_id") and not info.get("generated_at"):
+            pending.append({"preparation_id": row.id, "schedule_name": info.get("schedule_name"),
+                            "created_at": row.created_at.isoformat() + "Z", "model": row.model})
+    return APIResponse.ok(pending)
+
+
+@router.get("/prepare/{preparation_id}")
+async def get_prepared_report(preparation_id: str, db: AsyncSession = Depends(get_db)) -> APIResponse:
+    from models.prepared_report import PreparedReport
+    row = await db.get(PreparedReport, preparation_id)
+    if not row or json.loads(row.request_json).get("kind") == "mitre":
+        raise HTTPException(404, "Preparación no encontrada")
+    return APIResponse.ok(_public(row))
+
+
+@router.put("/prepare/{preparation_id}/selection")
+async def update_report_selection(preparation_id: str, request: ReportSelectionRequest,
+                                  db: AsyncSession = Depends(get_db)) -> APIResponse:
+    from models.prepared_report import PreparedReport
+    preparation = await db.get(PreparedReport, preparation_id)
+    if not preparation:
+        raise HTTPException(404, "Preparación no encontrada")
+    return APIResponse.ok(await select_rows(preparation, request.selected_rows, db))
+
+
 
 # ── Report Generation ─────────────────────────────────────────────
 
 @router.post("/generate")
 async def generate_report(
-    request: ReportGenerateRequest,
+    request: ReportGeneratePreparedRequest,
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
-    """
-    Generate an AI-powered security report draft.
-    Uses function calling to fetch live data from security systems.
-    Auto-saves result to saved_reports table.
-    Returns editable HTML for the TipTap editor.
-    """
+    """Generate from the frozen, reviewed request and return editable HTML."""
     try:
-        ai_service = get_ai_service()
-        result = await ai_service.generate_report(
-            prompt=request.prompt,
-            audience=request.audience,
-            attached_documents=request.attached_documents,
-            data_sources=request.data_sources,
-            date_range=request.date_range.model_dump() if request.date_range else None,
-            comparison_range=request.comparison_range.model_dump() if request.comparison_range else None,
-        )
+        from models.prepared_report import PreparedReport
+        preparation = await db.get(PreparedReport, request.preparation_id)
+        if not preparation:
+            raise HTTPException(404, "Preparación no encontrada")
+        result = await generate_prepared(preparation)
+        prepared_request = json.loads(preparation.request_json)
 
         # Auto-save to saved_reports
         saved_id = None
@@ -69,8 +152,8 @@ async def generate_report(
             saved = SavedReport(
                 title=result.get("title", "Sin título"),
                 html_content=result.get("html_content", ""),
-                prompt=request.prompt,
-                audience=request.audience,
+                prompt=prepared_request["prompt"],
+                audience=prepared_request["audience"],
                 model_used=result.get("model_used", ""),
                 data_sources=json.dumps(result.get("data_sources_used", [])),
                 tokens_used=result.get("tokens_used", 0),
@@ -89,23 +172,28 @@ async def generate_report(
             severity="medium",
             details={
                 "title": result.get("title", ""),
-                "audience": request.audience,
-                "data_sources": request.data_sources,
+                "audience": prepared_request["audience"],
+                "data_sources": prepared_request["data_sources"],
                 "tokens_used": result.get("tokens_used", 0),
                 "model": result.get("model_used", ""),
                 "saved_report_id": saved_id,
             },
-            comment=f"AI report: {request.prompt[:100]}",
+            comment=f"AI report: {prepared_request['prompt'][:100]}",
         )
 
         logger.info(
             "api_report_generated",
-            audience=request.audience,
+            audience=prepared_request["audience"],
             tokens=result.get("tokens_used", 0),
             saved_id=saved_id,
         )
         result["saved_report_id"] = saved_id
+        if prepared_request.get("schedule_id"):
+            prepared_request["generated_at"] = datetime.now(timezone.utc).isoformat()
+            preparation.request_json = json.dumps(prepared_request, ensure_ascii=False)
         return APIResponse.ok(result)
+    except HTTPException:
+        raise
     except ValueError as e:
         return APIResponse.fail(str(e))
     except Exception as e:
@@ -329,8 +417,8 @@ async def create_report_schedule(
             prompt=request.prompt,
             audience=request.audience,
             data_sources=json.dumps(request.data_sources),
-            model=request.model,
-            output=request.output,
+            model="",
+            output="save",
         )
         db.add(schedule)
         await db.flush()
@@ -377,10 +465,6 @@ async def update_report_schedule(
             schedule.audience = request.audience
         if request.data_sources is not None:
             schedule.data_sources = json.dumps(request.data_sources)
-        if request.model is not None:
-            schedule.model = request.model
-        if request.output is not None:
-            schedule.output = request.output
 
         await db.flush()
         await db.refresh(schedule)
@@ -431,6 +515,10 @@ async def trigger_report_schedule_now(
         from services.report_scheduler import get_report_scheduler
         scheduler = get_report_scheduler()
         result = await scheduler.execute_schedule(schedule_id)
+        if result.get("error"):
+            return APIResponse.fail(result["error"])
+        if result.get("skipped"):
+            return APIResponse.fail("Programación deshabilitada o inexistente")
 
         await log_action(
             db,

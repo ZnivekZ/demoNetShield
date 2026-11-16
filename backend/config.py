@@ -52,9 +52,6 @@ class Settings(BaseSettings):
     wazuh_indexer_password: str = ""
     wazuh_indexer_verify_ssl: bool = False
 
-    # ── OpenRouter AI (modelos gratuitos vía proxy OpenAI-compatible) ──────
-    openrouter_api_key: str = ""
-    openrouter_model: str = "openrouter/auto"  # modelo gratuito por defecto
 
     # ── Groq AI (Daily Security Digest) ──────────────────────────────────────
     # Clave gratuita: https://console.groq.com/keys

@@ -29,8 +29,6 @@ class ReportScheduleCreate(BaseModel):
     prompt: str = ""
     audience: str = "technical"
     data_sources: list[str] = []
-    model: str = "openrouter/auto"
-    output: str = "save"  # save | pdf | telegram | save+telegram
 
 
 class ReportScheduleUpdate(BaseModel):
@@ -41,5 +39,3 @@ class ReportScheduleUpdate(BaseModel):
     prompt: Optional[str] = None
     audience: Optional[str] = None
     data_sources: Optional[list[str]] = None
-    model: Optional[str] = None
-    output: Optional[str] = None

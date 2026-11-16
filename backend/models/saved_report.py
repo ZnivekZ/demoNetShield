@@ -68,7 +68,7 @@ class ReportSchedule(Base):
     prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
     audience: Mapped[str] = mapped_column(String(50), nullable=False, default="technical")
     data_sources: Mapped[str] = mapped_column(String(500), nullable=False, default="[]")
-    model: Mapped[str] = mapped_column(String(120), nullable=False, default="openrouter/auto")
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     output: Mapped[str] = mapped_column(String(50), nullable=False, default="save")
     last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -86,8 +86,6 @@ class ReportSchedule(Base):
             "prompt": self.prompt,
             "audience": self.audience,
             "data_sources": json.loads(self.data_sources) if self.data_sources else [],
-            "model": self.model,
-            "output": self.output,
             "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

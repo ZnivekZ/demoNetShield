@@ -336,6 +336,51 @@ export interface ReportDraft {
   saved_report_id?: number | null;
 }
 
+export interface ReportSource {
+  id: string;
+  label: string;
+  group: string;
+  historical: boolean;
+}
+
+export interface PreparedReportSource extends ReportSource {
+  status: 'ok' | 'unavailable';
+  observed_at: string;
+  truncated: boolean;
+  error?: string;
+  rows: { id: string; data: Record<string, unknown> }[];
+  selected_rows: number[];
+}
+
+export interface PreparedReport {
+  preparation_id: string;
+  created_at: string;
+  model: string;
+  configured: boolean;
+  configuration: { prompt: string; audience: string; data_sources: string[];
+    date_range?: { from_date: string; to_date: string } | null; attached_documents?: string[];
+    schedule_id?: number; schedule_name?: string };
+  request: {
+    model: string;
+    messages: { role: string; content: string }[];
+    response_format: { type: string };
+    max_completion_tokens: number;
+    temperature: number;
+    reasoning_effort: string;
+  };
+  sources: PreparedReportSource[];
+}
+
+export interface PreparedMitreReport {
+  preparation_id: string;
+  created_at: string;
+  period_hours: number;
+  format: 'technical' | 'executive';
+  configured: boolean;
+  has_mitre_evidence: boolean;
+  request: PreparedReport['request'];
+}
+
 export interface SavedReport {
   id: number;
   title: string;
@@ -371,8 +416,6 @@ export interface ReportSchedule {
   prompt: string;
   audience: string;
   data_sources: string[];
-  model: string;
-  output: string;
   last_run_at: string | null;
   created_at: string;
 }
@@ -1947,17 +1990,6 @@ export interface WorldThreatMapData {
   countries: WorldThreatCountry[];
   total_countries_with_activity: number;
   generated_at: string;
-}
-
-export interface ViewReportResult {
-  success: boolean;
-  pdf_url: string | null;
-  telegram_sent: boolean;
-  report_summary: string;
-  html_content?: string;
-  view_id: string;
-  widget_ids: string[];
-  audience: string;
 }
 
 /* ── DHCP Types ──────────────────────────────────────────────── */

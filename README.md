@@ -10,7 +10,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://typescriptlang.org)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 
-*Integra MikroTik CHR · Wazuh SIEM · CrowdSec CTI · Suricata IDS/IPS/NSM · MaxMind GeoLite2 · OpenRouter AI · GLPI ITSM · Telegram Bot · DHCP Admin en un único panel de control*
+*Integra MikroTik CHR · Wazuh SIEM · CrowdSec CTI · Suricata IDS/IPS/NSM · MaxMind GeoLite2 · Groq · GLPI ITSM · DHCP Admin en un único panel de control*
 
 </div>
 
@@ -26,11 +26,11 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 - **🛡️ CrowdSec** — Inteligencia colaborativa de amenazas: decisiones de bloqueo, reputación de IPs, escenarios, bouncers y heatmaps geográficos
 - **📡 Suricata IDS/IPS/NSM** — Motor de análisis de red: detección de amenazas en capa de red, bloqueo inline (IPS), forense de tráfico (NSM). Flujo: `Tráfico → Suricata (eve.json) → Wazuh → NetShield`
 - **🌍 GeoLite2 (MaxMind)** — Geolocalización local de IPs sin latencia: país, ciudad, coordenadas, ASN, tipo de red (ISP/Hosting/Datacenter/Tor). Enriquece automáticamente decisiones CrowdSec y alertas Wazuh
-- **🤖 OpenRouter AI** — Generación automática de reportes inteligentes con datos en vivo vía function calling (API compatible OpenAI, tier gratuito). También responde consultas inbound del bot Telegram
+- **🤖 Reportes con Groq** — Selección de fuentes y filas, vista previa de la solicitud completa, generación de un borrador editable y exportación PDF.
 - **📦 GLPI** — Inventario de activos, tickets de soporte y correlación con eventos Wazuh
 - **📄 PDF Export** — Exportación de reportes profesionales con WeasyPrint
 - **🎣 Phishing** — Detección de dominios sospechosos, sinkhole DNS, alertas de víctimas
-- **💬 Telegram Bot** — Canal de notificaciones bidireccional: alertas outbound automáticas + consultas en lenguaje natural respondidas por OpenRouter AI (inbound)
+- **💬 Telegram Bot** — Integración en pausa para reportes y consultas entrantes.
 - **🖧 Administración DHCP** — Gestión completa de DHCP MikroTik: servidores, leases, pools, redes, alertas rogue, opciones custom, correlación GLPI y discovery de dispositivos
 - **📊 Vistas Personalizadas** — Sistema de dashboards configurables por el usuario con catálogo de widgets especializados organizados en 4 categorías
 - **🚫 Lista de bloqueo** — Flujo con revisión humana: bloqueos se acumulan en `/blocklist.txt` (exportado a la LAN sin auth) y se aplican al router sólo con push manual
@@ -51,7 +51,7 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 | **Red & IPs** | `/network` | Tabla ARP, VLANs (CRUD + tráfico en vivo), etiquetas y grupos de IPs, búsqueda global |
 | **Firewall** | `/firewall` | Bloqueo de IPs, reglas activas, historial de acciones |
 | **Sistema** | `/system` | Health unificado MikroTik + Wazuh, estado GeoLite2, CLI web integrada |
-| **Reportes** | `/reports` | **Generador IA** (prompt libre, TipTap, PDF) + **Telegram** (bot status, configs automáticos, historial) + historial de reportes guardados |
+| **Reportes** | `/reports` | Fuentes y prompt revisables, informe MITRE, editor TipTap, PDF, historial y preparación programada |
 | **Inventario (GLPI)** | `/inventory` | Activos (kanban + eliminar), tickets, usuarios GLPI (CRUD), asignaciones equipo↔usuario, cuarentena |
 | **Lista de bloqueo** | `/blocklist` | IPs pendientes de aplicar: revisar, editar, push manual al router, exportar para LAN |
 | **Reputación IP** | `/reputation` | Consulta AbuseIPDB + VirusTotal; reportar IPs maliciosas con categorías oficiales |
@@ -76,71 +76,21 @@ NetShield Dashboard es una plataforma de monitoreo y gestión de seguridad de re
 
 NetShield incluye un sistema completo para crear **dashboards configurables por el usuario**, persistidos en SQLite.
 
-### Catálogo de widgets (4 categorías)
+En **Reportes**, el informe general permite elegir fuentes, período para datos históricos y documentos de contexto `.txt`/`.md`. Preparar crea una copia acotada de los datos, muestra el prompt completo con el modelo y los parámetros, y permite excluir filas antes de enviar. Groq devuelve título, resumen, hallazgos, recomendaciones y limitaciones, vinculados a IDs de evidencia. El resultado se puede editar, guardar y exportar a PDF. El informe MITRE técnico o ejecutivo también muestra la solicitud exacta antes de generarse y puede abrirse como copia editable. Las programaciones recogen datos y dejan la solicitud pendiente de revisión; no llaman a Groq automáticamente.
 
-#### 🔵 Standard — Widgets esenciales de monitoreo
-| Widget | Fuente | Descripción |
-|--------|--------|-------------|
-| `standard_alert_counter` | Wazuh | Contador de alertas con nivel configurable |
-| `standard_agent_status` | Wazuh | Estado de agentes en tiempo real |
-| `standard_interface_status` | MikroTik | Estado de interfaces de red |
-| `standard_crowdsec_blocks` | CrowdSec | Total de bloqueos activos |
-| `standard_mitre_summary` | Wazuh | Resumen de técnicas MITRE ATT&CK |
-| `standard_top_agents` | Wazuh | Top agentes por alertas |
-| `standard_dhcp_servers` | MikroTik | Estado de servidores DHCP |
+### Catálogo de widgets disponibles
 
-#### 🟣 Visual — Visualizaciones especializadas
-| Widget | Fuente | Descripción |
-|--------|--------|-------------|
-| `visual_threat_gauge` | Multi | Gauge de nivel de amenaza (0-100) con desglose por fuente |
-| `visual_activity_heatmap` | Wazuh | Calendario heatmap 7×24h de actividad de alertas |
-| `visual_agent_alert_heatmap` | Wazuh | Heatmap de alertas por agente |
-| `visual_agents_thermometer` | Wazuh | Termómetro visual del ratio alertas/agentes |
-| `visual_blocks_timeline` | CrowdSec | Línea de tiempo de bloques en las últimas 24h |
-| `visual_event_counter` | Multi | Contador giratorio de eventos con velocidad |
-| `visual_network_pulse` | MikroTik | ECG animado del tráfico de red en SVG |
-| `visual_protocol_donut` | Suricata | Donut de distribución de protocolos NSM |
-| `visual_subnet_usage` | MikroTik DHCP | Barras de uso de subredes por pool DHCP |
-| `visual_queue_bars` | MikroTik | Barras de ancho de banda up/down por Simple Queue |
-| `visual_phishing_stats` | Phishing | Estadísticas de alertas phishing y sinkhole |
-| `visual_traffic_chart` | MikroTik | Gráfico de tráfico histórico por interfaz |
+El constructor muestra una sola lista con búsqueda y filtro por fuente. Los widgets disponibles son:
 
-#### 🟠 Technical — Vistas técnicas avanzadas
-| Widget | Fuente | Descripción |
-|--------|--------|-------------|
-| `technical_packet_inspector` | Suricata | Inspector de alertas con detalle expandible por firma/IP |
-| `technical_flow_table` | Suricata NSM | Tabla de flujos activos con filtro por protocolo |
-| `technical_dns_monitor` | Suricata NSM | Monitor de consultas DNS capturadas |
-| `technical_tls_fingerprint` | Suricata NSM | Handshakes TLS: versión, JA3, SNI, cipher |
-| `technical_http_inspector` | Suricata NSM | Transacciones HTTP: URL, método, user-agent |
-| `technical_live_logs` | MikroTik | Terminal de logs en tiempo real con auto-scroll |
-| `technical_firewall_tree` | MikroTik | Árbol de reglas firewall agrupado por chain |
-| `technical_nat_table` | MikroTik | Tabla de reglas NAT — masquerade, dst-nat, src-nat |
-| `technical_route_table` | MikroTik | Rutas activas con tipo, gateway y distancia administrativa |
-| `technical_bandwidth_top` | MikroTik | Top consumidores de ancho de banda |
-| `technical_crowdsec_raw` | CrowdSec | Tabla raw de decisiones con confirmación de unblock |
-| `technical_correlation_timeline` | Multi | Timeline de correlación cruzada Wazuh+Suricata+CrowdSec |
-| `technical_critical_assets` | GLPI | Activos críticos con estado de salud y agente Wazuh |
-| `technical_action_log` | Sistema | Log de acciones de seguridad recientes |
-| `technical_dhcp_leases` | MikroTik DHCP | Tabla de leases DHCP activos con filtros |
+| Fuente | Widgets |
+|---|---|
+| Wazuh | `wazuh_alerts`, `wazuh_agents`, `wazuh_summary`, `visual_event_counter`, `visual_activity_heatmap`, `visual_agents_thermometer`, `visual_agent_alert_heatmap`, `hybrid_mitre_matrix`, `wazuh_cves`, `wazuh_kev` |
+| MikroTik y red | `traffic_chart`, `firewall_rules`, `blocked_ips`, `mikrotik_health`, `visual_network_pulse`, `visual_queue_bars`, `technical_firewall_tree`, `technical_live_logs`, `technical_bandwidth_top`, `technical_nat_table`, `technical_route_table`, `network_activity` |
+| DHCP | `visual_subnet_usage`, `technical_dhcp_leases`, `hybrid_dhcp_discovery` |
+| GLPI | `glpi_assets`, `glpi_tickets`, `technical_critical_assets`, `quarantine_active` |
+| Sistema y reportes | `action_log`, `technical_action_log`, `hybrid_defense_layers`, `block_candidates`, `recent_reports`, `create_report_from_view` |
 
-#### 🟢 Hybrid — Widgets de correlación multi-fuente
-| Widget | Fuente | Descripción |
-|--------|--------|-------------|
-| `hybrid_world_threat_map` | Multi | Mapa mundial de amenazas con intensidad por país |
-| `hybrid_confirmed_threats` | Suricata+CrowdSec | IPs confirmadas como amenaza por múltiples fuentes |
-| `hybrid_country_radar` | GeoIP+Multi | Radar de países atacantes con distribución por fuente |
-| `hybrid_ip_profiler` | Multi | Perfilador de IP con GeoIP + CrowdSec CTI + red interna |
-| `hybrid_incident_lifecycle` | Multi | Ciclo de vida de incidentes: detección → bloqueo → resolución |
-| `hybrid_defense_layers` | Multi | Estado visual de todas las capas defensivas |
-| `hybrid_geoblock_predictor` | GeoIP | Sugerencias predictivas de geo-bloqueo con un clic |
-| `hybrid_suricata_glpi` | Suricata+GLPI | Correlación de alertas con activos del inventario |
-| `hybrid_view_report_generator` | OpenRouter AI | Generador de reportes IA desde una vista |
-| `hybrid_dhcp_discovery` | DHCP+GLPI | Discovery de dispositivos: registered/unregistered/stale |
-| `hybrid_mitre_matrix` | Wazuh | Matriz MITRE ATT&CK interactiva con frecuencia de técnicas |
-| `hybrid_quarantine_tracker` | GLPI+MikroTik | Activos en cuarentena y su estado de bloqueo en red |
-| `hybrid_telegram_activity` | Telegram | Actividad del bot: alertas enviadas, consultas IA, reportes |
-| `hybrid_vlan_health` | MikroTik | Estado de VLANs con tráfico en tiempo real |
+`create_report_from_view` abre Reportes con las fuentes sugeridas por la vista. La generación requiere revisar el conjunto de datos y la solicitud antes de enviar a Groq. Las vistas guardadas conservan sus widgets anteriores, aunque alguno ya no esté disponible para agregar desde el catálogo.
 
 ### Flujo del View Builder
 
@@ -166,8 +116,8 @@ NetShield incluye un sistema completo para crear **dashboards configurables por 
 | **SQLAlchemy** 2.0 + aiosqlite | ORM async con SQLite |
 | **python-jose** + **passlib[bcrypt]** | Autenticación JWT + hashing de contraseñas |
 | **routeros-api** | Cliente API MikroTik (ejecutado en thread pool) |
-| **httpx** | Cliente HTTP async para Wazuh, CrowdSec, GLPI y OpenRouter |
-| **openai** | SDK OpenAI usado contra OpenRouter (API-compatible, free tier) para reportes IA + consultas Telegram |
+| **httpx** | Cliente HTTP async para Wazuh, CrowdSec y GLPI |
+| **openai** | SDK compatible usado contra Groq para reportes y diagnóstico IA |
 | **geoip2** 4.8.1 | Consulta local de bases de datos MaxMind GeoLite2 |
 | **cachetools** 5.5.0 | TTLCache (10 000 entradas, TTL de 1 hora) para lookups GeoIP |
 | **python-telegram-bot** 22+ | SDK async Telegram Bot API (PTB) |
@@ -252,7 +202,6 @@ MOCK_ALL=true          # Todos los servicios en mock (demo completo)
 MOCK_MIKROTIK=true     # Solo MikroTik en mock
 MOCK_WAZUH=true        # Solo Wazuh en mock
 MOCK_GLPI=true         # Solo GLPI en mock
-MOCK_AI=true           # Solo OpenRouter AI en mock
 MOCK_CROWDSEC=false    # CrowdSec real
 MOCK_GEOIP=true        # GeoIP mock (hasta descargar las DBs)
 MOCK_TELEGRAM=true     # Telegram mock (hasta configurar el bot)
@@ -415,10 +364,10 @@ netShield2/
 │   │   ├── suricata_service.py  # Singleton: Unix socket async, alertas vía Wazuh, flujos NSM,
 │   │   │                        #   correlación CrowdSec/Wazuh, auto-response
 │   │   ├── telegram_service.py  # Singleton: send_message, send_alert, send_status_summary,
-│   │   │                        #   process_incoming_message → answer_query (OpenRouter AI)
+│   │   │                        #   consultas entrantes en pausa
 │   │   ├── telegram_scheduler.py # APScheduler AsyncIOScheduler: sync de jobs desde DB cada minuto
 │   │   ├── report_scheduler.py  # Scheduler de reportes periódicos (no-Telegram)
-│   │   ├── ai_service.py        # OpenRouter function calling + templates + answer_telegram_query()
+│   │   ├── report_generation.py # Fuentes, preparación y generación de informes con Groq
 │   │   ├── audit_service.py     # Registro de ActionLog con severidad y filtros configurables
 │   │   ├── auth_service.py      # JWT issue/validate + bcrypt + CRUD de usuarios
 │   │   ├── ip_reputation.py     # AbuseIPDB + VirusTotal lookup/report con TTLCache
@@ -532,7 +481,7 @@ netShield2/
 - **WebSockets para datos en vivo** — Tráfico, alertas, VLANs y alertas Suricata se transmiten vía WebSocket con reconexión automática en el frontend.
 - **SQLite → PostgreSQL ready** — Solo cambiando `DATABASE_URL` en `.env` a `postgresql+asyncpg://...` se puede migrar sin tocar código.
 - **Wazuh Indexer separado** — Las alertas reales y vulnerabilidades vienen del Indexer (OpenSearch :9200), no de la Server API (:55000). `wazuh_indexer.py` es un cliente httpx independiente que normaliza las respuestas.
-- **OpenRouter como proveedor AI** — `ai_service.py` usa el SDK de OpenAI apuntando a `https://openrouter.ai/api/v1`. El modelo por defecto es `openrouter/auto` (selección automática de modelo gratuito). Cambiar `OPENROUTER_MODEL` para usar modelos específicos.
+- **Groq para informes** — El backend congela la solicitud y las filas de evidencia antes de enviarla. El usuario puede revisar y excluir filas. `GROQ_API_KEY` habilita la generación; la edición y exportación PDF quedan en Reportes.
 - **CrowdSec como capa complementaria** — Se sincroniza con el firewall MikroTik: las decisiones de CrowdSec pueden traducirse automáticamente en reglas de bloqueo en el router.
 - **GeoIP enriquecimiento silencioso** — `geoip_service` usa `try/except` alrededor de cada lookup. Si falla, los endpoints devuelven el dato original sin el campo `geo`, nunca un error 500.
 - **TTLCache para GeoIP** — Las 10 000 entradas más recientes se mantienen en RAM con TTL de 1 hora, evitando consultas repetidas a las .mmdb.

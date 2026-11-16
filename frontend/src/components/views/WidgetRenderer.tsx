@@ -30,6 +30,8 @@ import {
   glpiApi,
   geoipApi,
   actionsApi,
+  reportsApi,
+  reportWidgetApi,
 } from '../../services/api';
 import type { WidgetConfig } from '../../types';
 
@@ -176,6 +178,28 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
           const entries = (r.data ?? []).slice(0, limit);
           return { kind: 'table' as const, data: entries, columns: ['action_type', 'target_ip', 'comment', 'created_at'] };
         }
+        case 'wazuh_cves':
+        case 'wazuh_kev':
+        case 'block_candidates':
+        case 'network_activity':
+        case 'quarantine_active': {
+          const response = await reportWidgetApi.source(type);
+          const rows = (response.data?.rows ?? []).slice(0, limit).map(row => row.data);
+          const columns: Record<string, string[]> = {
+            wazuh_cves: ['cve_id', 'severity', 'cvss_score', 'agent_count'],
+            wazuh_kev: ['cve_id', 'severity', 'cvss_score', 'agent_count'],
+            block_candidates: ['ip', 'day', 'event_count', 'decision_source'],
+            network_activity: ['ip', 'bytes', 'connections', 'percent'],
+            quarantine_active: ['asset_id_glpi', 'reason', 'quarantined_at'],
+          };
+          return { kind: 'table' as const, data: rows, columns: columns[type] };
+        }
+        case 'recent_reports': {
+          const response = await reportsApi.listSaved(1, limit);
+          return { kind: 'table' as const, data: response.data?.items ?? [], columns: ['title', 'created_at', 'model_used'] };
+        }
+        case 'create_report_from_view':
+          return { kind: 'custom' as const };
         case 'top_countries': {
           const r = await geoipApi.getTopCountries({ limit });
           const countries = r.data?.countries ?? [];
@@ -196,7 +220,6 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
         case 'visual_phishing_stats':
         case 'visual_agent_alert_heatmap':
         case 'visual_subnet_usage':
-        // ── Widgets Técnicos ───────────────────────────────────────────
         case 'technical_action_log':
         case 'technical_packet_inspector':
         case 'technical_flow_table':
@@ -212,7 +235,6 @@ function useWidgetData(type: string, config: Record<string, unknown> = {}) {
         case 'technical_nat_table':
         case 'technical_route_table':
         case 'visual_queue_bars':
-        // ── Widgets Híbridos ───────────────────────────────────────────
         case 'hybrid_confirmed_threats':
         case 'hybrid_country_radar':
         case 'hybrid_incident_lifecycle':
@@ -357,6 +379,7 @@ export default function WidgetRenderer({ widget }: WidgetRendererProps) {
       hybrid_defense_layers: <DefenseLayers config={cfg} />,
       hybrid_geoblock_predictor: <GeoblockPredictor config={cfg} />,
       hybrid_view_report_generator: <ViewReportGenerator config={cfg as { audience?: string; output?: string }} />,
+      create_report_from_view: <ViewReportGenerator />,
       hybrid_telegram_activity: <TelegramActivity config={cfg as { limit?: number }} />,
       hybrid_mitre_matrix: <MitreMatrix config={cfg} />,
       hybrid_vlan_health: <VlanHealth config={cfg} />,

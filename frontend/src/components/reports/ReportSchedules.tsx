@@ -11,12 +11,6 @@ const CRON_PRESETS = [
   { label: 'Mensual (día 1)', value: '0 8 1 * *' },
 ];
 
-const OUTPUT_OPTIONS = [
-  { value: 'save', label: '💾 Solo guardar' },
-  { value: 'telegram', label: '📱 Solo Telegram' },
-  { value: 'save+telegram', label: '💾📱 Guardar + Telegram' },
-];
-
 const AUDIENCE_OPTIONS = [
   { value: 'executive', label: 'Ejecutivo' },
   { value: 'technical', label: 'Técnico' },
@@ -29,60 +23,27 @@ const EMPTY_FORM = {
   prompt: '',
   audience: 'technical',
   data_sources: [] as string[],
-  model: 'openrouter/auto',
-  output: 'save',
   enabled: true,
 };
 
 type FormState = typeof EMPTY_FORM;
 
-const DATA_SOURCE_OPTIONS = [
-  // MikroTik
-  { id: 'mikrotik_connections',  label: '🔌 Conexiones Activas',      tooltip: 'Conexiones TCP/UDP actuales con IP, protocolo y estado' },
-  { id: 'firewall_rules',        label: '🛡️ Reglas de Firewall',      tooltip: 'Reglas filter: chain, acción, IPs y contadores de paquetes' },
-  { id: 'arp_table',             label: '📋 Tabla ARP',               tooltip: 'Mapeo IP↔MAC de todos los dispositivos en la red local' },
-  { id: 'mikrotik_interfaces',   label: '🌐 Interfaces de Red',       tooltip: 'Estado de interfaces: activa/inactiva, TX/RX, MAC' },
-  { id: 'mikrotik_vlans',        label: '🏗️ VLANs',                  tooltip: 'VLANs configuradas con ID, nombre e interfaz padre' },
-  { id: 'mikrotik_nat',          label: '↔️ Reglas NAT',             tooltip: 'Reglas DNAT/SNAT/Masquerade activas' },
-  { id: 'mikrotik_address_lists',label: '📝 Listas de Direcciones',   tooltip: 'IPs agrupadas por address list del firewall' },
-  { id: 'mikrotik_dns',          label: '🔤 DNS Estático',            tooltip: 'Registros DNS locales del router' },
-  { id: 'mikrotik_dhcp',         label: '📡 DHCP Leases',            tooltip: 'Asignaciones IP activas con MAC, hostname y expiración' },
-  { id: 'mikrotik_logs',         label: '📜 Logs del Router',         tooltip: 'Últimas entradas del log: errores, auth, firewall, DHCP' },
-  { id: 'mikrotik_health',       label: '💓 Salud del Router',        tooltip: 'CPU%, RAM%, uptime, temperatura y voltaje' },
-  // Wazuh
-  { id: 'wazuh_alerts',          label: '🔔 Alertas Wazuh',           tooltip: 'Todas las alertas con nivel, agente, regla y descripción' },
-  { id: 'wazuh_critical',        label: '🚨 Alertas Críticas',        tooltip: 'Solo alertas nivel ≥12 con técnicas MITRE ATT&CK' },
-  { id: 'wazuh_agents',          label: '🖥️ Agentes Wazuh',          tooltip: 'Estado individual: OS, versión, IP y última conexión' },
-  { id: 'wazuh_mitre',           label: '🎯 MITRE ATT&CK',           tooltip: 'Técnicas y tácticas detectadas mapeadas al framework' },
-  // CrowdSec
-  { id: 'crowdsec_decisions',    label: '🚫 Decisiones Activas',      tooltip: 'IPs bloqueadas: tipo, duración y escenario origen' },
-  { id: 'crowdsec_alerts',       label: '⚠️ Alertas de Escenarios',  tooltip: 'Escenarios detectados: brute force, scan, crawling' },
-  { id: 'crowdsec_metrics',      label: '📊 Métricas CrowdSec',       tooltip: 'Rendimiento de parsers, bouncers y escenarios' },
-  // Suricata
-  { id: 'suricata_alerts',       label: '🔍 Alertas Suricata',        tooltip: 'Amenazas IDS con firma, severidad, IPs y protocolo' },
-  { id: 'suricata_flows',        label: '🌊 Flujos de Red',           tooltip: 'Flujos TCP/UDP: IPs/puertos, bytes y duración' },
-  { id: 'suricata_dns',          label: '🌐 Consultas DNS',           tooltip: 'Dominios consultados, tipo de registro y respuesta' },
-  { id: 'suricata_http',         label: '🌍 Tráfico HTTP',            tooltip: 'URLs, métodos, códigos de respuesta y user-agents' },
-  { id: 'suricata_tls',          label: '🔒 Handshakes TLS',         tooltip: 'Versión TLS, SNI, certificado y cipher suite' },
-  // GLPI
-  { id: 'glpi_inventory',        label: '📦 Inventario GLPI',         tooltip: 'Activos con modelo, OS, estado, ubicación y usuario' },
-  { id: 'glpi_stats',            label: '📈 Estadísticas GLPI',       tooltip: 'Totales por tipo, estado operativo y ubicación' },
-  { id: 'glpi_tickets',          label: '🎫 Tickets de Soporte',      tooltip: 'Incidentes con prioridad, estado y técnico asignado' },
-  // Sistema
-  { id: 'system_health',         label: '💻 Salud General',           tooltip: 'Estado consolidado de todos los servicios del sistema' },
-];
-
-export function ReportSchedules() {
+export function ReportSchedules({ onReview }: { onReview: (preparationId: string) => void }) {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [triggeringId, setTriggeringId] = useState<number | null>(null);
+  const sourcesQuery = useQuery({ queryKey: ['report-sources'], queryFn: reportsApi.getSources });
+  const DATA_SOURCE_OPTIONS = (sourcesQuery.data?.data ?? []).map(source => ({ id: source.id, label: source.label, tooltip: source.group }));
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['report-schedules'],
     queryFn: () => reportsApi.listSchedules(),
     staleTime: 30_000,
   });
+  const pendingQuery = useQuery({ queryKey: ['scheduled-preparations'], queryFn: reportsApi.listScheduledPreparations,
+    staleTime: 30_000 });
+  const pending = pendingQuery.data?.data ?? [];
 
   const schedules: ReportSchedule[] = data?.data ?? [];
 
@@ -111,11 +72,12 @@ export function ReportSchedules() {
     onSuccess: () => {
       setTriggeringId(null);
       qc.invalidateQueries({ queryKey: ['report-schedules'] });
+      qc.invalidateQueries({ queryKey: ['scheduled-preparations'] });
     },
   });
 
   const handleSubmit = () => {
-    if (!form.name || !form.prompt) return;
+    if (!form.name || !form.prompt || form.data_sources.length === 0) return;
     createMutation.mutate({ ...form } as Partial<ReportSchedule>);
   };
 
@@ -150,10 +112,10 @@ export function ReportSchedules() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <h2 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--color-surface-100)', margin: 0 }}>
-            Reportes Automáticos
+            Preparación programada
           </h2>
           <p style={{ fontSize: '0.72rem', color: 'var(--color-surface-400)', marginTop: 2 }}>
-            Genera y guarda reportes automáticamente según un horario
+            Recoge datos según un horario. Revisá el prompt antes de enviar a Groq.
           </p>
         </div>
         <button
@@ -228,13 +190,13 @@ export function ReportSchedules() {
             <textarea
               className="input"
               style={{ fontSize: '0.78rem', minHeight: 70, resize: 'vertical' }}
-              placeholder="Describe qué reporte debe generarse automáticamente..."
+              placeholder="Describí el informe que se preparará para revisión..."
               value={form.prompt}
               onChange={e => setForm(p => ({ ...p, prompt: e.target.value }))}
             />
           </div>
 
-          {/* Audience + Output */}
+          {/* Audience */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
             <div>
               <label style={{ fontSize: '0.68rem', color: 'var(--color-surface-400)', display: 'block', marginBottom: 4 }}>Audiencia</label>
@@ -242,12 +204,7 @@ export function ReportSchedules() {
                 {AUDIENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
-            <div>
-              <label style={{ fontSize: '0.68rem', color: 'var(--color-surface-400)', display: 'block', marginBottom: 4 }}>Salida</label>
-              <select className="input" style={{ fontSize: '0.78rem' }} value={form.output} onChange={e => setForm(p => ({ ...p, output: e.target.value }))}>
-                {OUTPUT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
+            <p className="text-xs text-surface-400">Salida: guardar en historial</p>
           </div>
 
           {/* Data sources */}
@@ -276,12 +233,12 @@ export function ReportSchedules() {
           {/* Submit */}
           <button
             onClick={handleSubmit}
-            disabled={createMutation.isPending || !form.name || !form.prompt}
+            disabled={createMutation.isPending || !form.name || !form.prompt || form.data_sources.length === 0}
             style={{
               padding: '0.5rem 1rem', borderRadius: 7,
               background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.4)',
               color: 'var(--color-brand-200)', cursor: 'pointer', fontWeight: 700, fontSize: '0.82rem',
-              opacity: (!form.name || !form.prompt) ? 0.4 : 1,
+              opacity: (!form.name || !form.prompt || form.data_sources.length === 0) ? 0.4 : 1,
             }}
           >
             {createMutation.isPending ? 'Creando...' : 'Crear Programación'}
@@ -299,7 +256,7 @@ export function ReportSchedules() {
         <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--color-surface-400)' }}>
           <Clock size={28} style={{ marginBottom: '0.5rem', opacity: 0.4 }} />
           <p style={{ fontSize: '0.82rem' }}>No hay programaciones configuradas.</p>
-          <p style={{ fontSize: '0.72rem', marginTop: '0.2rem' }}>Creá una para que los reportes se generen automáticamente.</p>
+          <p style={{ fontSize: '0.72rem', marginTop: '0.2rem' }}>Creá una para preparar datos automáticamente.</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -348,13 +305,13 @@ export function ReportSchedules() {
                 {/* Trigger now */}
                 <button
                   onClick={() => { setTriggeringId(schedule.id); triggerMutation.mutate(schedule.id); }}
-                  disabled={triggerMutation.isPending && triggeringId === schedule.id}
+                  disabled={!schedule.enabled || (triggerMutation.isPending && triggeringId === schedule.id)}
                   style={{
                     padding: '0.3rem 0.55rem', borderRadius: 6,
                     background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.25)',
                     color: '#4ade80', cursor: 'pointer', display: 'flex', alignItems: 'center',
                   }}
-                  title="Ejecutar ahora"
+                  title="Preparar datos ahora"
                 >
                   {triggerMutation.isPending && triggeringId === schedule.id
                     ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} />
@@ -380,6 +337,16 @@ export function ReportSchedules() {
           ))}
         </div>
       )}
+      {triggerMutation.isError && <p role="alert" className="text-xs text-red-300">No se pudo preparar: {(triggerMutation.error as Error).message}</p>}
+      <div className="border-t border-surface-700 pt-3 space-y-2">
+        <h3 className="text-sm font-semibold text-surface-200">Preparaciones pendientes de revisión</h3>
+        {pendingQuery.isError && <p className="text-xs text-red-300">No se pudieron cargar las preparaciones.</p>}
+        {!pendingQuery.isLoading && pending.length === 0 && <p className="text-xs text-surface-400">No hay solicitudes pendientes.</p>}
+        {pending.map(item => <div key={item.preparation_id} className="flex items-center justify-between gap-2 rounded-lg bg-surface-900/40 p-2">
+          <span className="text-xs text-surface-300">{item.schedule_name || 'Programación'} · {new Date(item.created_at).toLocaleString('es-AR')}</span>
+          <button type="button" className="btn btn-primary" onClick={() => onReview(item.preparation_id)}>Revisar envío</button>
+        </div>)}
+      </div>
     </div>
   );
 }

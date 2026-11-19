@@ -55,6 +55,17 @@ class Queries(TestCase):
         self.assertEqual(body["aggs"]["groups"]["terms"]["field"], "data.srcip")
         self.assertNotIn("full_log", body["_source"])
 
+    def test_invalid_group_lists_valid_source_groups(self):
+        with self.assertRaisesRegex(ValueError, r"'rule' no disponible en archives.*ip"):
+            compile_search(Search(source="archives", group="rule"), [AGENT], ANCHOR)
+
+    def test_old_inventory_queries_remain_valid_without_implying_a_period(self):
+        search = Search(source="cves", period="24h")
+        _, body = compile_search(search, [AGENT], ANCHOR)
+        self.assertTrue(all("range" not in f for f in body["query"]["bool"]["filter"]))
+        previous = {"source": "cves", "query": search.model_dump(), "rows": [], "window": None}
+        self.assertNotIn("period", fibot.compact(previous)["query"])
+
     def test_proxy_host_is_qualified_by_installation(self):
         _, body = compile_search(Search(source="archives", group="proxy_host"), ["002", "005"], ANCHOR)
         self.assertEqual(body["aggs"]["groups"]["multi_terms"]["terms"], [{"field": "agent.id"}, {"field": "location"}])
@@ -113,7 +124,7 @@ class ChatAPI(IsolatedAsyncioTestCase):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         self.enterContext(patch.object(router, "async_session_factory", async_sessionmaker(engine, expire_on_commit=False)))
-        self.settings = SimpleNamespace(fibot_model="openai/gpt-oss-20b", fibot_browser_search=False,
+        self.settings = SimpleNamespace(fibot_model="openai/gpt-oss-120b", fibot_browser_search=False,
                                         fibot_turn_tokens=18000, fibot_alert_time_field="timestamp")
         self.enterContext(patch.object(fibot, "get_settings", return_value=self.settings))
         self.enterContext(patch.object(router, "get_settings", return_value=self.settings))
@@ -144,7 +155,7 @@ class ChatAPI(IsolatedAsyncioTestCase):
         ranking = search_response([{"data": {"srcip": IP, "url": "/private?token=secret-test"}}],
                                   buckets=[{"key": IP, "doc_count": 8}], total=8)
         self.index.side_effect = [ranking, search_response(buckets=[], total=0)]
-        async def model(payload):
+        async def model(payload, *, wait_for_quota):
             if self.llm.await_count == 1:
                 return call(query)
             summary = json.loads(payload["messages"][-1]["content"])
@@ -234,6 +245,98 @@ class ChatAPI(IsolatedAsyncioTestCase):
         self.assertEqual(turn["status"], "failed")
         self.assertIn("30 s", turn["answer"])
         self.index.assert_not_awaited()
+
+    async def test_falls_back_with_existing_tool_results_and_restarts_at_primary_next_turn(self):
+        from openai import RateLimitError
+        throttle = RateLimitError("quota", response=httpx.Response(429,
+            request=httpx.Request("POST", "https://example.invalid")), body=None)
+        self.llm.side_effect = [call({"source": "archives"}), throttle,
+                                call({"source": "alerts"}), answer("Consultas completas."),
+                                answer("Nuevo turno.")]
+        self.index.return_value = search_response()
+
+        turn_id = await self.send()
+        first = (await self.read())[0]
+        self.assertEqual(first["status"], "done")
+        self.assertEqual([data["source"] for data in first["results"]], ["archives", "alerts"])
+        self.assertEqual(self.index.await_count, 2)
+        await self.send("Nueva pregunta")
+
+        payloads = [attempt.args[0] for attempt in self.llm.await_args_list]
+        primary, backup = "openai/gpt-oss-120b", "openai/gpt-oss-20b"
+        self.assertEqual([payload["model"] for payload in payloads], [primary, primary, backup, backup, primary])
+        self.assertEqual(payloads[1]["messages"], payloads[2]["messages"])
+        self.assertEqual(payloads[3]["tool_choice"], "none")
+        trace = (await self.client.get(self.path + f"/turns/{turn_id}/trace")).json()
+        self.assertIn({"desde": primary, "model": backup}, [step["data"] for step in trace if step["label"] == "Respaldo de Groq"])
+
+    async def test_primary_local_quota_switches_before_waiting(self):
+        self.llm.side_effect = [fibot.GroqLocalQuotaWait("Sin cuota local"), answer("Respuesta de respaldo.")]
+        await self.send()
+        self.assertEqual((await self.read())[0]["answer"], "Respuesta de respaldo.")
+        primary, backup = self.llm.await_args_list
+        self.assertFalse(primary.kwargs["wait_for_quota"])
+        self.assertTrue(backup.kwargs["wait_for_quota"])
+
+
+class LabRegressions(IsolatedAsyncioTestCase):
+    async def test_top_404_checks_both_tied_origins_and_uses_local_calendar_yesterday(self):
+        day = datetime(2026, 11, 19, 11, 41, tzinfo=timezone.utc)
+        second_ip = "10.0.0.9"
+        top = search_response(buckets=[{"key": IP, "doc_count": 255}, {"key": second_ip, "doc_count": 255},
+                                       {"key": "10.0.0.10", "doc_count": 252}], total=762)
+        index = AsyncMock(side_effect=[top, search_response(buckets=[])])
+        saved = AsyncMock()
+        with patch.object(fibot, "index_search", index), patch.object(fibot, "ask_groq", new_callable=AsyncMock) as model:
+            status, reply = await fibot.investigate(
+                "¿Qué IP recibió más 404 ayer y qué reglas disparó?", [AGENT], day, [], AsyncMock(), saved)
+        self.assertEqual(status, "done")
+        self.assertIn("Empate", reply)
+        self.assertIn("255", reply)
+        self.assertIn("Cobertura sin verificar", reply)
+        model.assert_not_awaited()
+        request, rules = [c.args[1] for c in index.await_args_list]
+        self.assertIn({"terms": {"data.srcip": [IP, second_ip]}}, rules["query"]["bool"]["filter"])
+        expected = {"timestamp": {"gte": "2026-11-18T03:00:00+00:00", "lt": "2026-11-19T03:00:00+00:00"}}
+        for body in (request, rules):
+            self.assertIn({"range": expected}, body["query"]["bool"]["filter"])
+        self.assertEqual(saved.await_args_list[0].args[0]["rows"], [
+            {"ip": IP, "cantidad": 255}, {"ip": second_ip, "cantidad": 255}])
+
+    async def test_followup_on_public_cve_checks_local_inventory_without_ip_or_date(self):
+        history = [{"pregunta": "¿Qué se sabe de CVE-2026-123007?", "resultados": [
+            {"source": "Avisos públicos", "rows": []}, {"source": "alerts", "rows": [{"ip": IP}]}]}]
+        index = AsyncMock(return_value=search_response())
+        saved = AsyncMock()
+        with patch.object(fibot, "index_search", index), patch.object(fibot, "ask_groq", new_callable=AsyncMock) as model:
+            for question in ("mi wazuh la detecta?", "mi wazuh tiene registros en su bd para detectar CVE‑2026‑123007?"):
+                status, reply = await fibot.investigate(question, [AGENT], ANCHOR, history, AsyncMock(), saved)
+                self.assertEqual(status, "done")
+                self.assertIn("0 hallazgos para CVE-2026-123007", reply)
+                self.assertIn("quedan sin verificar", reply)
+        model.assert_not_awaited()
+        source, body = index.await_args.args
+        self.assertIn("vulnerabilities", source)
+        filters = body["query"]["bool"]["filter"]
+        self.assertIn({"term": {"vulnerability.id": "CVE-2026-123007"}}, filters)
+        self.assertNotIn("data.srcip", str(filters))
+        self.assertTrue(all("range" not in f for f in filters))
+        self.assertIsNone(saved.await_args.args[0]["window"])
+
+    async def test_latest_indexed_detection_does_not_claim_catalog_update(self):
+        raw = search_response(total=372)
+        raw["aggregations"] = {"latest_detection": {"value_as_string": "2026-11-18T13:33:19.828Z"}}
+        with patch.object(fibot, "index_search", new_callable=AsyncMock, return_value=raw) as index:
+            status, reply = await fibot.investigate("cuando fue la ultima actualizaion de la bd de cve de wazuh en mi sistema",
+                                                    [AGENT], ANCHOR, [], AsyncMock(), AsyncMock())
+        self.assertEqual(status, "done")
+        self.assertIn("catálogo CVE del gestor queda sin verificar", reply)
+        self.assertIn("2026-11-18T13:33:19.828Z", reply)
+        self.assertEqual(index.await_args.args[1]["aggs"]["latest_detection"], {"max": {"field": "vulnerability.detected_at"}})
+
+    def test_exploit_attempt_question_is_distinct_from_inventory_presence(self):
+        text = fibot.normalized_question("¿Mi Wazuh detecta intentos de explotación de CVE-2026-123007?")
+        self.assertIsNone(fibot.cve_inventory_question(text, []))
 
 
 class Providers(IsolatedAsyncioTestCase):

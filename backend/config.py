@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # Vacío = modo mock (muestra payload + respuesta simulada, ai_is_mock=true)
     # Con key = Groq real con modelos GPT-OSS de producción (ver groq_service.py)
     groq_api_key: str = ""
-    fibot_model: str = "openai/gpt-oss-20b"
+    fibot_model: str = "openai/gpt-oss-120b"
     fibot_turn_tokens: int = 18000
     fibot_browser_search: bool = False
     fibot_alert_time_field: str = "timestamp"

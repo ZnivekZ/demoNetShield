@@ -8,6 +8,7 @@
 .fibot button:disabled {opacity:.5;cursor:default}
 .fibot aside button {display:block;text-align:left;margin:.3rem 0;width:100%;overflow-wrap:anywhere}
 .fibot small,.fb-result span {color:var(--color-surface-400);font-size:.78rem}
+.fb-chat-header {display:grid;gap:.25rem}
 .fb-chat header small,.fb-question strong {display:block}
 .fb-messages {margin:1rem 0;max-height:62vh;overflow:auto}
 .fb-messages article {border-top:1px solid var(--color-surface-700);padding:1rem 0}

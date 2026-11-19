@@ -8,7 +8,7 @@ La ruta autenticada `/fibot` está integrada en el menú de NetShield. El histor
 
 El presupuesto inicial es de cuatro llamadas a Groq por pregunta, incluidas las búsquedas públicas, y 18.000 tokens estimados para el turno. El primer envío toma hasta tres turnos previos del mismo alcance y reduce ese historial si supera la mitad del presupuesto. La API de Wazuh proporciona la lista de agentes. El Indexer recibe sus identificadores y agrega los resultados. Los errores de acceso, cuota o tiempo dejan un estado visible en el chat.
 
-La configuración de referencia está en [backend/.env.example](backend/.env.example). El piloto usa la clave Groq de NetShield y el modelo `openai/gpt-oss-20b`. La búsqueda pública opcional comienza desactivada. Cuando se habilita, contrasta hasta tres identificadores encontrados con sus publicaciones en NVD. La previsualización de bloqueo comprueba la lista local vigente y termina en revisión.
+La configuración de referencia está en [backend/.env.example](backend/.env.example). El piloto usa la clave Groq de NetShield con `openai/gpt-oss-120b` como modelo principal y `openai/gpt-oss-20b` como respaldo durante el turno. La búsqueda pública opcional comienza desactivada. Cuando se habilita, contrasta hasta tres identificadores encontrados con sus publicaciones en NVD. La previsualización de bloqueo comprueba la lista local vigente y termina en revisión.
 
 ### Validación local
 

@@ -15,7 +15,7 @@ from database import async_session_factory
 from models.fibot import FibotChat, FibotTurn, FibotView, now_iso
 from models.user import User
 from routers.auth import get_current_user
-from services.fibot import compact, execute, first_request, investigate, provider_quota, public_error
+from services.fibot import compact, execute, fibot_models, first_request, investigate, provider_quota, public_error
 from services.fibot_queries import ART, DIMENSIONS, Search, clean, compile_search, index_search, result
 from config import get_settings
 from services.groq_usage import get_usage_status
@@ -99,7 +99,7 @@ async def recent_history(db, chat_id, agents, before=None):
     if before is not None:
         stmt = stmt.where(FibotTurn.id < before)
     previous = await db.scalars(stmt.order_by(FibotTurn.id.desc()).limit(3))
-    return [{"turno": t.id, "pregunta": t.prompt, "respuesta": t.answer[:600],
+    return [{"turno": t.id, "pregunta": t.prompt, "estado": t.status,
              "resultados": [compact(r, 10) for r in t.results[-2:]]}
             for t in reversed(previous.all()) if t.agents == agents]
 
@@ -176,9 +176,11 @@ async def send(chat_id: int, body: NewTurn, tasks: BackgroundTasks, user: Actor)
 async def quota(user: Actor):
     settings = get_settings()
     status = await get_usage_status()
-    estimates = next((m for m in status["models"] if m["model"] == settings.fibot_model), {})
-    return {"model": settings.fibot_model, "configured": bool(settings.groq_api_key),
-            "turn_budget": settings.fibot_turn_tokens, "provider": provider_quota.get(settings.fibot_model), **estimates}
+    estimates = {model["model"]: model for model in status["models"]}
+    models = [{**estimates.get(model, {}), "model": model, "provider": provider_quota.get(model)}
+              for model in fibot_models(settings.fibot_model)]
+    return {**models[0], "models": models, "configured": bool(settings.groq_api_key),
+            "turn_budget": settings.fibot_turn_tokens}
 
 
 @router.post("/chats/{chat_id}/turns/{turn_id}/views/{position}")

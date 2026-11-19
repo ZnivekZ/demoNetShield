@@ -23,6 +23,13 @@ FIELDS = {
 }
 DIMENSIONS = {"ip": "data.srcip", "agent": "agent.id", "host": "data.http_host",
               "status": "data.http_status", "rule": "rule.id", "package": "package.name"}
+EVENT_SOURCES = {"archives", "alerts"}
+GROUPS_BY_SOURCE = {
+    source: ("documents", *(group for group, field in DIMENSIONS.items() if field in fields),
+             *(("hour", "day") if source in EVENT_SOURCES else ()),
+             *(("proxy_host",) if source == "archives" else ()))
+    for source, fields in FIELDS.items()
+}
 
 
 class Arguments(BaseModel):
@@ -32,7 +39,10 @@ class Arguments(BaseModel):
 class Search(Arguments):
     source: Literal["archives", "alerts", "packages", "cves"]
     group: Literal["documents", "ip", "agent", "host", "status", "rule", "package", "hour", "day", "proxy_host"] = "documents"
-    period: Literal["ayer", "hoy", "24h", "7d"] = "24h"
+    period: Literal["ayer", "hoy", "24h", "7d"] | None = Field(
+        None, description="Solo Archives o Alerts. 'ayer' es el día calendario de Buenos Aires. "
+                          "Usá start/end únicamente para un intervalo explícito o un seguimiento."
+    )
     start: datetime | None = None
     end: datetime | None = None
     ips: list[str] = Field(default_factory=list, max_length=20)
@@ -74,13 +84,16 @@ def bounds(s: Search, anchor: datetime):
 def compile_search(s: Search, agents: list[str], anchor: datetime, alert_time="timestamp"):
     if not agents:
         raise ValueError("Seleccioná al menos un agente")
+    groups = GROUPS_BY_SOURCE[s.source]
+    if s.group not in groups:
+        raise ValueError(f"Agrupación '{s.group}' no disponible en {s.source}. Opciones: {', '.join(groups)}")
     fields = list(FIELDS[s.source])
     timefield = "timestamp" if s.source == "archives" else alert_time
     filters = [{"terms": {"agent.id": agents}}]
-    if s.source in ("archives", "alerts"):
+    if s.source in EVENT_SOURCES:
         fields = list(dict.fromkeys([timefield, *fields]))
         filters.append({"range": {timefield: bounds(s, anchor)}})
-    elif s.start or s.end or s.period != "24h":
+    elif s.start or s.end or s.period not in (None, "24h"):
         raise ValueError("Paquetes y CVE representan el inventario actual")
     if s.source == "archives":
         filters.extend([{"term": {"decoder.name": "npm-proxy-access"}},
@@ -123,24 +136,23 @@ def compile_search(s: Search, agents: list[str], anchor: datetime, alert_time="t
     body = {"size": s.limit if s.group == "documents" else 3, "_source": fields,
             "track_total_hits": True, "query": {"bool": {"filter": filters}}}
     if s.source == "cves":
-        body["aggs"] = {"affected_agents": {"terms": {"field": "agent.id", "size": len(agents)}}}
-    if s.source in ("archives", "alerts"):
+        body["aggs"] = {
+            "affected_agents": {"terms": {"field": "agent.id", "size": len(agents)}},
+            "latest_detection": {"max": {"field": "vulnerability.detected_at"}},
+        }
+    if s.source in EVENT_SOURCES:
         body["sort"] = [{timefield: "desc"}]
     if s.group in ("hour", "day"):
-        if s.source not in ("archives", "alerts"):
-            raise ValueError("El histograma requiere eventos")
         agg = {"date_histogram": {"field": timefield, "calendar_interval": s.group, "time_zone": str(ART)}}
-    elif s.group == "proxy_host" and s.source == "archives":
+    elif s.group == "proxy_host":
         agg = {"multi_terms": {"terms": [{"field": "agent.id"}, {"field": "location"}], "size": s.limit}}
     elif s.group == "status" and s.upstream and s.source == "archives":
         agg = {"terms": {"field": "data.upstream_status", "size": s.limit}}
     elif s.group == "documents":
         return INDEX[s.source], body
     else:
-        field = DIMENSIONS.get(s.group)
-        if field not in fields:
-            raise ValueError("Agrupación no disponible en esta fuente")
-        agg = {"terms": {"field": field, "size": s.limit}}
+        size = 10 if s.group == "ip" and s.limit == 1 else s.limit
+        agg = {"terms": {"field": DIMENSIONS[s.group], "size": size}}
     body.setdefault("aggs", {})["groups"] = agg
     return INDEX[s.source], body
 
@@ -196,12 +208,26 @@ def result(s, raw):
     hits = raw["hits"]
     total = hits["total"]
     examples = [dict(flatten(h["_source"]), _id=h.get("_id"), _index=h.get("_index")) for h in hits["hits"]]
-    groups = raw.get("aggregations", {}).get("groups", {})
+    aggregations = raw.get("aggregations", {})
+    groups = aggregations.get("groups", {})
     rows = examples if s.group == "documents" else [
         {s.group: b.get("key_as_string", b["key"]) if s.group in ("hour", "day") else b["key"],
          "cantidad": b["doc_count"]} for b in groups["buckets"]]
-    affected = raw.get("aggregations", {}).get("affected_agents")
-    return {"source": s.source, "group": s.group,
+    affected = aggregations.get("affected_agents")
+    data = {"source": s.source, "group": s.group,
             "affected_agents": len(affected["buckets"]) if affected is not None else None, "total_documents": total["value"] if isinstance(total, dict) else total,
             "rows": rows, "evidence": examples, "other_documents": groups.get("sum_other_doc_count"),
             "count_error_bound": groups.get("doc_count_error_upper_bound")}
+    if s.source not in EVENT_SOURCES:
+        data["scope"] = "Inventario actual de los agentes consultados, sin intervalo temporal."
+    if s.source == "cves":
+        data["latest_detection_at"] = aggregations.get("latest_detection", {}).get("value_as_string")
+    if s.group == "ip" and rows:
+        leaders = [row["ip"] for row in rows if row["cantidad"] == rows[0]["cantidad"]]
+        data["leading_ips"] = leaders
+        data["leading_count"] = rows[0]["cantidad"]
+        if s.limit == 1:
+            data["rows"] = rows[:len(leaders)]
+            data["other_documents"] = (data["other_documents"] or 0) + sum(
+                row["cantidad"] for row in rows[len(leaders):])
+    return data

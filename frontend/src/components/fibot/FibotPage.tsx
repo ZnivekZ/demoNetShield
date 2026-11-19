@@ -7,10 +7,11 @@ import './fibot.css';
 type Agent = {id: string; name: string};
 type Entry = {id: number; title: string};
 type Row = Record<string, unknown>;
-type Result = {source: string; group?: string; total_documents?: number; rows: Row[]; evidence?: Row[]; query?: Row; window?: Record<string, {gte: string; lt: string}>; affected_agents?: number; other_documents?: number};
+type Result = {source: string; group?: string; total_documents?: number; rows: Row[]; evidence?: Row[]; query?: Row; window?: Record<string, {gte: string; lt: string}>; affected_agents?: number; other_documents?: number; scope?: string};
 type Turn = {id: number; request_id: string; created: string; prompt: string; agents: string[]; status: string; answer: string; results: Result[]};
 type Step = {at: string; label: string; data: Row};
-type Quota = {configured: boolean; model: string; remaining_24h_estimated?: number; turn_budget: number; provider?: {at: string; remaining_tokens?: string; remaining_requests?: string}};
+type ModelQuota = {model: string; remaining_24h_estimated?: number; provider?: {at: string; remaining_tokens?: string; remaining_requests?: string}};
+type Quota = ModelQuota & {configured: boolean; turn_budget: number; models?: ModelQuota[]};
 const base = '/fibot';
 const get = async <T,>(url: string): Promise<T> => (await api.get<T>(url)).data;
 const show = (v: unknown) => typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v ?? '—');
@@ -42,7 +43,8 @@ function Trace({chat, turn}: {chat: number; turn: Turn}) {
     enabled: open, refetchInterval: open && turn.status === 'running' ? 1000 : false});
   return <div><button aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Ocultar detalle' : 'Ver detalle'}</button>
     {open && <section aria-label="Detalle del turno">{trace.isError && <p role="alert">{err(trace.error)}</p>}
-      {trace.data?.map((s, i) => <details key={i}><summary>{i+1}. {s.label} · {new Date(s.at).toLocaleTimeString('es-AR')}</summary>
+      {trace.data?.map((s, i) => <details key={i}><summary>{i+1}. {s.label}
+        {typeof s.data.model === 'string' && ' · ' + s.data.model} · {new Date(s.at).toLocaleTimeString('es-AR')}</summary>
         {typeof s.data.devtools === 'string' && <button onClick={async () => {
           try { await navigator.clipboard.writeText(String(s.data.devtools)); setCopy('Consulta copiada'); }
           catch { setCopy('Seleccioná la consulta en el detalle para copiarla'); }
@@ -71,6 +73,8 @@ function Output({r, path, save}: {r: Result; path: string; save: () => Promise<v
       {temporal ? <Line dataKey="cantidad" stroke="#39aab7" dot={points.length < 30}/> : <Bar dataKey="cantidad" fill="#39aab7"/>}
     </Chart></ResponsiveContainer>}
     {interval && <small>Desde {localTime(interval.gte)} hasta {localTime(interval.lt)} · Buenos Aires</small>}
+    {(r.scope || r.source === 'cves' || r.source === 'packages') &&
+      <small>{r.scope ?? 'Inventario actual de los agentes consultados, sin intervalo temporal.'}</small>}
     {r.affected_agents != null && <p>Agentes con hallazgos · {r.affected_agents}</p>}
     <Table rows={r.rows} inspect={chart ? inspect : undefined}/>
     {r.other_documents != null && r.other_documents > 0 && <small>Documentos en otros grupos · {r.other_documents}</small>}
@@ -118,13 +122,18 @@ function Conversation({chat, selectChat}: {chat: number | null; selectChat: (id:
       selectChat(dest); setPrompt(''); setPendingId(null);
     } catch(e) {setIssue(err(e));} finally {setBusy(false);}
   };
-  return <main className="fb-chat"><header><h2>{last ? 'Investigación' : 'Nueva investigación'}</h2>
+  return <main className="fb-chat"><header className="fb-chat-header"><h2>{last ? 'Investigación' : 'Nueva investigación'}</h2>
     <small>Contexto · {context.data ? context.data.included + ' turnos previos resumidos' : 'hasta 3 turnos previos'}
       {context.data && ' · primera llamada estimada en ' + (context.data.estimate + Math.ceil(prompt.length / 3)) + ' tokens'}
       {' · presupuesto por pregunta ' + (quota.data?.turn_budget ?? '—') + ' tokens'}</small>
     {context.data?.trimmed && <small>Se redujo el historial para continuar dentro del presupuesto.</small>}
-    <small>Groq · {quota.data?.configured === false ? 'Sin clave' : quota.data?.model} · saldo local estimado 24 h: {quota.data?.remaining_24h_estimated?.toLocaleString() ?? 'sin dato'}</small>
-    {quota.data?.provider && <small>Última respuesta de Groq · {new Date(quota.data.provider.at).toLocaleTimeString('es-AR')} · tokens restantes {quota.data.provider.remaining_tokens ?? '—'} · solicitudes restantes {quota.data.provider.remaining_requests ?? '—'}</small>}</header>
+    {quota.data?.configured === false && <small>Groq · Sin clave</small>}
+    {quota.data?.configured && (quota.data.models ?? [quota.data]).map((model, i) => <div key={model.model}>
+      <small>Groq {i === 0 ? 'principal' : 'respaldo'} · {model.model} · saldo local estimado 24 h: {model.remaining_24h_estimated?.toLocaleString() ?? 'sin dato'}</small>
+      {model.provider && <small>Saldo informado por Groq a las {new Date(model.provider.at).toLocaleTimeString('es-AR')}
+        {' · cuota por minuto: ' + (model.provider.remaining_tokens ?? '—') + ' tokens'}
+        {' · cuota diaria: ' + (model.provider.remaining_requests ?? '—') + ' solicitudes'}</small>}
+    </div>)}</header>
     <div className="fb-messages">
       {agents.isError && <p role="status">Inventario de agentes de Wazuh inaccesible.</p>}{turns.isError && <p role="alert">{err(turns.error)}</p>}
       {!list.length && !turns.isLoading && <p>Elegí los agentes sobre los que querés preguntar.</p>}

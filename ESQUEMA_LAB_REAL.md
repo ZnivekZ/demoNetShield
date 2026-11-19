@@ -2,6 +2,8 @@
 
 **Relevamiento del repositorio: 11 de noviembre de 2026.** Este esquema describe el código y la configuración local disponibles. No confirma que los equipos o servicios del lab estén encendidos ni que el despliegue de Proxmox esté activo. El workflow de despliegue crea su `.env` desde un secreto de GitHub, que podría diferir del `.env` local.
 
+**Adenda del 17/11/2026:** el flujo real del proxy `npm39` hacia `wazuh-archives-*`, validado desde el proyecto Grafana/Wazuh el 10/11, y su utilidad para NetShield se detallan en [WAZUH_PROXY_ARCHIVES_LAB_REAL.md](WAZUH_PROXY_ARCHIVES_LAB_REAL.md). Esa validación externa no confirma la conectividad actual de NetShield.
+
 ## Mapa general
 
 ```mermaid
@@ -32,10 +34,10 @@ flowchart LR
     U --> FE
     H <-->|tráfico, DHCP, ARP y firewall| MT
     H -->|agentes y eventos| WM
-    WM -->|alertas y vulnerabilidades indexadas| WI
+    WM -->|alertas, archives y vulnerabilidades indexadas| WI
     BE -->|lecturas RouterOS y push de blocklist habilitable| MT
     BE -->|estado y agentes| WM
-    BE -->|alertas y CVE| WI
+    BE -->|alertas, CVE y archives en candidatas| WI
     BE -->|inventario y tickets| GL
     BE -->|consulta de reputación| REP
     BE -->|análisis IA| GR
@@ -55,8 +57,8 @@ Las flechas continuas representan integraciones implementadas y configuradas com
 | Lista de bloqueo NetShield | JSON local del proceso backend: `BLOCKLIST_PATH` o, por defecto, `~/NetShield/blocklist.json`. | Fuente de IP/redes propuestas para bloqueo; exporta texto/JSON y puede hacer push al MikroTik. | Implementada. El Compose actual no monta un volumen para este archivo. |
 | MikroTik RouterOS | Equipo externo en `10.2.0.1:8728`, según `backend/.env` local. | Red real: interfaces, tráfico, conexiones, ARP, DHCP, VLAN, firewall y reglas. | Destino configurado; no se verificó conexión. La API se usa principalmente para lectura. |
 | Wazuh Manager | Equipo externo en `10.2.1.213:55000`, según `backend/.env`. | Estado y administración de agentes, respuesta activa. | Destino configurado; no se verificó conexión. |
-| Wazuh Indexer | OpenSearch externo en `https://10.2.1.213:9200`, según `backend/.env`. | Alertas reales y vulnerabilidades de los agentes; alimenta digest, MITRE y diagnóstico. | Destino configurado; no se verificó conexión. No confundir con la API del Manager. |
-| Agentes Wazuh | Instalados en los hosts monitoreados del lab. | Envían eventos y estado a Wazuh. | La implementación los consulta, pero las IP de agentes vigentes no están documentadas. |
+| Wazuh Indexer | OpenSearch externo en `https://10.2.1.213:9200`, según `backend/.env`. | Alertas y vulnerabilidades; Archives alimenta el módulo de candidatas y permitiría consultas de tráfico del proxy. | Destino de NetShield configurado, conexión de NetShield no verificada. El proyecto Grafana/Wazuh comprobó `wazuh-archives-*` y `wazuh-alerts-*` el 10/11/2026. |
+| Agentes Wazuh | Instalados en los hosts monitoreados del lab; el proxy `npm39` figura como agente `002`. El usuario estima alrededor de cinco instalaciones de Nginx Proxy Manager, con unos 15 Proxy Hosts por instalación; son cantidades orientativas. | Envían eventos y estado a Wazuh. | El proyecto Grafana/Wazuh verificó eventos del proxy `002` en Archives. Los agentes y la cobertura del resto de las instalaciones, así como sus IP vigentes, no están inventariados aquí. |
 | GLPI | Servicio externo en `https://glpi.fi.mdp.edu.ar/api.php`, API v3.0 OAuth2. | Inventario, activos, usuarios y tickets. El collector de NetShield actualiza su caché cada 5 minutos. | Destino y credenciales presentes en la configuración local; no se verificó conexión. La API antigua se usa sólo si hay tokens para datos de IP/adjuntos. |
 | AbuseIPDB / VirusTotal | Servicios externos en Internet. | Reputación y contexto de IPs, consultados desde NetShield. | Claves presentes localmente; no se verificaron respuestas. |
 | Groq | Servicio externo en Internet. | Análisis de diagnóstico IA y resumen del digest; el puntaje básico del digest se calcula localmente. | Clave presente localmente; no se verificaron respuestas. |
@@ -69,7 +71,7 @@ Las flechas continuas representan integraciones implementadas y configuradas com
 
 1. **Consulta del panel:** navegador → frontend → `/api` o `/ws` → backend. Nginx hace de proxy en producción; Vite hace de proxy en desarrollo.
 2. **Red y activos:** backend lee conexiones, ARP, leases y reglas del MikroTik; el collector trae activos de GLPI. El panel de actividad intenta asociar una IP con un equipo usando IP/MAC de GLPI y, si no alcanza, datos de DHCP.
-3. **Alertas:** agentes → Wazuh Manager → Wazuh Indexer → backend → panel. Las alertas y CVE se leen del Indexer (`:9200`); el estado de agentes se consulta al Manager (`:55000`).
+3. **Alertas y Archives:** agentes → Wazuh Manager → Wazuh Indexer → backend → panel. Las alertas y CVE se leen del Indexer (`:9200`); el módulo de candidatas también puede leer Archives. Para el proxy `npm39`, el proyecto Grafana/Wazuh verificó access logs decodificados en `wazuh-archives-*`; la búsqueda general de NetShield todavía no usa esa fuente. El estado de agentes se consulta al Manager (`:55000`).
 4. **Digest y diagnóstico:** backend combina alertas/CVE de Wazuh con el catálogo CISA KEV y contexto del MikroTik cuando hay coincidencia de IP. Groq redacta el análisis si responde; el resultado y su historial se guardan en SQLite.
 5. **Bloqueo:** una acción del panel agrega IP/red a `blocklist.json`. Se publica para descarga o se envía a RouterOS mediante push manual/intervalo **sólo si** se habilita la escritura de API. La variable local no habilita esa escritura y el valor por defecto es `false`; el propio archivo puede guardar un override cuyo estado en el LXC se desconoce.
 6. **Inventario y soporte:** el backend consulta GLPI por OAuth2, mantiene una lista ligera de activos en memoria y busca el detalle bajo demanda. El portal público de tickets requiere activación explícita.

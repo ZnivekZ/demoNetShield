@@ -1,0 +1,26 @@
+.fibot {display:grid;grid-template-columns:minmax(170px,22%) minmax(0,1fr);gap:1rem;color:var(--color-surface-200);align-items:start}
+.fibot aside,.fb-chat {background:var(--color-surface-900);border:1px solid var(--color-surface-700);border-radius:12px;padding:1rem;min-width:0}
+.fibot h1,.fibot h2 {font-size:1.35rem;font-weight:650;color:var(--color-surface-100)}
+.fibot h3 {font-size:.83rem;margin:1.2rem 0 .45rem;color:var(--color-surface-400)}
+.fibot button,.fibot summary {cursor:pointer}
+.fibot button {border:1px solid var(--color-surface-700);border-radius:6px;padding:.35rem .65rem;font-size:.84rem}
+.fibot button:hover,.fibot button[aria-current=true]{background:var(--color-surface-800)}
+.fibot button:disabled {opacity:.5;cursor:default}
+.fibot aside button {display:block;text-align:left;margin:.3rem 0;width:100%;overflow-wrap:anywhere}
+.fibot small,.fb-result span {color:var(--color-surface-400);font-size:.78rem}
+.fb-chat header small,.fb-question strong {display:block}
+.fb-messages {margin:1rem 0;max-height:62vh;overflow:auto}
+.fb-messages article {border-top:1px solid var(--color-surface-700);padding:1rem 0}
+.fb-question {border-left:3px solid #39aab7;padding-left:.75rem}
+.fb-messages p,.fb-messages strong {white-space:pre-wrap;margin:.6rem 0}
+.fb-result {padding:.7rem;background:var(--color-surface-950);border-radius:8px;margin:.7rem 0}
+.fb-result header {display:flex;gap:.75rem;align-items:center}
+.fb-scroll,.fibot pre {max-height:17rem;overflow:auto;margin:.5rem 0}
+.fibot table {font-size:.8rem;border-collapse:collapse}
+.fibot td,.fibot th {padding:.3rem .6rem;text-align:left;border-bottom:1px solid var(--color-surface-700)}
+.fibot details {margin:.45rem 0;font-size:.85rem}
+.fibot pre {font-size:.75rem;white-space:pre-wrap;overflow-wrap:anywhere}
+.fb-agents {display:flex;flex-wrap:wrap;gap:.5rem;max-height:9rem;overflow:auto}
+.fibot textarea {display:block;width:100%;min-height:5rem;padding:.6rem;margin:.55rem 0;border:1px solid var(--color-surface-700);background:var(--color-surface-950);border-radius:8px}
+.fibot .fb-primary {background:#155968;color:white}
+@media(max-width:720px){.fibot{grid-template-columns:1fr}.fibot aside{max-height:11rem;overflow:auto}}

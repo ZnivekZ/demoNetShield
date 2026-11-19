@@ -41,6 +41,7 @@ from routers import widgets as widgets_router
 from routers import public_tickets as public_tickets_router
 from routers import blocklist as blocklist_router
 from routers import ai_diagnosis as ai_diagnosis_router
+from routers import fibot as fibot_router
 from routers import network_activity as network_activity_router
 from routers import block_candidates as block_candidates_router
 
@@ -472,6 +473,7 @@ app.include_router(blocklist_router.export_router)
 app.include_router(reputation_router.router)
 app.include_router(digest_router.router)
 app.include_router(ai_diagnosis_router.router)
+app.include_router(fibot_router.router)
 app.include_router(network_activity_router.router)
 app.include_router(block_candidates_router.router)
 

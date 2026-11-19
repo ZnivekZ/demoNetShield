@@ -72,6 +72,7 @@ def _verdict(sources: dict[str, Any]) -> str:
 
 class IpReputationService:
     def __init__(self) -> None:
+        self._abuse_cache: dict[str, tuple[float, dict]] = {}
         self._cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
     # ── fuentes ────────────────────────────────────────────────
@@ -111,6 +112,18 @@ class IpReputationService:
         except Exception as e:  # noqa: BLE001
             logger.warning("abuseipdb_failed", ip=ip, error=str(e)[:120])
             return {"configured": True, "ok": False, "error": f"Error de consulta: {type(e).__name__}"}
+
+    async def lookup_abuse(self, ip: str) -> dict:
+        ip = validate_ip(ip)
+        now = time.monotonic()
+        self._abuse_cache = {k: v for k, v in self._abuse_cache.items() if now - v[0] < CACHE_TTL_SECONDS}
+        if ip in self._abuse_cache:
+            return self._abuse_cache[ip][1]
+        info = await self._abuseipdb(ip)
+        info["checked_at"] = datetime.now(timezone.utc).isoformat()
+        if info.get("ok"):
+            self._abuse_cache[ip] = (now, info)
+        return info
 
     async def _virustotal(self, ip: str) -> dict[str, Any]:
         key = get_settings().virustotal_api_key

@@ -54,6 +54,7 @@ import BlockCandidatesPage from './components/wazuh/BlockCandidatesPage';
 import { AgentDetailPage as WazuhAgentDetailPage } from './components/wazuh/AgentDetailPanel';
 import DigestPage from './components/digest/DigestPage';
 import AiDiagnosisPage from './components/diagnosis/AiDiagnosisPage';
+import FibotPage from './components/fibot/FibotPage';
 // DHCP
 // Admin
 import UsersManagementPage from './components/admin/UsersManagementPage';
@@ -132,6 +133,7 @@ export default function App() {
               {/* Daily Security Digest */}
               <Route path="/digest" element={<DigestPage />} />
               <Route path="/ai-diagnosis" element={<AiDiagnosisPage />} />
+              <Route path="/fibot" element={<FibotPage />} />
 
               {/* Admin — accessible from SettingsDrawer */}
               <Route path="/admin/users" element={<UsersManagementPage />} />

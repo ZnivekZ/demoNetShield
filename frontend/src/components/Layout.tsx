@@ -97,6 +97,7 @@ const navGroups = [
       { to: '/wazuh/candidates', icon: ShieldCheck, label: 'Candidatas (prueba)', end: false },
       { to: '/digest', icon: CalendarClock, label: 'Daily Digest', end: true },
       { to: '/ai-diagnosis', icon: Bot, label: 'Diagnóstico IA', end: true },
+      { to: '/fibot', icon: Bot, label: 'Fibot', end: true },
     ],
   },
   {

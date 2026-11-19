@@ -97,6 +97,7 @@ async def get_remediation_context(cve_id: str) -> dict:
             descriptions = cve.get("descriptions") or []
             description = next((d.get("value", "") for d in descriptions if d.get("lang") == "en"), "")
             sources.append({"kind": "nvd", "url": f"https://nvd.nist.gov/vuln/detail/{cve_id}",
+                            "published": cve.get("published"), "last_modified": cve.get("lastModified"),
                             "text": description[:1500]})
             refs = [r.get("url", "") for r in cve.get("references") or []
                     if _vendor_url(r.get("url", "")) and

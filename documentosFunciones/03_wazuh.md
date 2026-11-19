@@ -1,5 +1,7 @@
 # Wazuh
 
+Para el estado documentado del lab real sobre **Archives y Nginx Proxy Manager** (agente `npm39` / `002`, decoder, campos indexados, validaciones y pendientes), consultar [WAZUH_PROXY_ARCHIVES_LAB_REAL.md](../WAZUH_PROXY_ARCHIVES_LAB_REAL.md). Ese registro distingue lo observado desde Grafana de lo aún no verificado desde NetShield.
+
 ## Objetivo funcional
 
 Wazuh aporta visibilidad de seguridad: agentes, alertas, alertas criticas, resumen MITRE, timeline, top agentes, health y active response. En NetShield funciona como origen de eventos para decisiones de bloqueo, enriquecimiento de assets y widgets de postura de seguridad.

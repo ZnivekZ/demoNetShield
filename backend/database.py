@@ -115,6 +115,7 @@ def _register_models() -> None:  # noqa: F401
     from models import daily_digest, agent_category_override  # noqa: F401
     from models import ai_diagnosis  # noqa: F401
     from models import block_candidate  # noqa: F401
+    from models import fibot  # noqa: F401
     from models import saved_report, prepared_report  # noqa: F401
 
 
